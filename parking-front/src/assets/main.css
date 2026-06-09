@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+* {
+  @apply text-gray-900;
+}
+
+body {
+  @apply bg-gray-50;
+}
+
+a {
+  @apply no-underline;
+}
+
+button:focus {
+  @apply outline-none;
+}
