@@ -1,21 +1,17 @@
 <template>
-  <div class="flex h-screen bg-gray-50">
-    <!-- Sidebar -->
-    <Sidebar />
+  <div class="min-h-screen bg-[#d9d9d9]">
+    <router-view v-if="isLoginRoute" />
 
-    <!-- Main Content -->
-    <div class="flex-1 flex flex-col overflow-hidden">
-      <!-- Top Bar -->
+    <div v-else class="min-h-screen">
+      <Sidebar />
       <TopBar />
 
-      <!-- Page Content -->
-      <main class="flex-1 overflow-auto">
+      <main>
         <router-view />
       </main>
-    </div>
 
-    <!-- Chat Widget -->
-    <ChatWidget />
+      <ChatWidget />
+    </div>
   </div>
 </template>
 
@@ -24,11 +20,12 @@ import Sidebar from './components/layout/Sidebar.vue'
 import TopBar from './components/layout/TopBar.vue'
 import ChatWidget from './components/chat/ChatWidget.vue'
 import { useAuthStore } from '@/stores/auth'
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const isLoginRoute = computed(() => router.currentRoute.value.path === '/login')
 
 onMounted(async () => {
   authStore.initFromStorage()

@@ -1,70 +1,26 @@
 <template>
-  <div class="ml-40 p-6">
-    <div class="max-w-6xl">
-      <!-- Page Title -->
-      <div class="mb-6">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Action History</h1>
-        <p class="text-gray-600">View all parking management actions</p>
-      </div>
-
-      <!-- History Entries -->
-      <div v-if="historyEntries.length === 0" class="bg-white rounded-lg shadow p-8 text-center">
-        <i class="pi pi-inbox text-4xl text-gray-300 mb-3"></i>
-        <p class="text-gray-600">No history records found</p>
-      </div>
-
-      <div v-for="entry in historyEntries" :key="entry.id" class="bg-white rounded-lg shadow p-6 mb-4">
-        <div class="grid grid-cols-4 gap-6">
-          <!-- Left Section: Staff & Location Info -->
-          <div class="col-span-1">
-            <p class="font-semibold text-gray-900 text-sm">{{ entry.staffName }}</p>
-            <div class="mt-3 space-y-2 text-sm">
-              <div>
-                <span class="text-gray-600">Building:</span>
-                <p class="font-medium text-gray-900">{{ entry.building }}</p>
-              </div>
-              <div>
-                <span class="text-gray-600">Floor:</span>
-                <p class="font-medium text-gray-900">{{ entry.floor }}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Center Section: Parking Slots -->
-          <div class="col-span-1">
-            <p class="text-sm text-gray-600 font-medium">Parking Slot(s)</p>
-            <p class="font-medium text-gray-900 text-sm mt-2">{{ entry.parkingSlots }}</p>
-          </div>
-
-          <!-- Date & Time Section -->
-          <div class="col-span-1 text-center">
-            <p class="text-sm text-gray-600 font-medium">Date Edited</p>
-            <p class="font-medium text-gray-900 text-sm mt-2">{{ entry.dateEdited }}</p>
-            <p class="text-xs text-gray-600 mt-1">{{ entry.timeEdited }}</p>
-          </div>
-
-          <!-- Status Section -->
-          <div class="col-span-1 text-right">
-            <p class="text-sm text-gray-600 font-medium mb-2">Status Changed To</p>
-            <span
-              :class="[
-                'px-4 py-2 rounded-lg font-semibold inline-block text-sm',
-                entry.statusChangedTo === 'Enable'
-                  ? 'bg-parking-green text-white'
-                  : 'bg-mfu-red text-white',
-              ]"
-            >
-              {{ entry.statusChangedTo }}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="history-page">
+    <section class="history-panel">
+      <article v-for="entry in historyEntries" :key="entry.id" class="history-card">
+        <p>Staff Name : {{ entry.staffName }}</p>
+        <p>Building : {{ entry.building }}</p>
+        <p>Floor <span>:</span> {{ entry.floor }}</p>
+        <p>Parking Slot : {{ entry.parkingSlots }}</p>
+        <p>Date edited : {{ entry.dateEdited }}</p>
+        <p>Time edited : {{ entry.timeEdited }}</p>
+        <p>
+          Status changed to :
+          <strong :class="entry.statusChangedTo === 'Enable' ? 'enabled' : 'disabled'">
+            {{ entry.statusChangedTo }}
+          </strong>
+        </p>
+      </article>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 
 interface HistoryEntry {
   id: number
@@ -80,7 +36,7 @@ interface HistoryEntry {
 const historyEntries = ref<HistoryEntry[]>([
   {
     id: 1,
-    staffName: 'Thanatip Pitaksin',
+    staffName: 'Thanathip Pitaksin',
     building: 'E4',
     floor: '4',
     parkingSlots: '120, 121, 122, 123',
@@ -90,29 +46,65 @@ const historyEntries = ref<HistoryEntry[]>([
   },
   {
     id: 2,
-    staffName: 'Thanatip Pitaksin',
+    staffName: 'Atithan Sarapol',
     building: 'E4',
     floor: '4',
-    parkingSlots: '100, 101, 102',
-    dateEdited: '10/4/2569',
-    timeEdited: '09:30:15',
+    parkingSlots: '120, 121, 122, 123',
+    dateEdited: '11/4/2569',
+    timeEdited: '13:00:23',
     statusChangedTo: 'Enable',
   },
-  {
-    id: 3,
-    staffName: 'Somprasong Jamboon',
-    building: 'E4',
-    floor: '4',
-    parkingSlots: '50, 51, 52, 53, 54',
-    dateEdited: '09/4/2569',
-    timeEdited: '14:15:42',
-    statusChangedTo: 'Disable',
-  },
 ])
-
-onMounted(() => {
-  // Load history from API or localStorage in the future
-})
 </script>
 
-<style scoped></style>
+<style scoped>
+.history-page {
+  min-height: calc(100vh - 78px);
+  margin-left: 160px;
+  background: #d8d8d8;
+  padding: 30px 42px 42px;
+}
+
+.history-panel {
+  min-height: calc(100vh - 158px);
+  border-radius: 4px;
+  background: #e5e5e5;
+  padding: 34px 19px;
+}
+
+.history-card {
+  min-height: 228px;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.28);
+  padding: 17px 36px;
+  margin-bottom: 22px;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+}
+
+.history-card p {
+  color: #111;
+  font-size: 15px;
+}
+
+.history-card span {
+  display: inline-block;
+  margin-left: 49px;
+  color: #111;
+}
+
+.history-card strong {
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+.history-card strong.disabled {
+  color: #c7352c;
+}
+
+.history-card strong.enabled {
+  color: #19d348;
+}
+</style>
