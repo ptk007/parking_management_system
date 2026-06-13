@@ -208,10 +208,10 @@ const stats = computed(() => {
   const count = (status: SlotStatus) => statuses.filter((slot) => slot === status).length
 
   return [
-    { label: 'Total slots', value: parkingSlots.value.length || 124, color: '#c7352c' },
+    { label: 'Total slots', value: parkingSlots.value.length || 124, color: '#3b82f6' },
     { label: 'Available', value: count('available'), color: '#4caf50' },
     { label: 'Incoming', value: count('incoming'), color: '#f5c443' },
-    { label: 'Occupied', value: count('occupied'), color: '#8a5a25' },
+    { label: 'Occupied', value: count('occupied'), color: '#ef4444' },
     { label: 'Disable', value: count('disabled'), color: '#7d7d7d' },
   ]
 })
@@ -341,9 +341,25 @@ const handleEnableSlots = () => {
 
 const handleDisableSlots = () => {
   const nextStatus = { ...slotStatus.value }
+  const restrictedSlots: number[] = []
+  
   selectedSlots.value.forEach((slotId) => {
-    nextStatus[slotId] = 'disabled'
+    const status = slotStatus.value[slotId]
+    if (status === 'incoming' || status === 'occupied') {
+      restrictedSlots.push(slotId)
+    } else {
+      nextStatus[slotId] = 'disabled'
+    }
   })
+  
+  if (restrictedSlots.length > 0) {
+    const statusNames = restrictedSlots.map(id => {
+      const status = slotStatus.value[id]
+      return `${id} (${status})`
+    }).join(', ')
+    alert(`Cannot disable slots with active vehicles: ${statusNames}`)
+  }
+  
   slotStatus.value = nextStatus
   selectedSlots.value = new Set()
 }
@@ -607,7 +623,7 @@ onMounted(() => {
 }
 
 .slot.occupied {
-  background: linear-gradient(#a66b2b 0 55%, #6b4018 56% 100%);
+  background: linear-gradient(#ff6b6b 0 55%, #dc2626 56% 100%);
   color: #f2f2f2;
   box-shadow:
     inset 0 -6px 0 rgba(0, 0, 0, 0.35),
