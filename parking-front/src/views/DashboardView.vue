@@ -63,7 +63,7 @@
       <div class="flex items-center space-x-4">
         <div class="text-center">
           <p class="text-xs text-gray-600">Total Slots</p>
-          <p class="text-2xl font-bold text-mfu-red">{{ dashboardStore.stats.totalSlots }}</p>
+          <p class="text-2xl font-bold text-blue-500">{{ dashboardStore.stats.totalSlots }}</p>
         </div>
         <div class="text-center">
           <p class="text-xs text-gray-600">Available</p>
@@ -75,7 +75,7 @@
         </div>
         <div class="text-center">
           <p class="text-xs text-gray-600">Occupied</p>
-          <p class="text-2xl font-bold text-parking-orange">{{ dashboardStore.stats.occupied }}</p>
+          <p class="text-2xl font-bold text-red-600">{{ dashboardStore.stats.occupied }}</p>
         </div>
         <div class="text-center">
           <p class="text-xs text-gray-600">Disabled</p>
@@ -139,7 +139,7 @@
                 : slot.status === 'available'
                   ? 'border-parking-green bg-green-50 text-parking-green'
                   : slot.status === 'occupied'
-                    ? 'border-parking-orange bg-orange-50 text-parking-orange'
+                    ? 'border-red-600 bg-red-50 text-red-600'
                     : 'border-parking-gray bg-gray-50 text-parking-gray',
             ]"
           >
@@ -286,9 +286,21 @@ const handleEnableSlots = async () => {
 }
 
 const handleDisableSlots = async () => {
+  const restrictedSlots: string[] = []
+  
   for (const slotId of dashboardStore.selectedSlots) {
-    await dashboardStore.updateSlotStatus(slotId, 'disabled')
+    const slot = dashboardStore.slots.find(s => s._id === slotId)
+    if (slot?.status === 'incoming' || slot?.status === 'occupied') {
+      restrictedSlots.push(`${slot.slotNumber} (${slot.status})`)
+    } else {
+      await dashboardStore.updateSlotStatus(slotId, 'disabled')
+    }
   }
+  
+  if (restrictedSlots.length > 0) {
+    alert(`Cannot disable slots with active vehicles: ${restrictedSlots.join(', ')}`)
+  }
+  
   dashboardStore.clearSlotSelection()
 }
 

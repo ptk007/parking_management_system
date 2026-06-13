@@ -47,17 +47,35 @@
           </div>
 
           <div class="quick-replies">
-            <button v-for="reply in quickReplies" :key="reply" type="button">{{ reply }}</button>
+            <button 
+              v-for="reply in quickReplies" 
+              :key="reply" 
+              type="button"
+              :disabled="isSending"
+              @click="handleQuickReply"
+            >
+              {{ reply }}
+            </button>
           </div>
         </section>
 
         <footer class="reply-box">
-          <button type="button" aria-label="Attach file">
-            <Paperclip class="h-8 w-8" :stroke-width="1.8" />
+          <button type="button" aria-label="Attach file" :disabled="isSending">
+            <Paperclip class="h-6 w-6" :stroke-width="1.8" />
           </button>
-          <input v-model="replyText" :placeholder="`Reply to ${selectedTicket?.shortName || 'Euro'}...`" />
-          <button class="send-button" type="button" aria-label="Send message">
-            <SendHorizontal class="h-12 w-12" :stroke-width="2.4" />
+          <input 
+            v-model="replyText" 
+            :disabled="isSending"
+            :placeholder="`Reply to ${selectedTicket?.shortName || 'Euro'}...`" 
+          />
+          <button 
+            class="send-button" 
+            type="button" 
+            :disabled="isSending || !replyText.trim()"
+            @click="handleSendMessage"
+            aria-label="Send message"
+          >
+            <SendHorizontal class="h-8 w-8" :stroke-width="2.4" />
           </button>
         </footer>
       </aside>
@@ -86,6 +104,7 @@ const chatStore = useChatStore()
 const isOpen = ref(false)
 const selectedTicketId = ref('ticket-1234')
 const replyText = ref('')
+const isSending = ref(false)
 
 const mockTickets: DisplayTicket[] = [
   {
@@ -148,12 +167,40 @@ const quickReplies = ['Fixed!', 'Fixed!', 'Fixed!', 'Fixed!']
 
 const toggleChat = () => {
   isOpen.value = !isOpen.value
-  if (isOpen.value) {
-    chatStore.loadTickets()
+}
+
+const handleQuickReply = async () => {
+  if (isSending.value) return
+  
+  isSending.value = true
+  try {
+    // Simulate sending reply
+    await new Promise(resolve => setTimeout(resolve, 800))
+    // Clear after sending
+    replyText.value = ''
+  } finally {
+    isSending.value = false
+  }
+}
+
+const handleSendMessage = async () => {
+  if (isSending.value || !replyText.value.trim()) return
+  
+  isSending.value = true
+  try {
+    // Simulate sending message
+    await new Promise(resolve => setTimeout(resolve, 800))
+    // Clear after sending
+    replyText.value = ''
+  } finally {
+    isSending.value = false
   }
 }
 
 onMounted(() => {
+  if (isOpen.value) {
+    chatStore.loadTickets()
+  }
   chatStore.loadTickets()
 })
 </script>
@@ -163,7 +210,7 @@ onMounted(() => {
   position: fixed;
   right: 31px;
   bottom: 28px;
-  z-index: 60;
+  z-index: 10000;
   width: 65px;
   height: 65px;
   border-radius: 999px;
@@ -193,7 +240,7 @@ onMounted(() => {
   position: fixed;
   right: 0;
   bottom: 0;
-  z-index: 55;
+  z-index: 9999;
   width: 368px;
   max-width: 100vw;
   height: min(738px, calc(100vh - 14px));
@@ -202,12 +249,13 @@ onMounted(() => {
   overflow: hidden;
   box-shadow: -10px 0 26px rgba(0, 0, 0, 0.22);
   display: grid;
-  grid-template-rows: 300px 1fr 100px;
+  grid-template-rows: auto 1fr auto auto;
 }
 
 .ticket-list {
-  overflow: hidden;
+  overflow-y: auto;
   border-bottom: 1px solid #1f1f1f;
+  min-height: 0;
 }
 
 .ticket-row {
@@ -300,7 +348,8 @@ onMounted(() => {
   background: #f3f3f3;
   border-bottom: 2px solid #1f1f1f;
   display: grid;
-  grid-template-rows: 48px 1fr 28px;
+  grid-template-rows: 48px 1fr;
+  overflow: hidden;
 }
 
 .chat-thread header {
@@ -312,8 +361,9 @@ onMounted(() => {
 
 .thread-body {
   position: relative;
-  overflow: hidden;
+  overflow-y: auto;
   padding: 6px 10px;
+  min-height: 0;
 }
 
 .message {
@@ -384,8 +434,10 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 18px;
-  padding: 3px 0;
+  padding: 8px 10px;
   background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+  min-height: 0;
 }
 
 .quick-replies button {
@@ -395,6 +447,21 @@ onMounted(() => {
   background: #fff7f6;
   color: #cf3b30;
   font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-replies button:hover:not(:disabled) {
+  background: #ffe8e4;
+  border-color: #cf3b30;
+}
+
+.quick-replies button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f5f5f5;
+  color: #ccc;
+  border-color: #ddd;
 }
 
 .reply-box {
@@ -402,39 +469,78 @@ onMounted(() => {
   grid-template-columns: 36px 1fr 64px;
   align-items: center;
   gap: 8px;
-  padding: 14px 0 15px 4px;
+  padding: 12px 8px;
   background: #fff;
+  border-top: 1px solid #f0f0f0;
+  min-height: 0;
 }
 
 .reply-box > button:first-child {
   color: #c7c7c7;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.reply-box > button:first-child:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.reply-box > button:first-child:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .reply-box input {
-  height: 50px;
+  height: 40px;
   border: 0;
   border-radius: 12px;
   background: #050505;
   color: #fff;
   padding: 0 8px;
-  font-size: 21px;
+  font-size: 16px;
   font-weight: 800;
   outline: none;
   min-width: 0;
+  transition: all 0.2s ease;
 }
 
 .reply-box input::placeholder {
   color: #fff;
 }
 
+.reply-box input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #3a3a3a;
+}
+
 .send-button {
-  width: 58px;
-  height: 58px;
+  width: 48px;
+  height: 48px;
   border-radius: 999px;
   background: #cf3b30;
   color: #fff;
   display: grid;
   place-items: center;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.send-button:hover:not(:disabled) {
+  background: #b92f24;
+  transform: scale(1.05);
+}
+
+.send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #999;
 }
 
 .chat-panel-enter-active,
