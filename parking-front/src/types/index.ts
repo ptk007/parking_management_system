@@ -19,7 +19,7 @@ export interface ParkingSlot {
   slotNumber: string
   floorId: string
   vehicleType: string
-  status: 'available' | 'incoming' | 'occupied' | 'disabled'
+  status: 'available' | 'occupied' | 'disabled'
   currentVehicle?: string
   lastUpdated: Date
 }

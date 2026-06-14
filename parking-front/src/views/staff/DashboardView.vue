@@ -89,12 +89,6 @@
             <button class="enable" type="button" @click="handleEnableSlots">Enable</button>
             <button class="disable" type="button" @click="handleDisableSlots">Disable</button>
           </div>
-          <div class="status-legend" aria-label="Slot status legend">
-            <span><i class="available"></i>Available</span>
-            <span><i class="incoming"></i>Incoming</span>
-            <span><i class="occupied"></i>Occupied</span>
-            <span><i class="disabled"></i>Disable</span>
-          </div>
           <strong>Selecting : {{ selectedSlots.size }}</strong>
         </div>
       </div>
@@ -305,12 +299,9 @@ const parkingLogs = [
   },
 ]
 
-const slotVerticalOffset = 42
-const slotVerticalScale = 760
-
 const slotStyle = (slot: ParkingSlot) => ({
   left: `${(slot.x / 1300) * 100}%`,
-  top: `${((slot.y + slotVerticalOffset) / slotVerticalScale) * 100}%`,
+  top: `${(slot.y / 700) * 100}%`,
 })
 
 const slotStatusClass = (slotNumber: number) => {
@@ -443,7 +434,6 @@ onMounted(() => {
   justify-content: space-between;
   gap: 24px;
   padding: 12px 38px 18px 30px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .filters {
@@ -460,9 +450,7 @@ onMounted(() => {
 }
 
 .filter-control span {
-  color: #333;
-  font-size: 16px;
-  font-weight: 600;
+  color: #252525;
 }
 
 .filter-control select {
@@ -473,9 +461,8 @@ onMounted(() => {
   border: 0;
   padding: 0 18px;
   color: #242424;
-  font-size: 18px;
+  font-size: 20px;
   outline: none;
-  box-shadow: inset 0 0 0 1px #e4e4e4;
 }
 
 .stats {
@@ -487,14 +474,12 @@ onMounted(() => {
 
 .stat-card {
   width: 104px;
-  min-height: 66px;
+  height: 59px;
   border-radius: 6px;
   background: #fff;
   display: grid;
   place-items: center;
   align-content: center;
-  border: 1px solid #ececec;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
 .stat-card strong {
@@ -505,17 +490,16 @@ onMounted(() => {
 
 .stat-card span {
   color: #909090;
-  font-size: 14px;
-  text-align: center;
+  font-size: 16px;
 }
 
 .dashboard-content {
-  padding: 18px 42px 34px;
+  padding: 0 42px 34px;
 }
 
 .parking-map {
   position: relative;
-  height: min(560px, calc(100vh - 320px));
+  height: min(589px, calc(100vh - 300px));
   min-height: 430px;
   overflow: hidden;
   border-radius: 22px;
@@ -671,19 +655,15 @@ onMounted(() => {
 }
 
 .slot-actions {
-  min-height: 82px;
+  height: 86px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  flex-wrap: wrap;
-  padding: 14px 0 0;
+  gap: 16px;
 }
 
 .action-buttons {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
+  gap: 92px;
 }
 
 .slot-actions button {
@@ -692,7 +672,6 @@ onMounted(() => {
   border-radius: 5px;
   color: #111;
   font-size: 16px;
-  font-weight: 700;
 }
 
 .slot-actions .edit {
@@ -711,50 +690,7 @@ onMounted(() => {
 .slot-actions strong {
   color: #111;
   font-size: 15px;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.status-legend {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  flex: 1;
-  flex-wrap: wrap;
-  min-width: 280px;
-  color: #333;
-  font-size: 14px;
-}
-
-.status-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.status-legend i {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  border: 1px solid rgba(20, 20, 20, 0.35);
-}
-
-.status-legend .available {
-  background: #4caf50;
-}
-
-.status-legend .incoming {
-  background: #f5c443;
-}
-
-.status-legend .occupied {
-  background: #dc2626;
-}
-
-.status-legend .disabled {
-  background: #9e9e9e;
+  letter-spacing: 1px;
 }
 
 .cctv-grid {
