@@ -13,7 +13,6 @@
       </div>
 
       <h1>MFU Parking Management</h1>
-      <p class="login-subtitle">Admin & Staff Portal</p>
 
       <form @submit.prevent="handleLogin" class="login-form">
         <input
@@ -43,12 +42,6 @@
           <span v-else>Login</span>
         </button>
       </form>
-
-      <p class="demo-info">
-        <strong>Demo Credentials:</strong><br>
-        Admin: Admin1 / password123<br>
-        Staff: staff1 / password123
-      </p>
     </div>
   </div>
 </template>
@@ -78,12 +71,7 @@ const handleLogin = async () => {
   const success = await authStore.login(form.username, form.password)
 
   if (success) {
-    // Route based on user role
-    if (authStore.user?.role === 'admin') {
-      router.push('/admin/dashboard')
-    } else {
-      router.push('/dashboard')
-    }
+    router.push('/dashboard')
   } else {
     error.value = authStore.error || 'Login failed'
   }
@@ -136,17 +124,11 @@ const handleLogin = async () => {
 }
 
 h1 {
-  margin: 68px 0 8px;
+  margin: 68px 0 52px;
   color: #ffb400;
   font-size: 46px;
   font-weight: 400;
   line-height: 1;
-}
-
-.login-subtitle {
-  color: #ffe2e2;
-  font-size: 14px;
-  margin-bottom: 32px;
 }
 
 .login-form {
@@ -222,20 +204,6 @@ h1 {
   height: 100%;
   object-fit: contain;
   filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.2));
-}
-
-.demo-info {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-  margin-top: 32px;
-  text-align: center;
-  line-height: 1.6;
-}
-
-.demo-info strong {
-  color: #ffb400;
-  display: block;
-  margin-bottom: 8px;
 }
 
 @media (max-width: 720px) {

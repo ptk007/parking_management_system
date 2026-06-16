@@ -6,7 +6,7 @@ import { authService } from '@/services/api'
 // Mock credentials for demo
 const DEMO_CREDENTIALS: Record<string, { password: string; role: User['role'] }> = {
   staff1: { password: 'password123', role: 'staff' },
-  Admin1: { password: 'password123', role: 'admin' },
+  admin1: { password: 'admin123', role: 'admin' },
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -29,7 +29,7 @@ export const useAuthStore = defineStore('auth', () => {
         const mockUser: User = {
           id: '1',
           username: username,
-          fullName: username === 'staff1' ? 'Thanatip P.' : username === 'Admin1' ? 'Administrator' : 'Admin User',
+          fullName: username === 'staff1' ? 'Thanatip P.' : 'Admin User',
           role: demoUser.role,
           buildingId: 'E4',
           floorId: '4',
