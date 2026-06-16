@@ -130,7 +130,7 @@
                 ]"
                 :style="slotStyle(slot)"
                 type="button"
-                @click="toggleSlotSelection(slot.slotNumber)"
+                @click="openSlotActions(slot.slotNumber)"
               >
                 <Check v-if="selectedSlots.has(slot.slotNumber)" class="h-4 w-4" :stroke-width="3" />
                 <span v-else>{{ slot.slotNumber }}</span>
@@ -139,11 +139,6 @@
 
             <!-- Slot Controls -->
             <div class="slot-controls">
-              <div class="control-buttons">
-                <button class="btn btn-primary" type="button" @click="handleEditSlots">Edit</button>
-                <button class="btn btn-success" type="button" @click="handleEnableSlots">Enable</button>
-                <button class="btn btn-danger" type="button" @click="handleDisableSlots">Disable</button>
-              </div>
               <div class="status-legend" aria-label="Slot status legend">
                 <span><i class="available"></i>Available</span>
                 <span><i class="incoming"></i>Incoming</span>
@@ -151,6 +146,48 @@
                 <span><i class="disabled"></i>Disable</span>
               </div>
               <strong class="control-info">Selecting : {{ selectedSlots.size }}</strong>
+            </div>
+
+            <div v-if="selectedSlotNumber !== null" class="slot-popup-backdrop" @click.self="closeSlotActions">
+              <div class="slot-popup" role="dialog" aria-modal="true" aria-labelledby="admin-slot-popup-title">
+                <div class="slot-popup-header">
+                  <div>
+                    <p>Parking slot</p>
+                    <h3 id="admin-slot-popup-title">Slot {{ selectedSlotNumber }}</h3>
+                  </div>
+                  <button class="slot-popup-close" type="button" aria-label="Close slot actions" @click="closeSlotActions">
+                    x
+                  </button>
+                </div>
+                <div class="slot-popup-status">
+                  <span>Status</span>
+                  <strong :class="selectedSlotStatus">{{ selectedSlotStatusLabel }}</strong>
+                </div>
+                <div class="slot-popup-actions">
+                  <button
+                    class="btn btn-success"
+                    type="button"
+                    :disabled="!canEnableSelectedSlot"
+                    @click="handleEnableSelectedSlot"
+                  >
+                    Enable
+                  </button>
+                  <button
+                    class="btn btn-danger"
+                    type="button"
+                    :disabled="!canDisableSelectedSlot"
+                    @click="handleDisableSelectedSlot"
+                  >
+                    Disable
+                  </button>
+                </div>
+                <p v-if="selectedSlotStatus === 'incoming'" class="slot-popup-note">
+                  Incoming slots cannot be enabled.
+                </p>
+                <p v-else-if="selectedSlotStatus === 'occupied'" class="slot-popup-note">
+                  Occupied slots cannot be changed.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -365,6 +402,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 const adminStore = useAdminStore()
 const selectedSlots = ref(new Set<number>())
+const selectedSlotNumber = ref<number | null>(null)
 const parkingSlots = ref<ParkingSlot[]>([])
 const slotStatus = ref<Record<number, SlotStatus>>({})
 
@@ -420,51 +458,48 @@ const slotStatusClass = (slotNumber: number) => {
   return slotStatus.value[slotNumber] || 'available'
 }
 
-const toggleSlotSelection = (slotNumber: number) => {
-  const next = new Set(selectedSlots.value)
-  if (next.has(slotNumber)) {
-    next.delete(slotNumber)
-  } else {
-    next.add(slotNumber)
-  }
-  selectedSlots.value = next
+const selectedSlotStatus = computed<SlotStatus>(() => {
+  if (selectedSlotNumber.value === null) return 'available'
+  return slotStatusClass(selectedSlotNumber.value)
+})
+
+const selectedSlotStatusLabel = computed(() => {
+  const status = selectedSlotStatus.value
+  return status.charAt(0).toUpperCase() + status.slice(1)
+})
+
+const canEnableSelectedSlot = computed(() => {
+  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
+})
+
+const canDisableSelectedSlot = computed(() => {
+  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
+})
+
+const openSlotActions = (slotNumber: number) => {
+  selectedSlotNumber.value = slotNumber
+  selectedSlots.value = new Set([slotNumber])
 }
 
-const handleEditSlots = () => {
-  console.log('Edit admin slots:', Array.from(selectedSlots.value))
-}
-
-const handleEnableSlots = () => {
-  const nextStatus = { ...slotStatus.value }
-  selectedSlots.value.forEach((slotId) => {
-    if (nextStatus[slotId] !== 'occupied') {
-      nextStatus[slotId] = 'available'
-    }
-  })
-  slotStatus.value = nextStatus
+const closeSlotActions = () => {
+  selectedSlotNumber.value = null
   selectedSlots.value = new Set()
 }
 
-const handleDisableSlots = () => {
+const handleEnableSelectedSlot = () => {
+  if (selectedSlotNumber.value === null || !canEnableSelectedSlot.value) return
   const nextStatus = { ...slotStatus.value }
-  const restrictedSlots: number[] = []
-
-  selectedSlots.value.forEach((slotId) => {
-    const status = slotStatus.value[slotId]
-    if (status === 'incoming' || status === 'occupied') {
-      restrictedSlots.push(slotId)
-    } else {
-      nextStatus[slotId] = 'disabled'
-    }
-  })
-
-  if (restrictedSlots.length > 0) {
-    const statusNames = restrictedSlots.map((id) => `${id} (${slotStatus.value[id]})`).join(', ')
-    alert(`Cannot disable slots with active vehicles: ${statusNames}`)
-  }
-
+  nextStatus[selectedSlotNumber.value] = 'available'
   slotStatus.value = nextStatus
-  selectedSlots.value = new Set()
+  closeSlotActions()
+}
+
+const handleDisableSelectedSlot = () => {
+  if (selectedSlotNumber.value === null || !canDisableSelectedSlot.value) return
+  const nextStatus = { ...slotStatus.value }
+  nextStatus[selectedSlotNumber.value] = 'disabled'
+  slotStatus.value = nextStatus
+  closeSlotActions()
 }
 
 const handleLogout = async () => {
@@ -1002,6 +1037,123 @@ onMounted(() => {
   display: flex;
   gap: 14px;
   flex-wrap: wrap;
+}
+
+.slot-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.slot-popup {
+  width: min(360px, 100%);
+  border-radius: 8px;
+  background: #fff;
+  color: #202020;
+  padding: 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.slot-popup-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.slot-popup-header p {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.slot-popup-header h3 {
+  color: #111827;
+  font-size: 24px;
+}
+
+.slot-popup-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #111827;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.slot-popup-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 22px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.slot-popup-status span {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.slot-popup-status strong {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.slot-popup-status .available {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.slot-popup-status .incoming {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.slot-popup-status .occupied {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.slot-popup-status .disabled {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.slot-popup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.slot-popup-actions .btn {
+  width: 100%;
+  min-height: 44px;
+}
+
+.slot-popup-actions .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.slot-popup-note {
+  margin-top: 14px;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .status-legend {
