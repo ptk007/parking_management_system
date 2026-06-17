@@ -123,47 +123,24 @@ const ParkingLog = mongoose.model(
   'parking_log',
 )
 
-const cctvDatabaseFields = {
-  cctv_name: String,
-  cctv_link: String,
-  cctv_ip: String,
-  status: String,
-  date_latest: String,
-  time_latest: String,
-  building: mongoose.Schema.Types.Mixed,
-  floor: mongoose.Schema.Types.Mixed,
-  veh_type: Number,
-}
-
-const cctvInfoFields = {
-  NO: String,
-  'IP ADDRESS': String,
-  'CAMERA NAME_NEW': String,
-  BUILDING: mongoose.Schema.Types.Mixed,
-  FLOOR: mongoose.Schema.Types.Mixed,
-  POSITION: String,
-  Latitude: String,
-  Longtitude: String,
-  Location: String,
-  'enable rtsp': String,
-  'ANPR&PTZ RTSP': String,
-  PTZ: String,
-}
-
-const parkingCctvSchema = new mongoose.Schema(
-  {
-    ...cctvDatabaseFields,
-    ...cctvInfoFields,
-  },
-  { strict: false, versionKey: false },
+const ParkingCctv = mongoose.model(
+  'ParkingCctv',
+  new mongoose.Schema(
+    {
+      cctv_name: String,
+      cctv_link: String,
+      cctv_ip: String,
+      status: String,
+      date_latest: String,
+      time_latest: String,
+      building: mongoose.Schema.Types.Mixed,
+      floor: mongoose.Schema.Types.Mixed,
+      veh_type: Number,
+    },
+    schemaOptions,
+  ),
+  'Parking_cctv',
 )
-
-parkingCctvSchema.pre('validate', function mapRawCctvFields(next) {
-  normalizeCctvDocument(this)
-  next()
-})
-
-const ParkingCctv = mongoose.model('ParkingCctv', parkingCctvSchema, 'Parking_cctv')
 
 const ParkingSlot = mongoose.model(
   'ParkingSlot',
@@ -181,7 +158,20 @@ const ParkingSlot = mongoose.model(
 )
 
 const cctvInfoSchema = new mongoose.Schema(
-  cctvInfoFields,
+  {
+    NO: String,
+    'IP ADDRESS': String,
+    'CAMERA NAME_NEW': String,
+    BUILDING: mongoose.Schema.Types.Mixed,
+    FLOOR: mongoose.Schema.Types.Mixed,
+    POSITION: String,
+    Latitude: String,
+    Longtitude: String,
+    Location: String,
+    'enable rtsp': String,
+    'ANPR&PTZ RTSP': String,
+    PTZ: String,
+  },
   { strict: false, versionKey: false },
 )
 
@@ -220,39 +210,6 @@ function parseVehicleType(value) {
   if (value === undefined || value === null || value === '') return undefined
   const normalized = String(value).toLowerCase()
   return vehicleTypeNumbers[normalized] || Number(value)
-}
-
-function getCctvValue(camera, key) {
-  if (!camera) return undefined
-  if (typeof camera.get === 'function') return camera.get(key)
-  return camera[key]
-}
-
-function setCctvValue(camera, key, value) {
-  if (value === undefined || value === null || value === '') return
-  if (typeof camera.set === 'function') {
-    camera.set(key, value)
-  } else {
-    camera[key] = value
-  }
-}
-
-function normalizeCctvDocument(camera) {
-  const name = getCctvValue(camera, 'cctv_name') || getCctvValue(camera, 'CAMERA NAME_NEW') || getCctvValue(camera, 'Location')
-  const ip = getCctvValue(camera, 'cctv_ip') || getCctvValue(camera, 'IP ADDRESS')
-  const link = getCctvValue(camera, 'cctv_link') || getCctvValue(camera, 'ANPR&PTZ RTSP') || getCctvValue(camera, 'PTZ')
-  const building = getCctvValue(camera, 'building') || getCctvValue(camera, 'BUILDING')
-  const floor = getCctvValue(camera, 'floor') || getCctvValue(camera, 'FLOOR')
-  const status = getCctvValue(camera, 'status') || (link || getCctvValue(camera, 'enable rtsp') ? 'online' : undefined)
-
-  setCctvValue(camera, 'cctv_name', name)
-  setCctvValue(camera, 'cctv_ip', ip)
-  setCctvValue(camera, 'cctv_link', link)
-  setCctvValue(camera, 'building', building)
-  setCctvValue(camera, 'floor', floor)
-  setCctvValue(camera, 'status', status)
-
-  return camera
 }
 
 function signToken(user) {
@@ -321,7 +278,6 @@ function logDto(log) {
 }
 
 function cameraDto(camera) {
-  normalizeCctvDocument(camera)
   return {
     _id: String(camera._id),
     name: camera.cctv_name,
@@ -623,7 +579,6 @@ async function handleResource(req, res, pathParts, query) {
 
   if (req.method === 'POST') {
     const body = await readBody(req)
-    if (resourceName === 'cctv') normalizeCctvDocument(body)
     const filter = await duplicateFilter(resourceName, body)
     if (filter && (await resource.model.exists(filter))) {
       return writeJson(res, 409, { message: 'Duplicate value is not allowed' })
@@ -634,7 +589,6 @@ async function handleResource(req, res, pathParts, query) {
 
   if (req.method === 'PUT' && pathParts[2]) {
     const body = await readBody(req)
-    if (resourceName === 'cctv') normalizeCctvDocument(body)
     const row = await resource.model.findByIdAndUpdate(pathParts[2], body, { new: true, runValidators: true })
     return row ? writeJson(res, 200, row) : writeJson(res, 404, { message: 'Resource not found' })
   }
