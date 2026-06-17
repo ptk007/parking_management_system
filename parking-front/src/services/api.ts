@@ -93,6 +93,8 @@ export const databaseService = {
   parkingLogs: createResourceService('parking-logs'),
   cctv: createResourceService('cctv'),
   parkingSlots: createResourceService('parking-slots'),
+  cctvinfo2: createResourceService('cctvinfo2'),
+  oldcctvinfo4: createResourceService('oldcctvinfo4'),
 }
 
 export default apiClient

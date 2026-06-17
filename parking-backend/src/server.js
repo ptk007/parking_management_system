@@ -123,24 +123,47 @@ const ParkingLog = mongoose.model(
   'parking_log',
 )
 
-const ParkingCctv = mongoose.model(
-  'ParkingCctv',
-  new mongoose.Schema(
-    {
-      cctv_name: String,
-      cctv_link: String,
-      cctv_ip: String,
-      status: String,
-      date_latest: String,
-      time_latest: String,
-      building: mongoose.Schema.Types.Mixed,
-      floor: mongoose.Schema.Types.Mixed,
-      veh_type: Number,
-    },
-    schemaOptions,
-  ),
-  'Parking_cctv',
+const cctvDatabaseFields = {
+  cctv_name: String,
+  cctv_link: String,
+  cctv_ip: String,
+  status: String,
+  date_latest: String,
+  time_latest: String,
+  building: mongoose.Schema.Types.Mixed,
+  floor: mongoose.Schema.Types.Mixed,
+  veh_type: Number,
+}
+
+const cctvInfoFields = {
+  NO: String,
+  'IP ADDRESS': String,
+  'CAMERA NAME_NEW': String,
+  BUILDING: mongoose.Schema.Types.Mixed,
+  FLOOR: mongoose.Schema.Types.Mixed,
+  POSITION: String,
+  Latitude: String,
+  Longtitude: String,
+  Location: String,
+  'enable rtsp': String,
+  'ANPR&PTZ RTSP': String,
+  PTZ: String,
+}
+
+const parkingCctvSchema = new mongoose.Schema(
+  {
+    ...cctvDatabaseFields,
+    ...cctvInfoFields,
+  },
+  { strict: false, versionKey: false },
 )
+
+parkingCctvSchema.pre('validate', function mapRawCctvFields(next) {
+  normalizeCctvDocument(this)
+  next()
+})
+
+const ParkingCctv = mongoose.model('ParkingCctv', parkingCctvSchema, 'Parking_cctv')
 
 const ParkingSlot = mongoose.model(
   'ParkingSlot',
@@ -157,6 +180,14 @@ const ParkingSlot = mongoose.model(
   'parking_slots',
 )
 
+const cctvInfoSchema = new mongoose.Schema(
+  cctvInfoFields,
+  { strict: false, versionKey: false },
+)
+
+const CctvInfo2 = mongoose.model('CctvInfo2', cctvInfoSchema, 'cctvinfo2')
+const OldCctvInfo4 = mongoose.model('OldCctvInfo4', cctvInfoSchema, 'oldcctvinfo4')
+
 const resources = {
   users: { model: User, unique: [] },
   vehicles: { model: Vehicle, unique: ['license_num'] },
@@ -165,6 +196,8 @@ const resources = {
   'parking-logs': { model: ParkingLog, unique: [] },
   cctv: { model: ParkingCctv, unique: [] },
   'parking-slots': { model: ParkingSlot, unique: ['slot_num'] },
+  cctvinfo2: { model: CctvInfo2, unique: [] },
+  oldcctvinfo4: { model: OldCctvInfo4, unique: [] },
 }
 
 const roleLabels = { 1: 'user', 2: 'staff', 3: 'admin' }
@@ -187,6 +220,39 @@ function parseVehicleType(value) {
   if (value === undefined || value === null || value === '') return undefined
   const normalized = String(value).toLowerCase()
   return vehicleTypeNumbers[normalized] || Number(value)
+}
+
+function getCctvValue(camera, key) {
+  if (!camera) return undefined
+  if (typeof camera.get === 'function') return camera.get(key)
+  return camera[key]
+}
+
+function setCctvValue(camera, key, value) {
+  if (value === undefined || value === null || value === '') return
+  if (typeof camera.set === 'function') {
+    camera.set(key, value)
+  } else {
+    camera[key] = value
+  }
+}
+
+function normalizeCctvDocument(camera) {
+  const name = getCctvValue(camera, 'cctv_name') || getCctvValue(camera, 'CAMERA NAME_NEW') || getCctvValue(camera, 'Location')
+  const ip = getCctvValue(camera, 'cctv_ip') || getCctvValue(camera, 'IP ADDRESS')
+  const link = getCctvValue(camera, 'cctv_link') || getCctvValue(camera, 'ANPR&PTZ RTSP') || getCctvValue(camera, 'PTZ')
+  const building = getCctvValue(camera, 'building') || getCctvValue(camera, 'BUILDING')
+  const floor = getCctvValue(camera, 'floor') || getCctvValue(camera, 'FLOOR')
+  const status = getCctvValue(camera, 'status') || (link || getCctvValue(camera, 'enable rtsp') ? 'online' : undefined)
+
+  setCctvValue(camera, 'cctv_name', name)
+  setCctvValue(camera, 'cctv_ip', ip)
+  setCctvValue(camera, 'cctv_link', link)
+  setCctvValue(camera, 'building', building)
+  setCctvValue(camera, 'floor', floor)
+  setCctvValue(camera, 'status', status)
+
+  return camera
 }
 
 function signToken(user) {
@@ -255,6 +321,7 @@ function logDto(log) {
 }
 
 function cameraDto(camera) {
+  normalizeCctvDocument(camera)
   return {
     _id: String(camera._id),
     name: camera.cctv_name,
@@ -264,6 +331,22 @@ function cameraDto(camera) {
     status: String(camera.status || 'offline').toLowerCase(),
     streamUrl: camera.cctv_link,
     lastUpdate: combineDateTime(camera.date_latest, camera.time_latest),
+  }
+}
+
+function rawCctvDto(camera) {
+  const streamUrl = camera['ANPR&PTZ RTSP'] || camera.PTZ || ''
+  return {
+    _id: String(camera._id),
+    name: camera['CAMERA NAME_NEW'] || camera.Location || `Camera ${camera.NO || ''}`.trim(),
+    ipAddress: camera['IP ADDRESS'] || '',
+    buildingId: String(camera.BUILDING ?? ''),
+    floorId: String(camera.FLOOR ?? ''),
+    status: streamUrl || camera['enable rtsp'] ? 'online' : 'offline',
+    streamUrl,
+    lastUpdate: null,
+    sourceCollection: camera._sourceCollection,
+    raw: camera,
   }
 }
 
@@ -333,10 +416,39 @@ function buildFilter(query) {
   return filter
 }
 
+function buildRawCctvFilter(query) {
+  const filter = {}
+  const building = query.get('building') || query.get('buildingId')
+  const floor = query.get('floor') || query.get('floorId')
+  if (building) filter.BUILDING = building
+  if (floor) filter.FLOOR = floor
+  return filter
+}
+
 async function ensureIndexes() {
   await Vehicle.collection.createIndex({ license_num: 1 }, { unique: true })
   await ParkingSlot.collection.createIndex({ slot_num: 1 }, { unique: true })
   await ParkingZone.collection.createIndex({ building: 1, floor: 1, veh_type: 1 }, { unique: true })
+  await CctvInfo2.collection.createIndex({ 'IP ADDRESS': 1 })
+  await OldCctvInfo4.collection.createIndex({ 'IP ADDRESS': 1 })
+}
+
+async function seedJsonCollection(model, fileName) {
+  const existingCount = await model.estimatedDocumentCount()
+  if (existingCount > 0) return
+
+  const filePath = path.join(__dirname, fileName)
+  if (!fs.existsSync(filePath)) return
+
+  const rows = JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''))
+  if (!Array.isArray(rows) || rows.length === 0) return
+  await model.insertMany(rows, { ordered: false })
+  console.log(`Seeded ${rows.length} documents into ${model.collection.name}`)
+}
+
+async function seedJsonCollections() {
+  await seedJsonCollection(CctvInfo2, 'cctvinfo2.json')
+  await seedJsonCollection(OldCctvInfo4, 'oldcctvinfo4.json')
 }
 
 async function handleAuth(req, res, pathParts) {
@@ -414,15 +526,32 @@ async function handleStaff(req, res, pathParts, query) {
   }
 
   if (req.method === 'GET' && pathParts[2] === 'cctv' && pathParts[3] === 'cameras' && !pathParts[4]) {
-    const cameras = await ParkingCctv.find(buildFilter(query)).lean()
-    return writeJson(res, 200, cameras.map(cameraDto))
+    const [cameras, cctvInfo2, oldCctvInfo4] = await Promise.all([
+      ParkingCctv.find(buildFilter(query)).lean(),
+      CctvInfo2.find(buildRawCctvFilter(query)).lean(),
+      OldCctvInfo4.find(buildRawCctvFilter(query)).lean(),
+    ])
+
+    const rawCameras = [
+      ...cctvInfo2.map((camera) => ({ ...camera, _sourceCollection: 'cctvinfo2' })),
+      ...oldCctvInfo4.map((camera) => ({ ...camera, _sourceCollection: 'oldcctvinfo4' })),
+    ]
+
+    return writeJson(res, 200, [...cameras.map(cameraDto), ...rawCameras.map(rawCctvDto)])
   }
 
   if (req.method === 'GET' && pathParts[2] === 'cctv' && pathParts[3] === 'cameras' && pathParts[4]) {
-    const camera = await ParkingCctv.findById(pathParts[4]).lean()
+    let camera = await ParkingCctv.findById(pathParts[4]).lean()
+    let rawCamera = null
+    if (!camera) {
+      rawCamera =
+        (await CctvInfo2.findById(pathParts[4]).lean()) ||
+        (await OldCctvInfo4.findById(pathParts[4]).lean())
+    }
+    if (rawCamera) camera = rawCctvDto(rawCamera)
     if (!camera) return writeJson(res, 404, { message: 'Resource not found' })
-    if (pathParts[5] === 'stream') return writeJson(res, 200, { streamUrl: camera.cctv_link })
-    if (pathParts[5] === 'snapshot') return writeJson(res, 200, { snapshotUrl: camera.cctv_link })
+    if (pathParts[5] === 'stream') return writeJson(res, 200, { streamUrl: camera.cctv_link || camera.streamUrl })
+    if (pathParts[5] === 'snapshot') return writeJson(res, 200, { snapshotUrl: camera.cctv_link || camera.streamUrl })
   }
 
   if (req.method === 'GET' && pathParts[2] === 'history') {
@@ -494,6 +623,7 @@ async function handleResource(req, res, pathParts, query) {
 
   if (req.method === 'POST') {
     const body = await readBody(req)
+    if (resourceName === 'cctv') normalizeCctvDocument(body)
     const filter = await duplicateFilter(resourceName, body)
     if (filter && (await resource.model.exists(filter))) {
       return writeJson(res, 409, { message: 'Duplicate value is not allowed' })
@@ -504,6 +634,7 @@ async function handleResource(req, res, pathParts, query) {
 
   if (req.method === 'PUT' && pathParts[2]) {
     const body = await readBody(req)
+    if (resourceName === 'cctv') normalizeCctvDocument(body)
     const row = await resource.model.findByIdAndUpdate(pathParts[2], body, { new: true, runValidators: true })
     return row ? writeJson(res, 200, row) : writeJson(res, 404, { message: 'Resource not found' })
   }
@@ -541,6 +672,7 @@ async function start() {
   mongoose.set('strictQuery', true)
   await mongoose.connect(MONGODB_URI)
   await ensureIndexes()
+  await seedJsonCollections()
 
   http.createServer(requestHandler).listen(PORT, () => {
     console.log(`Parking API running on http://localhost:${PORT}`)
