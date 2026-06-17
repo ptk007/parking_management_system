@@ -1,58 +1,35 @@
 <template>
-  <div class="w-40 bg-mfu-red text-white fixed left-0 top-0 h-screen flex flex-col shadow-lg">
-    <!-- Logo -->
-    <div class="p-4 border-b border-red-600 flex items-center justify-center">
-      <div class="text-center">
-        <div class="text-2xl font-bold text-mfu-gold">🅿️</div>
-        <p class="text-xs mt-1 text-gray-100">MFU Parking</p>
-      </div>
-    </div>
+  <aside class="staff-sidebar">
+    <router-link to="/dashboard" class="sidebar-crest" aria-label="Go to dashboard">
+      <img :src="mfuLogo" alt="Mae Fah Luang University" />
+    </router-link>
 
-    <!-- Navigation -->
-    <nav class="flex-1 p-4 space-y-2">
+    <nav class="sidebar-nav">
       <router-link
         to="/dashboard"
-        :class="[
-          'flex items-center space-x-3 px-4 py-3 rounded-lg transition-all',
-          route.path.startsWith('/dashboard')
-            ? 'bg-white text-mfu-red font-semibold'
-            : 'text-white hover:bg-red-700',
-        ]"
+        :class="['nav-card', route.path.startsWith('/dashboard') ? 'is-active' : '']"
       >
-        <i :class="['pi', 'pi-desktop', route.path.startsWith('/dashboard') ? 'text-mfu-red' : 'text-white']"></i>
+        <Monitor class="nav-icon" :stroke-width="2.6" />
         <span>Dashboard</span>
       </router-link>
 
-      <router-link
-        to="/history"
-        :class="[
-          'flex items-center space-x-3 px-4 py-3 rounded-lg transition-all',
-          route.path === '/history'
-            ? 'bg-white text-mfu-red font-semibold'
-            : 'text-white hover:bg-red-700',
-        ]"
-      >
-        <i :class="['pi', 'pi-clock', route.path === '/history' ? 'text-mfu-red' : 'text-white']"></i>
+      <router-link to="/history" :class="['nav-card', route.path === '/history' ? 'is-active' : '']">
+        <Clock3 class="nav-icon" :stroke-width="3" />
         <span>History</span>
       </router-link>
     </nav>
 
-    <!-- Logout Button -->
-    <div class="p-4 border-t border-red-600">
-      <button
-        @click="logout"
-        class="w-full flex items-center space-x-2 px-4 py-2 bg-red-700 hover:bg-red-800 rounded-lg transition text-white text-sm"
-      >
-        <i class="pi pi-sign-out"></i>
-        <span>Logout</span>
-      </button>
-    </div>
-  </div>
+    <button class="logout-button" @click="logout" aria-label="Logout">
+      <LogOut class="h-5 w-5" :stroke-width="2.4" />
+    </button>
+  </aside>
 </template>
 
 <script setup lang="ts">
+import { Clock3, LogOut, Monitor } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import mfuLogo from '@/assets/mae-fah-luang-university.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -64,4 +41,88 @@ const logout = async () => {
 }
 </script>
 
-<style scoped></style>
+<style scoped>
+.staff-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 40;
+  width: 160px;
+  background: #cf4647;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sidebar-crest {
+  width: 104px;
+  height: 116px;
+  margin-top: 24px;
+  display: grid;
+  place-items: center;
+}
+
+.sidebar-crest img {
+  width: 84px;
+  height: 108px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.18));
+}
+
+.sidebar-nav {
+  width: 100%;
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.nav-card {
+  height: 78px;
+  border-radius: 5px;
+  background: #fff;
+  color: #a7a7a7;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 0 16px;
+  font-size: 14px;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.nav-card:hover {
+  transform: translateX(2px);
+}
+
+.nav-card.is-active {
+  background: #fdeceb;
+  color: #9e2d25;
+  font-weight: 700;
+}
+
+.nav-icon {
+  width: 34px;
+  height: 34px;
+  color: #232323;
+  flex: 0 0 auto;
+}
+
+.logout-button {
+  margin-top: auto;
+  margin-bottom: 18px;
+  width: 48px;
+  height: 42px;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.86);
+  display: grid;
+  place-items: center;
+  opacity: 0.75;
+}
+
+.logout-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+</style>
