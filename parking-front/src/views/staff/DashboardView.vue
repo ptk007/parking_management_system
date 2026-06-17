@@ -76,7 +76,7 @@
             ]"
             :style="slotStyle(slot)"
             type="button"
-            @click="toggleSlotSelection(slot.slotNumber)"
+            @click="openSlotActions(slot.slotNumber)"
           >
             <Check v-if="selectedSlots.has(slot.slotNumber)" class="h-4 w-4" :stroke-width="3" />
             <span v-else>{{ slot.slotNumber }}</span>
@@ -84,12 +84,55 @@
         </div>
 
         <div class="slot-actions">
-          <div class="action-buttons">
-            <button class="edit" type="button" @click="handleEditSlots">Edit</button>
-            <button class="enable" type="button" @click="handleEnableSlots">Enable</button>
-            <button class="disable" type="button" @click="handleDisableSlots">Disable</button>
+          <div class="status-legend" aria-label="Slot status legend">
+            <span><i class="available"></i>Available</span>
+            <span><i class="incoming"></i>Incoming</span>
+            <span><i class="occupied"></i>Occupied</span>
+            <span><i class="disabled"></i>Disable</span>
           </div>
           <strong>Selecting : {{ selectedSlots.size }}</strong>
+        </div>
+
+        <div v-if="selectedSlotNumber !== null" class="slot-popup-backdrop" @click.self="closeSlotActions">
+          <div class="slot-popup" role="dialog" aria-modal="true" aria-labelledby="staff-slot-popup-title">
+            <div class="slot-popup-header">
+              <div>
+                <p>Parking slot</p>
+                <h3 id="staff-slot-popup-title">Slot {{ selectedSlotNumber }}</h3>
+              </div>
+              <button class="slot-popup-close" type="button" aria-label="Close slot actions" @click="closeSlotActions">
+                x
+              </button>
+            </div>
+            <div class="slot-popup-status">
+              <span>Status</span>
+              <strong :class="selectedSlotStatus">{{ selectedSlotStatusLabel }}</strong>
+            </div>
+            <div class="slot-popup-actions">
+              <button
+                class="enable"
+                type="button"
+                :disabled="!canEnableSelectedSlot"
+                @click="handleEnableSelectedSlot"
+              >
+                Enable
+              </button>
+              <button
+                class="disable"
+                type="button"
+                :disabled="!canDisableSelectedSlot"
+                @click="handleDisableSelectedSlot"
+              >
+                Disable
+              </button>
+            </div>
+            <p v-if="selectedSlotStatus === 'incoming'" class="slot-popup-note">
+              Incoming slots cannot be enabled.
+            </p>
+            <p v-else-if="selectedSlotStatus === 'occupied'" class="slot-popup-note">
+              Occupied slots cannot be changed.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -185,6 +228,7 @@ const selectedBuilding = ref('E4')
 const selectedFloor = ref('4')
 const selectedVehicle = ref('Cars')
 const selectedSlots = ref(new Set<number>())
+const selectedSlotNumber = ref<number | null>(null)
 const parkingSlots = ref<ParkingSlot[]>([])
 const slotStatus = ref<Record<number, SlotStatus>>({})
 
@@ -299,9 +343,12 @@ const parkingLogs = [
   },
 ]
 
+const slotVerticalOffset = 42
+const slotVerticalScale = 760
+
 const slotStyle = (slot: ParkingSlot) => ({
   left: `${(slot.x / 1300) * 100}%`,
-  top: `${(slot.y / 700) * 100}%`,
+  top: `${((slot.y + slotVerticalOffset) / slotVerticalScale) * 100}%`,
 })
 
 const slotStatusClass = (slotNumber: number) => {
@@ -314,54 +361,48 @@ const statusClass = (status: string) => {
   return 'status-muted'
 }
 
-const toggleSlotSelection = (slotNumber: number) => {
-  const next = new Set(selectedSlots.value)
-  if (next.has(slotNumber)) {
-    next.delete(slotNumber)
-  } else {
-    next.add(slotNumber)
-  }
-  selectedSlots.value = next
+const selectedSlotStatus = computed<SlotStatus>(() => {
+  if (selectedSlotNumber.value === null) return 'available'
+  return slotStatusClass(selectedSlotNumber.value)
+})
+
+const selectedSlotStatusLabel = computed(() => {
+  const status = selectedSlotStatus.value
+  return status.charAt(0).toUpperCase() + status.slice(1)
+})
+
+const canEnableSelectedSlot = computed(() => {
+  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
+})
+
+const canDisableSelectedSlot = computed(() => {
+  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
+})
+
+const openSlotActions = (slotNumber: number) => {
+  selectedSlotNumber.value = slotNumber
+  selectedSlots.value = new Set([slotNumber])
 }
 
-const handleEditSlots = () => {
-  console.log('Edit slots:', Array.from(selectedSlots.value))
-}
-
-const handleEnableSlots = () => {
-  const nextStatus = { ...slotStatus.value }
-  selectedSlots.value.forEach((slotId) => {
-    if (nextStatus[slotId] !== 'occupied') {
-      nextStatus[slotId] = 'available'
-    }
-  })
-  slotStatus.value = nextStatus
+const closeSlotActions = () => {
+  selectedSlotNumber.value = null
   selectedSlots.value = new Set()
 }
 
-const handleDisableSlots = () => {
+const handleEnableSelectedSlot = () => {
+  if (selectedSlotNumber.value === null || !canEnableSelectedSlot.value) return
   const nextStatus = { ...slotStatus.value }
-  const restrictedSlots: number[] = []
-  
-  selectedSlots.value.forEach((slotId) => {
-    const status = slotStatus.value[slotId]
-    if (status === 'incoming' || status === 'occupied') {
-      restrictedSlots.push(slotId)
-    } else {
-      nextStatus[slotId] = 'disabled'
-    }
-  })
-  
-  if (restrictedSlots.length > 0) {
-    const statusNames = restrictedSlots.map(id => {
-      const status = slotStatus.value[id]
-      return `${id} (${status})`
-    }).join(', ')
-    alert(`Cannot disable slots with active vehicles: ${statusNames}`)
-  }
-  
+  nextStatus[selectedSlotNumber.value] = 'available'
   slotStatus.value = nextStatus
-  selectedSlots.value = new Set()
+  closeSlotActions()
+}
+
+const handleDisableSelectedSlot = () => {
+  if (selectedSlotNumber.value === null || !canDisableSelectedSlot.value) return
+  const nextStatus = { ...slotStatus.value }
+  nextStatus[selectedSlotNumber.value] = 'disabled'
+  slotStatus.value = nextStatus
+  closeSlotActions()
 }
 
 onMounted(() => {
@@ -434,6 +475,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 24px;
   padding: 12px 38px 18px 30px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .filters {
@@ -450,7 +492,9 @@ onMounted(() => {
 }
 
 .filter-control span {
-  color: #252525;
+  color: #333;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .filter-control select {
@@ -461,8 +505,9 @@ onMounted(() => {
   border: 0;
   padding: 0 18px;
   color: #242424;
-  font-size: 20px;
+  font-size: 18px;
   outline: none;
+  box-shadow: inset 0 0 0 1px #e4e4e4;
 }
 
 .stats {
@@ -474,12 +519,14 @@ onMounted(() => {
 
 .stat-card {
   width: 104px;
-  height: 59px;
+  min-height: 66px;
   border-radius: 6px;
   background: #fff;
   display: grid;
   place-items: center;
   align-content: center;
+  border: 1px solid #ececec;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
 .stat-card strong {
@@ -490,16 +537,17 @@ onMounted(() => {
 
 .stat-card span {
   color: #909090;
-  font-size: 16px;
+  font-size: 14px;
+  text-align: center;
 }
 
 .dashboard-content {
-  padding: 0 42px 34px;
+  padding: 18px 42px 34px;
 }
 
 .parking-map {
   position: relative;
-  height: min(589px, calc(100vh - 300px));
+  height: min(560px, calc(100vh - 320px));
   min-height: 430px;
   overflow: hidden;
   border-radius: 22px;
@@ -655,15 +703,19 @@ onMounted(() => {
 }
 
 .slot-actions {
-  height: 86px;
+  min-height: 82px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 14px 0 0;
 }
 
 .action-buttons {
   display: flex;
-  gap: 92px;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 .slot-actions button {
@@ -672,6 +724,7 @@ onMounted(() => {
   border-radius: 5px;
   color: #111;
   font-size: 16px;
+  font-weight: 700;
 }
 
 .slot-actions .edit {
@@ -690,7 +743,181 @@ onMounted(() => {
 .slot-actions strong {
   color: #111;
   font-size: 15px;
-  letter-spacing: 1px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.slot-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.slot-popup {
+  width: min(360px, 100%);
+  border-radius: 8px;
+  background: #fff;
+  color: #202020;
+  padding: 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.slot-popup-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.slot-popup-header p {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.slot-popup-header h3 {
+  color: #111827;
+  font-size: 24px;
+}
+
+.slot-popup-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #111827;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.slot-popup-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 22px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.slot-popup-status span {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.slot-popup-status strong {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.slot-popup-status .available {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.slot-popup-status .incoming {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.slot-popup-status .occupied {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.slot-popup-status .disabled {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.slot-popup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.slot-popup-actions button {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.slot-popup-actions .enable {
+  background: #16a34a;
+}
+
+.slot-popup-actions .disable {
+  background: #dc2626;
+}
+
+.slot-popup-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.slot-popup-note {
+  margin-top: 14px;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 280px;
+  color: #333;
+  font-size: 14px;
+}
+
+.status-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.status-legend i {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(20, 20, 20, 0.35);
+}
+
+.status-legend .available {
+  background: #4caf50;
+}
+
+.status-legend .incoming {
+  background: #f5c443;
+}
+
+.status-legend .occupied {
+  background: #dc2626;
+}
+
+.status-legend .disabled {
+  background: #9e9e9e;
 }
 
 .cctv-grid {
