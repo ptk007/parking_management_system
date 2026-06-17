@@ -75,4 +75,24 @@ export const staffService = {
   updateProfile: (data: any) => apiClient.put('/staff/profile', data),
 }
 
+const createResourceService = (resource: string) => ({
+  list: () => apiClient.get(`/${resource}`),
+  get: (id: string) => apiClient.get(`/${resource}/${id}`),
+  create: (data: any) => apiClient.post(`/${resource}`, data),
+  update: (id: string, data: any) => apiClient.put(`/${resource}/${id}`, data),
+  remove: (id: string) => apiClient.delete(`/${resource}/${id}`),
+  checkDuplicate: (params: Record<string, string | number>) =>
+    apiClient.get(`/${resource}/check-duplicate`, { params }),
+})
+
+export const databaseService = {
+  users: createResourceService('users'),
+  vehicles: createResourceService('vehicles'),
+  parkingZones: createResourceService('parking-zones'),
+  history: createResourceService('history'),
+  parkingLogs: createResourceService('parking-logs'),
+  cctv: createResourceService('cctv'),
+  parkingSlots: createResourceService('parking-slots'),
+}
+
 export default apiClient
