@@ -136,24 +136,39 @@
         </div>
       </div>
 
-      <div v-else-if="activeTab === 'cctv'" class="cctv-grid">
-        <article v-for="camera in cameras" :key="camera.name" class="camera-card">
-          <header>
-            <h2>{{ camera.name }}</h2>
-            <span><i></i>Live</span>
-          </header>
-          <div :class="['camera-feed', camera.scene]">
-            <div class="timestamp">{{ camera.timestamp }}</div>
-            <div class="pillar one">{{ camera.pillarA }}</div>
-            <div class="pillar two">{{ camera.pillarB }}</div>
-            <div class="car car-a"></div>
-            <div class="car car-b"></div>
-            <div class="car car-c"></div>
-            <div class="direction-arrow"></div>
-            <div class="plate">{{ camera.plate }}</div>
-            <Maximize2 class="expand-icon h-4 w-4" />
-          </div>
-        </article>
+      <div v-else-if="activeTab === 'cctv'" class="cctv-panel">
+        <div v-if="cameraError" class="camera-message">{{ cameraError }}</div>
+        <div v-else-if="cameras.length === 0" class="camera-message">No cameras found</div>
+
+        <div v-else class="cctv-grid">
+          <article v-for="camera in cameras" :key="camera._id" class="camera-card">
+            <header>
+              <h2>{{ camera.name }}</h2>
+              <span :class="['camera-live-state', camera.status]"><i></i>{{ camera.status === 'online' ? 'Live' : 'Offline' }}</span>
+            </header>
+            <div class="camera-feed live-feed">
+              <img
+                v-if="canShowCameraMedia(camera)"
+                :src="cameraMediaUrl(camera)"
+                :alt="camera.name"
+                @error="markCameraMediaError(camera._id)"
+              />
+              <div v-else class="camera-fallback">
+                <Video class="h-10 w-10" :stroke-width="1.8" />
+                <span>{{ camera.streamUrl ? 'Open RTSP stream' : 'No stream URL' }}</span>
+              </div>
+              <div class="timestamp">{{ camera.ipAddress || 'No IP' }}</div>
+              <Maximize2 class="expand-icon h-4 w-4" />
+            </div>
+            <footer class="camera-meta">
+              <span>{{ camera.streamProtocol?.toUpperCase() || 'N/A' }}</span>
+              <a v-if="camera.streamUrl" :href="camera.streamUrl" target="_blank" rel="noreferrer">
+                <ExternalLink class="h-4 w-4" />
+                RTSP
+              </a>
+            </footer>
+          </article>
+        </div>
       </div>
 
       <div v-else class="logs-panel">
@@ -194,8 +209,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, ref } from 'vue'
-import { CarFront, Check, Maximize2, UserRound } from 'lucide-vue-next'
+import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
+import { CarFront, Check, ExternalLink, Maximize2, UserRound, Video } from 'lucide-vue-next'
+import { cctvService } from '@/services/api'
+import type { CCTVCamera } from '@/types'
 import parkingSlotsData from '@/data/parking-slots.json'
 
 type ActiveTab = 'slots' | 'cctv' | 'log'
@@ -231,6 +248,9 @@ const selectedSlots = ref(new Set<number>())
 const selectedSlotNumber = ref<number | null>(null)
 const parkingSlots = ref<ParkingSlot[]>([])
 const slotStatus = ref<Record<number, SlotStatus>>({})
+const cameras = ref<CCTVCamera[]>([])
+const cameraError = ref('')
+const cameraMediaErrors = ref<Record<string, boolean>>({})
 
 const tabs: { id: ActiveTab; label: string }[] = [
   { id: 'slots', label: 'Slots' },
@@ -267,41 +287,6 @@ const rowLabels = [
   { label: 'D', top: '56%' },
   { label: 'E', top: '70%' },
   { label: 'F', top: '83%' },
-]
-
-const cameras = [
-  {
-    name: 'Enter',
-    scene: 'scene-one',
-    timestamp: '03-05-2026 Sun 00:44:46',
-    plate: 'B-4CB17',
-    pillarA: 'E04',
-    pillarB: 'F05',
-  },
-  {
-    name: 'Exit',
-    scene: 'scene-two',
-    timestamp: '03-05-2026 Sun 00:44:46',
-    plate: 'B-4CB17',
-    pillarA: 'E05',
-    pillarB: 'F06',
-  },
-  {
-    name: 'Floor4 B6',
-    scene: 'scene-three',
-    timestamp: '03-05-2026 Sun 00:38:45',
-    plate: 'B-4CB5',
-    pillarA: 'D03',
-    pillarB: 'C03',
-  },
-  {
-    name: 'Floor4 C3',
-    scene: 'scene-four',
-    timestamp: '03-05-2026 Sun 00:39:36',
-    plate: 'B-4CB6',
-    pillarA: 'B03',
-    pillarB: 'A03',
-  },
 ]
 
 const parkingLogs = [
@@ -361,6 +346,31 @@ const statusClass = (status: string) => {
   return 'status-muted'
 }
 
+const canShowCameraMedia = (camera: CCTVCamera) => {
+  return camera.status === 'online' && Boolean(camera.mjpegUrl || camera.snapshotUrl) && !cameraMediaErrors.value[camera._id]
+}
+
+const cameraMediaUrl = (camera: CCTVCamera) => {
+  return cctvService.getMediaUrl(camera.mjpegUrl || camera.snapshotUrl || '')
+}
+
+const markCameraMediaError = (cameraId: string) => {
+  cameraMediaErrors.value = { ...cameraMediaErrors.value, [cameraId]: true }
+}
+
+const loadCameras = async () => {
+  cameraError.value = ''
+  cameraMediaErrors.value = {}
+
+  try {
+    const response = await cctvService.getCameras(selectedBuilding.value, selectedFloor.value)
+    cameras.value = response.data
+  } catch (error: any) {
+    cameras.value = []
+    cameraError.value = error.response?.data?.message || 'Unable to load cameras'
+  }
+}
+
 const selectedSlotStatus = computed<SlotStatus>(() => {
   if (selectedSlotNumber.value === null) return 'available'
   return slotStatusClass(selectedSlotNumber.value)
@@ -405,6 +415,18 @@ const handleDisableSelectedSlot = () => {
   closeSlotActions()
 }
 
+watch(activeTab, (tab) => {
+  if (tab === 'cctv' && cameras.value.length === 0) {
+    void loadCameras()
+  }
+})
+
+watch([selectedBuilding, selectedFloor], () => {
+  if (activeTab.value === 'cctv') {
+    void loadCameras()
+  }
+})
+
 onMounted(() => {
   const floor4Data = (parkingSlotsData as any).E4.floor4
   const allSlots: ParkingSlot[] = []
@@ -432,6 +454,7 @@ onMounted(() => {
     }
   })
   slotStatus.value = nextStatus
+  void loadCameras()
 })
 </script>
 
@@ -920,11 +943,26 @@ onMounted(() => {
   background: #9e9e9e;
 }
 
+.cctv-panel {
+  display: grid;
+  gap: 16px;
+}
+
 .cctv-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(320px, 1fr));
   gap: 12px 114px;
   padding: 0 38px 0 0;
+}
+
+.camera-message {
+  min-height: 220px;
+  border-radius: 8px;
+  background: #fff;
+  color: #555;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
 }
 
 .camera-card {
@@ -964,6 +1002,14 @@ onMounted(() => {
   background: #c7352c;
 }
 
+.camera-live-state.offline {
+  color: #757575;
+}
+
+.camera-live-state.offline i {
+  background: #9e9e9e;
+}
+
 .camera-feed {
   position: relative;
   height: 260px;
@@ -987,14 +1033,43 @@ onMounted(() => {
   transform-origin: top;
 }
 
+.camera-feed.live-feed {
+  display: grid;
+  place-items: center;
+  background: #0f1115;
+}
+
+.camera-feed.live-feed::before {
+  display: none;
+}
+
+.camera-feed.live-feed img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-fallback {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  color: #c7cad1;
+  font-size: 14px;
+}
+
 .timestamp {
   position: absolute;
   top: 10px;
   left: 15px;
   z-index: 4;
   color: rgba(255, 255, 255, 0.78);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.48);
+  padding: 4px 7px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -1076,6 +1151,26 @@ onMounted(() => {
   border-radius: 3px;
   background: #101524;
   color: #fff;
+}
+
+.camera-meta {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 38px 0;
+  color: #535353;
+  font-size: 13px;
+}
+
+.camera-meta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #9e2d25;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .scene-three,

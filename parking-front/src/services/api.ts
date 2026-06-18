@@ -1,8 +1,11 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '')
+
 const apiClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -51,6 +54,12 @@ export const cctvService = {
     }),
   getStreamUrl: (cameraId: string) => apiClient.get(`/staff/cctv/cameras/${cameraId}/stream`),
   getSnapshot: (cameraId: string) => apiClient.get(`/staff/cctv/cameras/${cameraId}/snapshot`),
+  getMediaUrl: (mediaPath: string) => {
+    const url = new URL(mediaPath, API_ORIGIN)
+    const token = localStorage.getItem('token')
+    if (token) url.searchParams.set('token', token)
+    return url.toString()
+  },
 }
 
 export const chatService = {
