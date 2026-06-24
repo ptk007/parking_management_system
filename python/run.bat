@@ -7,4 +7,5 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
+set PYTHONDONTWRITEBYTECODE=1
 ".venv\Scripts\python.exe" cctv_viewer.py %*

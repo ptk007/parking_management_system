@@ -10,6 +10,9 @@ and:
 
 It can also read `oldcctv4.json` or `oldcctvinfo4.json` if you place either file directly in this `python` folder.
 
+The viewer supports Python 3.8 and newer. The installer selects a compatible
+OpenCV package for the installed Python version.
+
 ## Install
 
 Open PowerShell or Command Prompt:
@@ -21,14 +24,28 @@ install.bat
 
 ## List Cameras
 
+Older CCTV file:
+
 ```bat
-run.bat --list
+run.bat --source old --list
 ```
 
-Use `cctvinfo2.json` instead:
+Newer CCTV file:
 
 ```bat
-run.bat --source cctvinfo2 --list
+run.bat --source new --list
+```
+
+Both files:
+
+```bat
+run.bat --source all --list
+```
+
+Automatically use the first available CCTV file:
+
+```bat
+run.bat --source auto --list
 ```
 
 Search by name or IP:
@@ -36,7 +53,8 @@ Search by name or IP:
 ```bat
 run.bat --search AD1
 run.bat --search 172.28.109.31
-run.bat --source cctvinfo2 --search Guardhouse
+run.bat --source new --search Guardhouse
+run.bat --source all --search ANPR
 ```
 
 ## Watch One Camera
@@ -47,10 +65,16 @@ Use the camera `NO` from the JSON:
 run.bat --camera 1
 ```
 
-Use `cctvinfo2.json`:
+Use the newer `cctvinfo2.json`:
 
 ```bat
-run.bat --source cctvinfo2 --camera 1
+run.bat --source new --camera 1
+```
+
+Use the older `oldcctvinfo4.json`:
+
+```bat
+run.bat --source old --camera 344
 ```
 
 Or use a camera name/IP:
@@ -68,3 +92,5 @@ Press `q` or `Esc` to close the video window.
 - If a stream does not open, test the RTSP URL in VLC first.
 - The JSON field used for RTSP is `ANPR&PTZ RTSP`.
 - Cameras with an empty RTSP field are skipped in the list because there is no stream URL to open.
+- Newer JSON files may use aliases such as `rtspUrl`, `streamUrl`, `cameraName`, or `ipAddress`.
+- With `--source all`, duplicate camera numbers must be selected by camera name or IP address.
