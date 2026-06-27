@@ -5,7 +5,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import cv2
+try:
+    import cv2
+except ImportError as error:
+    raise SystemExit("OpenCV is not installed. Run install.bat, then run this again.") from error
 
 
 RTSP_FIELD = "ANPR&PTZ RTSP"
