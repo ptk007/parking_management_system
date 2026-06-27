@@ -16,7 +16,7 @@ LOCATION_FIELD = "Location"
 
 FIELD_ALIASES = {
     NUMBER_FIELD: ("NO", "No", "no", "number", "camera_id", "cameraId", "id"),
-    IP_FIELD: ("IP ADDRESS", "IP Address", "ip_address", "ipAddress", "ip"),
+    IP_FIELD: ("IP ADDRESS", "IP Address", "ip_address", "ipAddress", "ipc"),
     NAME_FIELD: (
         "CAMERA NAME_NEW",
         "CAMERA NAME",
