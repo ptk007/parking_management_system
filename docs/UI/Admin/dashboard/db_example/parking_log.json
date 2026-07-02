@@ -1,0 +1,38 @@
+[
+  {
+    "_id": 1,
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car",
+    "name": "นายกิตติ เรียนดี",
+    "license_num": "กข-1234",
+    "province": "เชียงราย",
+    "veh_des": "Toyota Camry สีดำ",
+    "park_date": "2026-07-01",
+    "exit_date": "2026-07-01",
+    "park_time": "08:00:00",
+    "exit_time": "12:00:00",
+    "park_slot": "A01",
+    "park_status": "Exited",
+    "face_entrance": "storage/yolo_snapshots/in_log1.jpg",
+    "face_exit": "storage/yolo_snapshots/out_log1.jpg"
+  },
+  {
+    "_id": 2,
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car",
+    "name": "Guest",
+    "license_num": "ชน-5566",
+    "province": "เชียงใหม่",
+    "veh_des": "Honda Civic สีขาว",
+    "park_date": "2026-07-01",
+    "exit_date": null,
+    "park_time": "13:10:22",
+    "exit_time": null,
+    "park_slot": "A03",
+    "park_status": "Parking",
+    "face_entrance": "storage/yolo_snapshots/in_log2.jpg",
+    "face_exit": null
+  }
+]

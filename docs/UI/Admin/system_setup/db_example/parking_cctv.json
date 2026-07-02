@@ -1,0 +1,30 @@
+[
+  {
+    "_id": 1,
+    "cctv_file": "cctv_files/cctvinfo2.json",
+    "create_name": "System_Importer",
+    "CAMERA NAME_NEW": "Guardhouse-ANPR-01",
+    "IP Address": "172.30.36.11",
+    "ANPR&PTZ RTSP": "rtsp://mfustream:Mediamfu2025@172.30.36.11:554/Streaming/Channels/101/",
+    "status": "online",
+    "date_add": "2026-07-01",
+    "time_add": "09:00:00",
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car"
+  },
+  {
+    "_id": 2,
+    "cctv_file": "cctv_files/cctvinfo2.json",
+    "create_name": "System_Importer",
+    "CAMERA NAME_NEW": "FrontageRd-South",
+    "IP Address": "172.30.36.13",
+    "ANPR&PTZ RTSP": "",
+    "status": "offline", 
+    "date_add": "2026-07-01",
+    "time_add": "09:00:00",
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car"
+  }
+]

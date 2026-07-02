@@ -1,0 +1,9 @@
+[
+  { "_id": "user_id", "seq": 3 },
+  { "_id": "veh_id", "seq": 2 },
+  { "_id": "parking_id", "seq": 1 },
+  { "_id": "his_id", "seq": 1 },
+  { "_id": "park_id", "seq": 2 },
+  { "_id": "cctv_id", "seq": 2 },
+  { "_id": "slot_id", "seq": 4 }
+]
