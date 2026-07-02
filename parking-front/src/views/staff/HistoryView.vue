@@ -60,7 +60,7 @@ const historyEntries = ref<HistoryEntry[]>([
 <style scoped>
 .history-page {
   min-height: calc(100vh - 78px);
-  margin-left: 160px;
+  margin-left: 122px;
   background: #d8d8d8;
   padding: 30px 42px 42px;
 }

@@ -46,7 +46,7 @@ const logout = async () => {
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 40;
-  width: 160px;
+  width: 122px;
   background: #cf4647;
   display: flex;
   flex-direction: column;
@@ -54,7 +54,7 @@ const logout = async () => {
 }
 
 .sidebar-crest {
-  width: 104px;
+  width: 96px;
   height: 116px;
   margin-top: 24px;
   display: grid;
@@ -62,8 +62,8 @@ const logout = async () => {
 }
 
 .sidebar-crest img {
-  width: 84px;
-  height: 108px;
+  width: 76px;
+  height: 100px;
   object-fit: contain;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.18));
 }
@@ -83,9 +83,9 @@ const logout = async () => {
   color: #a7a7a7;
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 0 16px;
-  font-size: 14px;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12px;
   transition:
     background 0.16s ease,
     color 0.16s ease,
@@ -103,8 +103,8 @@ const logout = async () => {
 }
 
 .nav-icon {
-  width: 34px;
-  height: 34px;
+  width: 31px;
+  height: 31px;
   color: #232323;
   flex: 0 0 auto;
 }

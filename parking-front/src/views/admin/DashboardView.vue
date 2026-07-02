@@ -1,1623 +1,1850 @@
 <template>
   <div class="admin-dashboard">
-    <!-- Sidebar -->
-    <div class="sidebar">
-      <div class="sidebar-logo">
-        <div class="logo-circle">
-          <img :src="mfuLogo" alt="MFU Logo" class="logo-img" />
-        </div>
-        <h2>MFU Parking</h2>
-      </div>
+    <aside class="admin-sidebar">
+      <button class="sidebar-crest" type="button" @click="setSection('dashboard')">
+        <img :src="mfuLogo" alt="Mae Fah Luang University" />
+      </button>
 
       <nav class="sidebar-nav">
         <button
           v-for="item in navItems"
           :key="item.id"
-          @click="adminStore.activeTab = item.id"
-          :class="['nav-item', { active: adminStore.activeTab === item.id }]"
+          :class="['nav-card', activeSection === item.id ? 'is-active' : '']"
+          type="button"
+          @click="setSection(item.id)"
         >
-          <component :is="item.icon" class="nav-icon" />
+          <component :is="item.icon" class="nav-icon" :stroke-width="2.7" />
           <span>{{ item.label }}</span>
         </button>
       </nav>
+    </aside>
 
-      <div class="sidebar-user">
-        <div class="user-avatar">{{ authStore.user?.avatar }}</div>
-        <div class="user-info">
-          <p class="user-name">{{ authStore.user?.fullName }}</p>
-          <p class="user-role">{{ authStore.user?.role }}</p>
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div>
+          <h1>MFU Parking Management</h1>
+          <p>{{ adminName }} ● Admin</p>
         </div>
-        <button @click="handleLogout" class="logout-btn" title="Logout">
-          <LogOut class="w-4 h-4" />
-        </button>
-      </div>
-    </div>
 
-    <!-- Main Content -->
-    <div class="main-content">
-      <!-- Header -->
-      <div class="header">
-        <div class="header-title">
-          <h1>{{ activeTabLabel }}</h1>
-          <p>{{ adminStore.buildingFilter }} - Floor {{ adminStore.floorFilter }}</p>
+        <div class="topbar-actions">
+          <div class="online-status"><span></span><strong>Online</strong></div>
+          <button class="bell-button" type="button" aria-label="Notifications">
+            <Bell class="h-8 w-8" :stroke-width="1.8" />
+            <span></span>
+          </button>
+          <div class="avatar">{{ adminInitials }}</div>
         </div>
-        <div class="header-status">
-          <span class="online-indicator"></span>
-          <span>Online</span>
-        </div>
-      </div>
+      </header>
 
-      <!-- Filters & Stats (for Slots and CCTV) -->
-      <div v-if="['slots', 'cctv'].includes(adminStore.activeTab)" class="filters-section">
-        <div class="filters">
-          <div class="filter-group">
-            <label>Building *</label>
-            <select v-model="adminStore.buildingFilter" class="filter-select">
-              <option value="E4">E4</option>
-              <option value="E5">E5</option>
-            </select>
+      <section v-if="activeSection === 'dashboard'" class="section-shell dashboard-section">
+        <div class="tabbar">
+          <button
+            v-for="tab in dashboardTabs"
+            :key="tab.id"
+            :class="['tab-button', activeDashboardTab === tab.id ? 'is-active' : '']"
+            type="button"
+            @click="activeDashboardTab = tab.id"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+
+        <FilterStats :stats="adminStats" />
+
+        <div class="dashboard-content">
+          <ReferenceParkingMap v-if="activeDashboardTab === 'slots'" />
+
+          <div v-else-if="activeDashboardTab === 'cctv'" class="admin-cctv-grid">
+            <CameraPreviewCard
+              v-for="camera in adminDashboardCameras"
+              :key="camera"
+              :title="camera"
+              mode="detection"
+            />
           </div>
-          <div class="filter-group">
-            <label>Floor *</label>
-            <select v-model="adminStore.floorFilter" class="filter-select">
-              <option value="4">4</option>
-              <option value="5">5</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label>Vehicle *</label>
-            <select v-model="adminStore.vehicleFilter" class="filter-select">
-              <option value="Cars">Cars</option>
-              <option value="Motorcycle">Motorcycle</option>
-            </select>
-          </div>
+
+          <ParkingLogList v-else />
         </div>
+      </section>
 
-        <div class="stats">
-          <div v-for="stat in adminStats" :key="stat.label" class="stat-card">
-            <span class="stat-value" :style="{ color: stat.color }">{{ stat.value }}</span>
-            <span class="stat-label">{{ stat.label }}</span>
+      <section v-else-if="activeSection === 'staff'" class="section-shell staff-manager-section">
+        <div v-if="staffMode === 'list'" class="staff-list-panel">
+          <div class="staff-list-header">
+            <button class="green-button add-staff-button" type="button" @click="openAddStaff">
+              <UserPlus class="h-5 w-5" :stroke-width="2.7" />
+              Add Staff
+            </button>
+            <h2>Staff List</h2>
+            <p>
+              *Edit staff can edit in each person<br />
+              *Can edit staff when only offline or disable
+            </p>
           </div>
-        </div>
-      </div>
 
-      <!-- Content Sections -->
-      <div class="content">
-        <!-- Slots Tab -->
-        <div v-if="adminStore.activeTab === 'slots'" class="tab-content">
-          <div class="slots-container">
-            <!-- Parking Map -->
-            <div class="parking-map">
-              <div class="map-heading">
-                <span></span>
-                <strong>{{ adminStore.buildingFilter }}</strong>
-                <span></span>
-              </div>
-
-              <div class="gate-label out">out</div>
-              <div class="gate-label in">in</div>
-              <div class="gate-label up">up</div>
-              <div class="gate-label down">down</div>
-
-              <div v-for="row in rowLabels" :key="row.label" class="row-label" :style="{ top: row.top }">
-                {{ row.label }}
-              </div>
-
-              <svg class="flow-lines" viewBox="0 0 1000 520" aria-hidden="true">
-                <defs>
-                  <marker id="admin-flow-arrow" markerHeight="10" markerWidth="10" orient="auto" refX="8" refY="5">
-                    <path d="M0,0 L10,5 L0,10 Z" fill="rgba(255, 167, 145, 0.72)" />
-                  </marker>
-                </defs>
-                <path d="M95 140 C160 205, 220 165, 245 165" marker-end="url(#admin-flow-arrow)" />
-                <path d="M320 170 C390 168, 430 168, 485 168" marker-end="url(#admin-flow-arrow)" />
-                <path d="M555 165 C630 160, 705 160, 760 166" marker-end="url(#admin-flow-arrow)" />
-                <path d="M895 160 C960 200, 960 285, 900 312" marker-end="url(#admin-flow-arrow)" />
-                <path d="M790 305 C700 302, 630 300, 535 306" marker-end="url(#admin-flow-arrow)" />
-                <path d="M455 306 C360 310, 265 306, 165 308" marker-end="url(#admin-flow-arrow)" />
-                <path d="M70 310 C40 260, 44 210, 78 170" marker-end="url(#admin-flow-arrow)" />
-                <path d="M675 400 C660 350, 665 325, 700 302" marker-end="url(#admin-flow-arrow)" />
-                <path d="M905 315 C928 415, 810 455, 705 420" marker-end="url(#admin-flow-arrow)" />
-              </svg>
-
-              <button
-                v-for="slot in parkingSlots"
-                :key="slot.slotNumber"
-                :class="[
-                  'slot',
-                  slotStatusClass(slot.slotNumber),
-                  { selected: selectedSlots.has(slot.slotNumber) },
-                ]"
-                :style="slotStyle(slot)"
-                type="button"
-                @click="openSlotActions(slot.slotNumber)"
-              >
-                <Check v-if="selectedSlots.has(slot.slotNumber)" class="h-4 w-4" :stroke-width="3" />
-                <span v-else>{{ slot.slotNumber }}</span>
+          <article v-for="staff in adminStore.staffList" :key="staff._id" class="staff-card">
+            <div class="profile-icon"><UserRound class="h-14 w-14" :stroke-width="1.8" /></div>
+            <div class="staff-copy">
+              <p>Staff Name : {{ staff.staffName }}</p>
+              <p>Username : {{ staff.username }}</p>
+              <p>
+                Password : {{ staff.password }}
+                <EyeOff class="inline-icon h-4 w-4" :stroke-width="2.2" />
+              </p>
+              <p>Date added : {{ staff.dateAdded }}</p>
+              <p>Time added : {{ staff.timeAdded }}</p>
+              <p>Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong></p>
+            </div>
+            <div class="row-actions">
+              <button type="button" aria-label="Edit staff" @click="openEditStaff(staff)">
+                <SquarePen class="h-6 w-6" :stroke-width="2.4" />
+              </button>
+              <button type="button" aria-label="Delete staff" @click="adminStore.deleteStaff(staff._id)">
+                <Trash2 class="h-6 w-6" :stroke-width="2.4" />
               </button>
             </div>
-
-            <!-- Slot Controls -->
-            <div class="slot-controls">
-              <div class="status-legend" aria-label="Slot status legend">
-                <span><i class="available"></i>Available</span>
-                <span><i class="incoming"></i>Incoming</span>
-                <span><i class="occupied"></i>Occupied</span>
-                <span><i class="disabled"></i>Disable</span>
-              </div>
-              <strong class="control-info">Selecting : {{ selectedSlots.size }}</strong>
-            </div>
-
-            <div v-if="selectedSlotNumber !== null" class="slot-popup-backdrop" @click.self="closeSlotActions">
-              <div class="slot-popup" role="dialog" aria-modal="true" aria-labelledby="admin-slot-popup-title">
-                <div class="slot-popup-header">
-                  <div>
-                    <p>Parking slot</p>
-                    <h3 id="admin-slot-popup-title">Slot {{ selectedSlotNumber }}</h3>
-                  </div>
-                  <button class="slot-popup-close" type="button" aria-label="Close slot actions" @click="closeSlotActions">
-                    x
-                  </button>
-                </div>
-                <div class="slot-popup-status">
-                  <span>Status</span>
-                  <strong :class="selectedSlotStatus">{{ selectedSlotStatusLabel }}</strong>
-                </div>
-                <div class="slot-popup-actions">
-                  <button
-                    class="btn btn-success"
-                    type="button"
-                    :disabled="!canEnableSelectedSlot"
-                    @click="handleEnableSelectedSlot"
-                  >
-                    Enable
-                  </button>
-                  <button
-                    class="btn btn-danger"
-                    type="button"
-                    :disabled="!canDisableSelectedSlot"
-                    @click="handleDisableSelectedSlot"
-                  >
-                    Disable
-                  </button>
-                </div>
-                <p v-if="selectedSlotStatus === 'incoming'" class="slot-popup-note">
-                  Incoming slots cannot be enabled.
-                </p>
-                <p v-else-if="selectedSlotStatus === 'occupied'" class="slot-popup-note">
-                  Occupied slots cannot be changed.
-                </p>
-              </div>
-            </div>
-          </div>
+          </article>
         </div>
 
-        <!-- CCTV Tab -->
-        <div v-if="adminStore.activeTab === 'cctv'" class="tab-content">
-          <div class="cctv-container">
-            <div class="cctv-header">
-              <button class="btn btn-success btn-lg">+ Add Camera</button>
-            </div>
+        <StaffFormPanel
+          v-else
+          :mode="staffMode"
+          :form="staffForm"
+          @save="saveStaff"
+          @cancel="staffMode = 'list'"
+          @add-more="resetStaffForm()"
+        />
+      </section>
 
-            <div class="camera-grid">
-              <div v-for="camera in adminStore.cameras" :key="camera._id" class="camera-card">
-                <div class="camera-feed">
-                  <img src="https://via.placeholder.com/400x300/cccccc/999999?text=CCTV+Feed" alt="Camera Feed" />
-                  <div class="camera-status" :class="camera.status.toLowerCase()">
-                    <span class="status-dot"></span>
-                    {{ camera.status }}
-                  </div>
-                </div>
-                <div class="camera-info">
-                  <h3>{{ camera.cameraName }}</h3>
-                  <p><strong>IP Address:</strong> {{ camera.ipAddress }}</p>
-                  <p><strong>Status:</strong> {{ camera.status }}</p>
-                  <p><strong>Last Update:</strong> {{ camera.lastUpdate }}</p>
-                </div>
-                <div class="camera-actions">
-                  <button class="btn btn-primary btn-sm">Edit Camera</button>
-                </div>
-              </div>
-            </div>
-          </div>
+      <section v-else class="section-shell setup-section">
+        <div class="setup-tabs">
+          <button
+            :class="['tab-button', setupTab === 'parking' ? 'is-active' : '']"
+            type="button"
+            @click="showParkingSetup"
+          >
+            Parking
+          </button>
+          <button
+            :class="['tab-button', setupTab === 'cctv' ? 'is-active' : '']"
+            type="button"
+            @click="showCctvSetup"
+          >
+            CCTV
+          </button>
         </div>
 
-        <!-- Staff Manager Tab -->
-        <div v-if="adminStore.activeTab === 'staff'" class="tab-content">
-          <div class="staff-container">
-            <div class="staff-header">
-              <h2>Staff List</h2>
-              <p class="staff-note">*Edit staff can edit in each person<br />*Can edit staff when only offline or disable</p>
-              <button class="btn btn-success btn-lg">+ Add Staff</button>
-            </div>
+        <div class="setup-workspace">
+          <ParkingSetupList
+            v-if="setupMode === 'parking-list'"
+            :floors="adminStore.floors"
+            @add-building="setupMode = 'add-building'"
+            @add-floor="setupMode = 'add-floor'"
+            @edit-floor="setupMode = 'edit-floor'"
+          />
 
-            <div class="staff-list">
-              <div v-for="staff in adminStore.staffList" :key="staff._id" class="staff-card">
-                <div class="staff-avatar">
-                  <UserCircle class="w-16 h-16" />
-                </div>
-                <div class="staff-details">
-                  <p><strong>Staff Name:</strong> {{ staff.staffName }}</p>
-                  <p><strong>Username:</strong> {{ staff.username }}</p>
-                  <p><strong>Password:</strong> {{ staff.password }}</p>
-                  <p><strong>Date added:</strong> {{ staff.dateAdded }}</p>
-                  <p><strong>Time added:</strong> {{ staff.timeAdded }}</p>
-                  <p><strong>Status:</strong> <span :class="['status-badge', staff.status.toLowerCase()]">{{ staff.status }}</span></p>
-                </div>
-                <div class="staff-actions">
-                  <button class="btn btn-primary btn-sm">
-                    <Edit class="w-4 h-4" />
-                  </button>
-                  <button class="btn btn-danger btn-sm">
-                    <Trash2 class="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <BuildingFormPanel
+            v-else-if="setupMode === 'add-building'"
+            mode="add"
+            @save="showParkingSetup"
+            @cancel="showParkingSetup"
+          />
+
+          <FloorFormPanel
+            v-else-if="setupMode === 'add-floor'"
+            mode="add"
+            @save="showParkingSetup"
+            @cancel="showParkingSetup"
+          />
+
+          <FloorFormPanel
+            v-else-if="setupMode === 'edit-floor'"
+            mode="edit"
+            @save="showParkingSetup"
+            @cancel="showParkingSetup"
+          />
+
+          <CCTVSetupList
+            v-else-if="setupMode === 'cctv-list'"
+            @add-cctv="setupMode = 'add-cctv'"
+            @edit-cctv="setupMode = 'edit-cctv'"
+          />
+
+          <CCTVFormPanel
+            v-else-if="setupMode === 'add-cctv'"
+            mode="add"
+            @save="showCctvSetup"
+            @cancel="showCctvSetup"
+          />
+
+          <CCTVFormPanel
+            v-else
+            mode="edit"
+            @save="showCctvSetup"
+            @cancel="showCctvSetup"
+          />
         </div>
+      </section>
+    </main>
 
-        <!-- System Setup Tab -->
-        <div v-if="adminStore.activeTab === 'setup'" class="tab-content">
-          <div class="setup-container">
-            <div class="setup-section">
-              <h2>Parking Setup</h2>
-
-              <!-- Buildings Section -->
-              <div class="setup-subsection">
-                <div class="subsection-header">
-                  <h3>Buildings</h3>
-                  <button class="btn btn-success btn-sm">+ Add Building</button>
-                </div>
-
-                <div class="setup-grid">
-                  <div v-for="building in adminStore.buildings" :key="building._id" class="setup-card">
-                    <div class="setup-card-image">
-                      <img src="https://via.placeholder.com/300x200/cccccc/999999?text=Building" alt="Building" />
-                    </div>
-                    <div class="setup-card-content">
-                      <h4>{{ building.buildingName }}</h4>
-                      <p><strong>All Floors:</strong> {{ building.floors }}</p>
-                      <p><strong>Last Date added:</strong> {{ building.lastDateAdded }}</p>
-                      <p><strong>Last Time added:</strong> {{ building.lastTimeAdded }}</p>
-                    </div>
-                    <div class="setup-card-actions">
-                      <button class="btn btn-primary btn-sm">View Floor</button>
-                      <button class="btn btn-secondary btn-sm">Edit</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Floors Section -->
-              <div class="setup-subsection">
-                <div class="subsection-header">
-                  <h3>Floors</h3>
-                  <button class="btn btn-success btn-sm">+ Add Floor</button>
-                </div>
-
-                <div class="setup-grid">
-                  <div v-for="floor in adminStore.floors" :key="floor._id" class="setup-card">
-                    <div class="setup-card-icon">
-                      <MapPin class="w-12 h-12" />
-                    </div>
-                    <div class="setup-card-content">
-                      <h4>Floor {{ floor.floorNumber }} ({{ floor.vehicleType }})</h4>
-                      <p><strong>Building:</strong> {{ floor.building }}</p>
-                      <p><strong>Status:</strong> <span :class="['status-badge', floor.status.toLowerCase()]">{{ floor.status }}</span></p>
-                      <p><strong>Total Slots:</strong> {{ floor.slotsCount }}</p>
-                    </div>
-                    <div class="setup-card-actions">
-                      <button class="btn btn-primary btn-sm">Parking Map</button>
-                      <button class="btn btn-secondary btn-sm">Edit</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Log Tab -->
-        <div v-if="adminStore.activeTab === 'log'" class="tab-content">
-          <div class="log-container">
-            <div class="log-header">
-              <h2>Parking Activity Log</h2>
-              <div class="log-filters">
-                <input type="date" class="filter-input" />
-                <select class="filter-select">
-                  <option>All Status</option>
-                  <option>Parking</option>
-                  <option>Exited</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="log-table">
-              <div class="log-table-header">
-                <div class="log-col">Vehicle Info</div>
-                <div class="log-col">Owner</div>
-                <div class="log-col">Entry Time</div>
-                <div class="log-col">Exit Time</div>
-                <div class="log-col">Duration</div>
-                <div class="log-col">Status</div>
-              </div>
-
-              <div class="log-table-body">
-                <div class="log-row">
-                  <div class="log-col">Plate: ABC-1234</div>
-                  <div class="log-col">John Doe</div>
-                  <div class="log-col">10:30 AM</div>
-                  <div class="log-col">11:45 AM</div>
-                  <div class="log-col">1h 15m</div>
-                  <div class="log-col"><span class="status-badge exited">Exited</span></div>
-                </div>
-                <div class="log-row">
-                  <div class="log-col">Plate: XYZ-5678</div>
-                  <div class="log-col">Jane Smith</div>
-                  <div class="log-col">09:15 AM</div>
-                  <div class="log-col">-</div>
-                  <div class="log-col">2h 30m</div>
-                  <div class="log-col"><span class="status-badge parking">Parking</span></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ChatWidget />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { useAdminStore } from '@/stores/admin'
+import { computed, defineComponent, h, reactive, ref } from 'vue'
 import {
-  Check,
-  LayoutDashboard,
-  Video,
-  Users,
-  Settings,
-  LogOut,
-  FileText,
-  UserCircle,
-  Edit,
+  Bell,
+  Bike,
+  CarFront,
+  CheckCircle2,
+  CircleArrowUp,
+  EyeOff,
+  Map,
+  Monitor,
+  Search,
+  SquarePen,
   Trash2,
-  MapPin,
+  UserPlus,
+  UserRound,
+  Users,
+  VideoOff,
+  Wrench,
+  X,
 } from 'lucide-vue-next'
+import { useAuthStore } from '@/stores/auth'
+import { useAdminStore, type StaffMember, type Floor } from '@/stores/admin'
+import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
+import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
+import ChatWidget from '@/components/chat/ChatWidget.vue'
 import mfuLogo from '@/assets/mae-fah-luang-university.png'
-import parkingSlotsData from '@/data/parking-slots.json'
 
-type SlotStatus = 'available' | 'incoming' | 'occupied' | 'disabled'
+type AdminSection = 'dashboard' | 'staff' | 'setup'
+type DashboardTab = 'slots' | 'cctv' | 'log'
+type StaffMode = 'list' | 'add' | 'edit'
+type SetupTab = 'parking' | 'cctv'
+type SetupMode =
+  | 'parking-list'
+  | 'add-building'
+  | 'add-floor'
+  | 'edit-floor'
+  | 'cctv-list'
+  | 'add-cctv'
+  | 'edit-cctv'
 
-interface ParkingSlot {
-  slotNumber: number
-  x: number
-  y: number
+interface StaffFormState {
+  staffName: string
+  username: string
+  password: string
+  confirmPassword: string
+  status: StaffMember['status']
 }
 
-const router = useRouter()
 const authStore = useAuthStore()
 const adminStore = useAdminStore()
-const selectedSlots = ref(new Set<number>())
-const selectedSlotNumber = ref<number | null>(null)
-const parkingSlots = ref<ParkingSlot[]>([])
-const slotStatus = ref<Record<number, SlotStatus>>({})
 
-const incomingSlotNumbers = [8, 9, 10, 24, 25, 26]
-const disabledSlotNumbers = [45, 46, 47]
+const activeSection = ref<AdminSection>('dashboard')
+const activeDashboardTab = ref<DashboardTab>('slots')
+const staffMode = ref<StaffMode>('list')
+const setupTab = ref<SetupTab>('parking')
+const setupMode = ref<SetupMode>('parking-list')
+const editingStaffId = ref<string | null>(null)
 
 const navItems = [
-  { id: 'slots', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'cctv', label: 'CCTV', icon: Video },
-  { id: 'staff', label: 'Staff Manager', icon: Users },
-  { id: 'setup', label: 'System Setup', icon: Settings },
-  { id: 'log', label: 'Log', icon: FileText },
+  { id: 'dashboard' as const, label: 'Dashboard', icon: Monitor },
+  { id: 'staff' as const, label: 'Staff\nManager', icon: Users },
+  { id: 'setup' as const, label: 'System\nSetup', icon: Wrench },
 ]
 
-const activeTabLabel = computed(() => {
-  const item = navItems.find((item) => item.id === adminStore.activeTab)
-  return item?.label || 'Dashboard'
-})
-
-const adminStats = computed(() => {
-  const statuses = Object.values(slotStatus.value)
-  const count = (status: SlotStatus) => statuses.filter((slot) => slot === status).length
-  const hasLoadedSlots = parkingSlots.value.length > 0
-
-  return [
-    { label: 'Total slots', value: parkingSlots.value.length || adminStore.stats.totalSlots, color: '#3b82f6' },
-    { label: 'Available', value: hasLoadedSlots ? count('available') : adminStore.stats.available, color: '#4caf50' },
-    { label: 'Incoming', value: hasLoadedSlots ? count('incoming') : adminStore.stats.incoming, color: '#f5c443' },
-    { label: 'Occupied', value: hasLoadedSlots ? count('occupied') : adminStore.stats.occupied, color: '#ef4444' },
-    { label: 'Disable', value: hasLoadedSlots ? count('disabled') : adminStore.stats.disabled, color: '#7d7d7d' },
-    { label: 'Active Staff', value: adminStore.stats.activeStaff, color: '#4f46e5' },
-  ]
-})
-
-const rowLabels = [
-  { label: 'A', top: '18%' },
-  { label: 'B', top: '32%' },
-  { label: 'C', top: '42%' },
-  { label: 'D', top: '56%' },
-  { label: 'E', top: '70%' },
-  { label: 'F', top: '83%' },
+const dashboardTabs: { id: DashboardTab; label: string }[] = [
+  { id: 'slots', label: 'Slots' },
+  { id: 'cctv', label: 'CCTV' },
+  { id: 'log', label: 'Log' },
 ]
 
-const slotVerticalOffset = 42
-const slotVerticalScale = 760
+const adminStats = [
+  { label: 'Total slots', value: 124, color: '#cf3b30' },
+  { label: 'Available', value: 47, color: '#16a36a' },
+  { label: 'Incoming', value: 6, color: '#f4c233' },
+  { label: 'Occupied', value: 74, color: '#bd7a10' },
+  { label: 'Disable', value: 3, color: '#777777' },
+  { label: 'Active Staff', value: 6, color: '#5141c9' },
+]
 
-const slotStyle = (slot: ParkingSlot) => ({
-  left: `${(slot.x / 1300) * 100}%`,
-  top: `${((slot.y + slotVerticalOffset) / slotVerticalScale) * 100}%`,
+const adminDashboardCameras = ['Entrance', 'Exit', 'Floor4 B6', 'Floor4 A5']
+
+const staffForm = reactive<StaffFormState>({
+  staffName: 'Panuwat Panan',
+  username: 'Panuwat',
+  password: '************',
+  confirmPassword: '',
+  status: 'Offline',
 })
 
-const slotStatusClass = (slotNumber: number) => {
-  return slotStatus.value[slotNumber] || 'available'
+const adminName = computed(() => authStore.user?.fullName || 'Thanawit Boonphom')
+const adminInitials = computed(() => authStore.user?.avatar || 'TB')
+
+const setSection = (section: AdminSection) => {
+  activeSection.value = section
+  if (section === 'staff') staffMode.value = 'list'
+  if (section === 'setup') showParkingSetup()
 }
 
-const selectedSlotStatus = computed<SlotStatus>(() => {
-  if (selectedSlotNumber.value === null) return 'available'
-  return slotStatusClass(selectedSlotNumber.value)
-})
-
-const selectedSlotStatusLabel = computed(() => {
-  const status = selectedSlotStatus.value
-  return status.charAt(0).toUpperCase() + status.slice(1)
-})
-
-const canEnableSelectedSlot = computed(() => {
-  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
-})
-
-const canDisableSelectedSlot = computed(() => {
-  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
-})
-
-const openSlotActions = (slotNumber: number) => {
-  selectedSlotNumber.value = slotNumber
-  selectedSlots.value = new Set([slotNumber])
+const resetStaffForm = (staff?: StaffMember) => {
+  staffForm.staffName = staff?.staffName || 'Panuwat Panan'
+  staffForm.username = staff?.username || 'Panuwat'
+  staffForm.password = '************'
+  staffForm.confirmPassword = ''
+  staffForm.status = staff?.status || 'Offline'
 }
 
-const closeSlotActions = () => {
-  selectedSlotNumber.value = null
-  selectedSlots.value = new Set()
+const openAddStaff = () => {
+  editingStaffId.value = null
+  resetStaffForm()
+  staffMode.value = 'add'
 }
 
-const handleEnableSelectedSlot = () => {
-  if (selectedSlotNumber.value === null || !canEnableSelectedSlot.value) return
-  const nextStatus = { ...slotStatus.value }
-  nextStatus[selectedSlotNumber.value] = 'available'
-  slotStatus.value = nextStatus
-  closeSlotActions()
+const openEditStaff = (staff: StaffMember) => {
+  editingStaffId.value = staff._id
+  resetStaffForm(staff)
+  staffMode.value = 'edit'
 }
 
-const handleDisableSelectedSlot = () => {
-  if (selectedSlotNumber.value === null || !canDisableSelectedSlot.value) return
-  const nextStatus = { ...slotStatus.value }
-  nextStatus[selectedSlotNumber.value] = 'disabled'
-  slotStatus.value = nextStatus
-  closeSlotActions()
-}
-
-const handleLogout = async () => {
-  await authStore.logout()
-  router.push('/login')
-}
-
-onMounted(() => {
-  const floor4Data = (parkingSlotsData as any).E4.floor4
-  const allSlots: ParkingSlot[] = []
-
-  for (const row of Object.values(floor4Data.rows) as any[]) {
-    allSlots.push(
-      ...row.positions.map((position: any) => ({
-        slotNumber: Number(position.slot ?? position.slotNumber),
-        x: Number(position.x),
-        y: Number(position.y),
-      })),
-    )
+const saveStaff = () => {
+  if (staffMode.value === 'add') {
+    adminStore.addStaff({
+      _id: `${Date.now()}`,
+      staffName: staffForm.staffName,
+      username: staffForm.username,
+      password: '**********',
+      dateAdded: '19/3/2569',
+      timeAdded: '12:00:00',
+      status: staffForm.status,
+    })
+  } else if (editingStaffId.value) {
+    adminStore.updateStaff(editingStaffId.value, {
+      staffName: staffForm.staffName,
+      username: staffForm.username,
+      status: staffForm.status,
+    })
   }
+  staffMode.value = 'list'
+}
 
-  parkingSlots.value = allSlots.sort((a, b) => a.slotNumber - b.slotNumber)
-  const nextStatus: Record<number, SlotStatus> = { ...floor4Data.slotStatus }
-  incomingSlotNumbers.forEach((slotNumber) => {
-    if (nextStatus[slotNumber] !== 'occupied') {
-      nextStatus[slotNumber] = 'incoming'
+const showParkingSetup = () => {
+  setupTab.value = 'parking'
+  setupMode.value = 'parking-list'
+}
+
+const showCctvSetup = () => {
+  setupTab.value = 'cctv'
+  setupMode.value = 'cctv-list'
+}
+
+const statusClass = (status: StaffMember['status']) => {
+  return `status-${status.toLowerCase()}`
+}
+
+const FilterStats = defineComponent({
+  props: {
+    stats: {
+      type: Array as () => { label: string; value: number; color: string }[],
+      required: true,
+    },
+  },
+  setup(props) {
+    const building = ref('E4')
+    const floor = ref('4')
+    const vehicle = ref('Cars')
+    const filters = [
+      { label: 'Building', model: building, options: ['E4'] },
+      { label: 'Floor', model: floor, options: ['4'] },
+      { label: 'Vehicle', model: vehicle, options: ['Cars', 'Motorcycles'] },
+    ]
+
+    return () =>
+      h('div', { class: 'dashboard-toolbar' }, [
+        h(
+          'div',
+          { class: 'filters' },
+          filters.map((filter) =>
+            h('label', { class: 'filter-control' }, [
+              h('span', `${filter.label} *`),
+              h(
+                'select',
+                {
+                  value: filter.model.value,
+                  onChange: (event: Event) => {
+                    filter.model.value = (event.target as HTMLSelectElement).value
+                  },
+                },
+                filter.options.map((option) => h('option', { value: option }, option)),
+              ),
+            ]),
+          ),
+        ),
+        h(
+          'div',
+          { class: 'stats' },
+          props.stats.map((stat) =>
+            h('div', { class: 'stat-card' }, [
+              h('strong', { style: { color: stat.color } }, stat.value),
+              h('span', stat.label),
+            ]),
+          ),
+        ),
+      ])
+  },
+})
+
+const FacePlaceholder = defineComponent({
+  props: {
+    label: {
+      type: String,
+      required: true,
+    },
+  },
+  setup(props) {
+    return () =>
+      h('figure', { class: 'face-placeholder' }, [
+        h('div', [h(UserRound, { class: 'h-11 w-11', strokeWidth: 1.8 })]),
+        h('figcaption', props.label),
+      ])
+  },
+})
+
+const ParkingLogList = defineComponent({
+  setup() {
+    const logs = [
+      {
+        id: 1,
+        name: 'Mrs. Wilayporn Nonsila',
+        licenseNumber: 'กง 1234',
+        province: 'เชียงราย',
+        vehicleDescription: 'Black Toyota Fortuner',
+        date: '12/08/2569',
+        parkingTime: '12:00:34',
+        exitTime: '-',
+        parkingSlot: '10',
+        status: 'Parking',
+      },
+      {
+        id: 2,
+        name: '*Guest555',
+        licenseNumber: 'กถ 5555',
+        province: 'ลำพูน',
+        vehicleDescription: 'Unknown',
+        date: '12/08/2569',
+        parkingTime: '14:00:34',
+        exitTime: '16:01:21',
+        parkingSlot: '54',
+        status: 'Exited',
+      },
+      {
+        id: 3,
+        name: 'Anutin Charnvirakul',
+        licenseNumber: 'รย 1000',
+        province: 'กรุงเทพมหานคร',
+        vehicleDescription: 'BYD blue pearl',
+        date: '12/08/2569',
+        parkingTime: '-',
+        exitTime: '-',
+        parkingSlot: '-',
+        status: 'Not Parking',
+      },
+    ]
+
+    const logStatusClass = (status: string) => {
+      if (status === 'Parking') return 'status-parking'
+      if (status === 'Exited') return 'status-exited'
+      return 'status-muted'
     }
-  })
-  disabledSlotNumbers.forEach((slotNumber) => {
-    if (nextStatus[slotNumber] !== 'occupied') {
-      nextStatus[slotNumber] = 'disabled'
-    }
-  })
-  slotStatus.value = nextStatus
+
+    return () =>
+      h('div', { class: 'logs-panel' }, [
+        h('div', { class: 'warning-banner' }, [h('span', 'Exited'), ' car log will reset after 24 hours']),
+        logs.map((log) =>
+          h('article', { class: 'log-card', key: log.id }, [
+            h(CarFront, { class: 'log-car h-9 w-9', strokeWidth: 2.4 }),
+            h('div', { class: 'vehicle-info' }, [
+              h('p', ['Name ', h('span', ':'), ` ${log.name}`]),
+              h('p', ['License Number ', h('span', ':'), ` ${log.licenseNumber}`]),
+              h('p', ['Province ', h('span', ':'), ` ${log.province}`]),
+              h('p', ['Vehicle Description ', h('span', ':'), ` ${log.vehicleDescription}`]),
+            ]),
+            h('div', { class: 'parking-info' }, [
+              h('p', ['Date ', h('span', ':'), ` ${log.date}`]),
+              h('p', ['Parking Time ', h('span', ':'), ` ${log.parkingTime}`]),
+              h('p', ['Exit Time ', h('span', ':'), ` ${log.exitTime}`]),
+              h('p', ['Parking slot number ', h('span', ':'), ` ${log.parkingSlot}`]),
+              h('p', [
+                'Parking Status ',
+                h('span', ':'),
+                ' ',
+                h('strong', { class: logStatusClass(log.status) }, log.status),
+              ]),
+            ]),
+            h('div', { class: 'face-driver' }, [
+              h('p', 'Face Driver'),
+              h('div', [h(FacePlaceholder, { label: 'Entered' }), h(FacePlaceholder, { label: 'Exited' })]),
+            ]),
+          ]),
+        ),
+      ])
+  },
+})
+
+const StaffFormPanel = defineComponent({
+  props: {
+    mode: {
+      type: String as () => 'add' | 'edit',
+      required: true,
+    },
+    form: {
+      type: Object as () => StaffFormState,
+      required: true,
+    },
+  },
+  emits: ['save', 'cancel', 'add-more'],
+  setup(props, { emit }) {
+    return () =>
+      h('div', { class: ['staff-form-panel', props.mode] }, [
+        h('h2', props.mode === 'add' ? 'Add Staff' : 'Edit Staff'),
+        h('div', { class: 'staff-form-card' }, [
+          h('div', { class: 'profile-icon large' }, [h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })]),
+          h('div', { class: 'staff-form-fields' }, [
+            h('label', [
+              h('span', 'Staff Name :'),
+              h('input', {
+                value: props.form.staffName,
+                onInput: (event: Event) => {
+                  props.form.staffName = (event.target as HTMLInputElement).value
+                },
+              }),
+            ]),
+            h('label', [
+              h('span', 'Username :'),
+              h('input', {
+                value: props.form.username,
+                onInput: (event: Event) => {
+                  props.form.username = (event.target as HTMLInputElement).value
+                },
+              }),
+            ]),
+            h('label', [
+              h('span', 'Password :'),
+              h('input', {
+                type: 'password',
+                value: props.form.password,
+                onInput: (event: Event) => {
+                  props.form.password = (event.target as HTMLInputElement).value
+                },
+              }),
+              h(EyeOff, { class: 'field-icon h-4 w-4', strokeWidth: 2.2 }),
+            ]),
+            h('label', [
+              h('span', 'Confirm Password :'),
+              h('input', {
+                type: 'password',
+                value: props.form.confirmPassword,
+                onInput: (event: Event) => {
+                  props.form.confirmPassword = (event.target as HTMLInputElement).value
+                },
+              }),
+            ]),
+          ]),
+          props.mode === 'edit'
+            ? h('div', { class: 'form-actions' }, [
+                h('button', { class: 'blue-button', type: 'button', onClick: () => emit('save') }, 'Edit'),
+                h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
+              ])
+            : null,
+        ]),
+        props.mode === 'add'
+          ? h('button', { class: 'add-more-row', type: 'button', onClick: () => emit('add-more') }, '+ Add More Staff')
+          : null,
+        props.mode === 'add'
+          ? h('button', { class: 'green-button save-add', type: 'button', onClick: () => emit('save') }, 'Add')
+          : null,
+      ])
+  },
+})
+
+const ParkingSetupList = defineComponent({
+  props: {
+    floors: {
+      type: Array as () => Floor[],
+      required: true,
+    },
+  },
+  emits: ['add-building', 'add-floor', 'edit-floor'],
+  setup(props, { emit }) {
+    return () =>
+      h('div', { class: 'parking-setup-list' }, [
+        h('div', { class: 'setup-actions' }, [
+          h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-building') }, '+ Add Building'),
+          h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-floor') }, '+ Add Floor'),
+        ]),
+        h('article', { class: 'building-row' }, [
+          h('div', { class: 'building-photo' }),
+          h('div', { class: 'setup-copy' }, [
+            h('p', 'Building : E4'),
+            h('p', 'All Floor : 4'),
+            h('p', 'Last Date added : 19/3/2569'),
+            h('p', 'Last Time added : 12:00:00'),
+          ]),
+          h('button', { class: 'map-link', type: 'button' }, [
+            h(CircleArrowUp, { class: 'h-10 w-10', strokeWidth: 2.4 }),
+            h('span', 'View Floor'),
+          ]),
+          h('button', { class: 'blue-button', type: 'button', onClick: () => emit('add-building') }, 'Edit'),
+        ]),
+        props.floors.map((floor) =>
+          h('article', { class: 'floor-row', key: floor._id }, [
+            h('div', { class: 'floor-icon' }, [
+              floor.vehicleType === 'Motorcycle'
+                ? h(Bike, { class: 'h-11 w-11', strokeWidth: 2.5 })
+                : h(CarFront, { class: 'h-11 w-11', strokeWidth: 2.5 }),
+            ]),
+            h('div', { class: 'setup-copy' }, [
+              h('p', `Floor : ${floor.floorNumber}      (${floor.vehicleType})`),
+              h('p', 'Date added : 19/3/2569'),
+              h('p', `Time added : ${floor.floorNumber === 3 ? '11:00:00' : '12:00:00'}`),
+            ]),
+            h('p', { class: 'floor-status' }, [
+              'Status : ',
+              h('strong', { class: floor.status === 'Available' ? 'available' : 'disable' }, floor.status),
+            ]),
+            h('button', { class: 'map-link', type: 'button' }, [
+              h(Map, { class: 'h-10 w-10', strokeWidth: 2.5 }),
+              h('span', 'Parking Map'),
+            ]),
+            h('button', { class: 'blue-button', type: 'button', onClick: () => emit('edit-floor') }, 'Edit'),
+          ]),
+        ),
+      ])
+  },
+})
+
+const BuildingFormPanel = defineComponent({
+  props: {
+    mode: {
+      type: String as () => 'add' | 'edit',
+      required: true,
+    },
+  },
+  emits: ['save', 'cancel'],
+  setup(props, { emit }) {
+    return () =>
+      h('div', { class: 'overlay-card building-form' }, [
+        h('button', { class: 'close-x', type: 'button', onClick: () => emit('cancel') }, [
+          h(X, { class: 'h-7 w-7', strokeWidth: 3 }),
+        ]),
+        h('div', { class: 'building-photo large' }),
+        h('label', [h('span', 'Building Name'), h('input', { value: 'E4' })]),
+        h(
+          'button',
+          { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
+          'Confirm',
+        ),
+      ])
+  },
+})
+
+const FloorFormPanel = defineComponent({
+  props: {
+    mode: {
+      type: String as () => 'add' | 'edit',
+      required: true,
+    },
+  },
+  emits: ['save', 'cancel'],
+  setup(props, { emit }) {
+    return () =>
+      h('div', { class: 'overlay-card floor-form' }, [
+        h('button', { class: 'close-x', type: 'button', onClick: () => emit('cancel') }, [
+          h(X, { class: 'h-7 w-7', strokeWidth: 3 }),
+        ]),
+        props.mode === 'edit' ? h('h2', 'Floor : 3') : null,
+        props.mode === 'add'
+          ? h('label', [h('span', 'Building *'), h('select', [h('option', 'E4')])])
+          : null,
+        props.mode === 'add' ? h('label', [h('span', 'Floor'), h('input', { value: '4' })]) : null,
+        props.mode === 'add'
+          ? h('label', [h('span', 'Vehicle*'), h('select', [h('option', 'Cars'), h('option', 'Motorcycle')])])
+          : h('label', [h('span', 'Status'), h('select', [h('option', 'Disable'), h('option', 'Available')])]),
+        h('p', { class: 'import-row' }, [h('button', { type: 'button' }, 'Import'), ' parking map']),
+        h(
+          'button',
+          { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
+          'Confirm',
+        ),
+      ])
+  },
+})
+
+const CCTVSetupList = defineComponent({
+  emits: ['add-cctv', 'edit-cctv'],
+  setup(_, { emit }) {
+    return () =>
+      h('div', { class: 'cctv-setup-list' }, [
+        h('div', { class: 'cctv-filter-row' }, [
+          h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-cctv') }, '+ Add CCTV'),
+          h('label', [h('span', 'Building'), h('select', [h('option', 'E4')])]),
+          h('label', [h('span', 'Floor'), h('select', [h('option', '4')])]),
+          h('label', [h('span', 'Vehicle *'), h('select', [h('option', 'Cars')])]),
+        ]),
+        h('article', { class: 'cctv-row-card' }, [
+          h('div', { class: 'inline-camera-scene' }, [
+            h('span', { class: 'timestamp' }, '03-05-2026 Sun 00:38:45'),
+            h('span', { class: 'pillar one' }, 'B03'),
+            h('span', { class: 'pillar two' }, 'C03'),
+            h('span', { class: 'scene-car car-a' }),
+            h('span', { class: 'scene-car car-b' }),
+            h('span', { class: 'scene-car car-c' }),
+            h('span', { class: 'direction-arrow' }),
+            h('span', { class: 'plate' }, 'B-4CB5'),
+          ]),
+          h('div', { class: 'cctv-row-copy' }, [
+            h('p', 'CCTV Name :       Floor4 B6'),
+            h('p', 'IP Address : 172.28.113.103'),
+            h('p', 'RTSP Link :   rtsp://mfustream:mediamfu2025@172.28.109.31/Streaming/Channels/101'),
+            h('p', ['Status : ', h('strong', 'Online')]),
+            h('p', 'CCTV File :   cctvinfo2.json'),
+          ]),
+          h('button', { class: 'blue-button edit-camera', type: 'button', onClick: () => emit('edit-cctv') }, [
+            'Edit',
+            h('br'),
+            'Camera',
+          ]),
+        ]),
+      ])
+  },
+})
+
+const CCTVFormPanel = defineComponent({
+  props: {
+    mode: {
+      type: String as () => 'add' | 'edit',
+      required: true,
+    },
+  },
+  emits: ['save', 'cancel'],
+  setup(props, { emit }) {
+    const isAdd = props.mode === 'add'
+    return () =>
+      h('div', { class: 'cctv-form-panel' }, [
+        h('h2', isAdd ? 'Add CCTV' : 'Edit CCTV'),
+        h('div', { class: 'cctv-form-card' }, [
+          h('label', [h('span', 'CCTV File :'), h('select', [h('option', isAdd ? 'cctvinfo2.json' : 'cctv1.json')])]),
+          h('label', { class: 'search-field' }, [
+            h('span', 'Search Cam :'),
+            h('input', { placeholder: 'Camera name' }),
+            h(Search, { class: 'h-4 w-4', strokeWidth: 2.2 }),
+          ]),
+          isAdd
+            ? h('div', { class: 'inline-camera-scene form-scene' }, [
+                h('span', { class: 'timestamp' }, '03-05-2026 Sun 00:38:45'),
+                h('span', { class: 'pillar one' }, 'B03'),
+                h('span', { class: 'pillar two' }, 'C03'),
+                h('span', { class: 'scene-car car-a' }),
+                h('span', { class: 'scene-car car-b' }),
+                h('span', { class: 'scene-car car-c' }),
+                h('span', { class: 'direction-arrow' }),
+              ])
+            : h('div', { class: 'offline-scene' }, [h(VideoOff, { class: 'h-9 w-9', strokeWidth: 2.2 })]),
+          h('div', { class: 'cctv-fields' }, [
+            h('p', ['Create', h('br'), ' CCTV Name : ', h('input', { value: isAdd ? 'Floor4 B6' : 'Floor3 B6' })]),
+            h('p', [
+              'IP Address : ',
+              h('input', { value: isAdd ? '172.28.113.103' : '' }),
+              isAdd ? h(CheckCircle2, { class: 'ok-icon h-4 w-4', strokeWidth: 2.4 }) : h(X, { class: 'bad-icon h-4 w-4', strokeWidth: 3 }),
+            ]),
+            !isAdd ? h('small', 'IP Address doesn’t found') : null,
+            h('p', [
+              'RTSP Link : ',
+              h('input', { value: isAdd ? 'rtsp://mfustream:...' : '' }),
+              isAdd ? h(CheckCircle2, { class: 'ok-icon h-4 w-4', strokeWidth: 2.4 }) : h(X, { class: 'bad-icon h-4 w-4', strokeWidth: 3 }),
+            ]),
+            !isAdd ? h('small', 'RTSP Link doesn’t found') : null,
+            h('p', ['Status : ', h('strong', { class: isAdd ? 'online' : 'offline' }, isAdd ? 'Online' : 'Offline')]),
+          ]),
+          h('div', { class: 'form-actions' }, [
+            h(
+              'button',
+              { class: isAdd ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
+              isAdd ? 'Confirm' : 'Edit',
+            ),
+            h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
+          ]),
+        ]),
+      ])
+  },
 })
 </script>
 
-<style scoped>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
+<style>
 .admin-dashboard {
   min-height: 100vh;
   background: #d8d8d8;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  color: #202020;
 }
 
-/* Sidebar */
-.sidebar {
+.admin-sidebar {
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 40;
-  width: 160px;
+  width: 120px;
   background: #cf4647;
-  color: white;
-  padding: 24px 4px 18px;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.sidebar-logo {
-  width: 104px;
-  height: 134px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 18px;
-}
-
-.logo-circle {
+.sidebar-crest {
   width: 104px;
   height: 116px;
-  background: transparent;
-  border-radius: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  margin-top: 18px;
+  display: grid;
+  place-items: center;
 }
 
-.logo-img {
-  width: 84px;
-  height: 108px;
+.sidebar-crest img {
+  width: 78px;
+  height: 102px;
   object-fit: contain;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.18));
 }
 
-.sidebar-logo h2 {
-  display: none;
-}
-
 .sidebar-nav {
   width: 100%;
+  margin-top: 17px;
   display: grid;
-  gap: 10px;
-  flex: 1;
+  gap: 6px;
+  padding: 0 6px;
+  box-sizing: border-box;
 }
 
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 13px;
+.nav-card {
   width: 100%;
-  min-height: 78px;
-  padding: 0 14px;
+  box-sizing: border-box;
+  height: 57px;
+  border-radius: 4px;
   background: #fff;
   color: #a7a7a7;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: all 0.16s ease;
-  font-size: 14px;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
   text-align: left;
+  white-space: pre-line;
+  font-size: 11px;
 }
 
-.nav-item:hover {
-  transform: translateX(2px);
-}
-
-.nav-item.active {
+.nav-card.is-active {
   background: #fdeceb;
   color: #9e2d25;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .nav-icon {
-  width: 30px;
-  height: 30px;
-  color: #232323;
+  width: 29px;
+  height: 29px;
+  color: #202020;
   flex: 0 0 auto;
 }
 
-.sidebar-user {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding-top: 16px;
-}
-
-.user-avatar {
-  width: 40px;
-  height: 40px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
-}
-
-.user-info {
-  display: none;
-}
-
-.user-name {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.user-role {
-  font-size: 11px;
-  opacity: 0.8;
-  text-transform: capitalize;
-}
-
-.logout-btn {
-  background: transparent;
-  border: none;
-  color: white;
-  cursor: pointer;
-  width: 48px;
-  height: 42px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  transition: opacity 0.3s ease;
-}
-
-.logout-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  opacity: 1;
-}
-
-/* Main Content */
-.main-content {
+.admin-main {
   min-height: 100vh;
-  margin-left: 160px;
-  display: flex;
-  flex-direction: column;
+  margin-left: 120px;
 }
 
-.header {
+.admin-topbar {
   position: sticky;
   top: 0;
   z-index: 30;
-  min-height: 78px;
-  background: white;
-  padding: 0 16px 0 18px;
+  height: 57px;
+  background: #fff;
   border-bottom: 1px solid #d2d2d2;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-}
-
-.header-title h1 {
-  font-size: 25px;
-  font-weight: 400;
-  color: #111;
-  margin-bottom: 4px;
-}
-
-.header-title p {
-  font-size: 15px;
-  color: #9a9a9a;
-}
-
-.header-status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  color: #19d348;
+  justify-content: space-between;
+  padding: 0 13px;
 }
 
-.online-indicator {
+.admin-topbar h1 {
+  color: #111;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+
+.admin-topbar p {
+  color: #9a9a9a;
+  font-size: 11px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.online-status {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #19d348;
+  font-size: 13px;
+}
+
+.online-status span {
   width: 4px;
   height: 4px;
+  border-radius: 999px;
   background: #19d348;
-  border-radius: 50%;
 }
 
-/* Filters Section */
-.filters-section {
-  min-height: 116px;
-  background: #d8d8d8;
-  padding: 12px 38px 18px 30px;
-  border-bottom: 0;
+.online-status strong {
+  color: #19d348;
+  font-weight: 400;
+}
+
+.bell-button {
+  position: relative;
+  width: 32px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: #111;
+}
+
+.bell-button span {
+  position: absolute;
+  top: 8px;
+  right: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ff0d0d;
+}
+
+.avatar {
+  width: 43px;
+  height: 43px;
+  border-radius: 999px;
+  background: #fdeceb;
+  color: #9e2d25;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.tabbar,
+.setup-tabs {
+  height: 35px;
+  background: #fff;
   display: flex;
-  justify-content: space-between;
+  align-items: stretch;
+  padding-left: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.setup-tabs {
+  height: 46px;
+  align-items: center;
+  padding-left: 10px;
+  gap: 10px;
+}
+
+.tab-button {
+  width: 74px;
+  border: 1px solid #a6a6a6;
+  border-radius: 4px;
+  background: #fff;
+  color: #9a9a9a;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 5px;
+}
+
+.setup-tabs .tab-button {
+  width: 78px;
+  height: 35px;
+}
+
+.tab-button.is-active {
+  background: #fdeceb;
+  color: #9e2d25;
+}
+
+.dashboard-toolbar {
+  min-height: 82px;
+  display: flex;
   align-items: flex-start;
-  gap: 24px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  justify-content: space-between;
+  gap: 18px;
+  padding: 9px 27px 13px 20px;
 }
 
 .filters {
   display: flex;
-  gap: 22px;
+  gap: 16px;
   flex-wrap: wrap;
-  flex: 1;
 }
 
-.filter-group {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
+.filter-control {
+  display: grid;
+  gap: 7px;
 }
 
-.filter-group label {
-  font-size: 16px;
-  font-weight: 600;
+.filter-control span {
   color: #333;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.filter-select {
-  width: 142px;
-  height: 45px;
-  padding: 0 18px;
+.filter-control select,
+.cctv-filter-row select {
+  width: 101px;
+  height: 34px;
+  border-radius: 6px;
+  background: #fff;
   border: 0;
-  border-radius: 8px;
-  font-size: 18px;
-  background: white;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: inset 0 0 0 1px #e4e4e4;
-}
-
-.filter-select:hover {
-  border-color: #9ca3af;
-}
-
-.filter-select:focus {
+  padding: 0 14px;
+  color: #242424;
+  font-size: 14px;
   outline: none;
-  border-color: #9f2f30;
-  box-shadow: 0 0 0 2px rgba(159, 47, 48, 0.1);
+  box-shadow: inset 0 0 0 1px #e4e4e4;
 }
 
 .stats {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  padding-top: 29px;
+  padding-top: 24px;
 }
 
 .stat-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 104px;
-  min-height: 66px;
-  padding: 8px 10px;
+  width: 75px;
+  min-height: 42px;
+  border-radius: 5px;
   background: #fff;
-  border-radius: 6px;
-  border: 1px solid #ececec;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  display: grid;
+  place-items: center;
+  align-content: center;
 }
 
-.stat-value {
-  font-size: 30px;
-  line-height: 0.9;
-  font-weight: 700;
+.stat-card strong {
+  font-size: 23px;
+  line-height: 0.95;
+  font-weight: 800;
 }
 
-.stat-label {
-  font-size: 14px;
+.stat-card span {
   color: #909090;
+  font-size: 11px;
   text-align: center;
 }
 
-/* Content */
-.content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px 42px 34px;
+.dashboard-content {
+  padding: 0 34px 28px;
 }
 
-.tab-content {
-  background: transparent;
-  border-radius: 0;
-  padding: 0;
-  box-shadow: none;
-}
-
-/* Slots */
-.slots-container {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.parking-map {
-  position: relative;
-  width: 100%;
-  height: min(560px, calc(100vh - 320px));
-  min-height: 430px;
-  background: #cabb9a;
-  border-radius: 22px;
-  overflow: hidden;
-  border: 8px solid rgba(255, 255, 255, 0.24);
-  box-shadow: inset 0 0 38px rgba(0, 0, 0, 0.18);
-}
-
-.parking-map {
-  background:
-    linear-gradient(90deg, rgba(80, 64, 44, 0.12) 1px, transparent 1px) 0 0 / 92px 92px,
-    linear-gradient(0deg, rgba(80, 64, 44, 0.1) 1px, transparent 1px) 0 0 / 92px 92px,
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.38), transparent 34%),
-    #cabb9a;
-}
-
-.map-heading {
-  position: absolute;
-  top: 22px;
-  left: 12%;
-  right: 12%;
+.admin-cctv-grid {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 36px;
-  z-index: 3;
+  grid-template-columns: repeat(2, minmax(320px, 393px));
+  gap: 12px 82px;
+  justify-content: center;
 }
 
-.map-heading span {
-  height: 2px;
-  background: #353535;
+.logs-panel {
+  background: #e3e3e3;
+  border-radius: 5px;
+  min-height: 478px;
+  padding: 9px 15px 25px;
 }
 
-.map-heading strong {
+.warning-banner {
+  width: max-content;
+  margin: 0 0 14px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.24);
   color: #111;
-  font-size: 56px;
-  font-weight: 500;
-  line-height: 1;
+  padding: 8px 16px;
+  font-size: 12px;
 }
 
-.gate-label,
-.row-label {
-  position: absolute;
-  z-index: 3;
-  color: #171717;
-  font-size: 27px;
+.warning-banner span {
+  color: #c7352c;
+}
+
+.log-card {
+  min-height: 113px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.28);
+  display: grid;
+  grid-template-columns: 36px minmax(245px, 1fr) minmax(250px, 1fr) 160px;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 20px;
+  margin-bottom: 15px;
+}
+
+.log-car {
+  color: #202024;
+}
+
+.vehicle-info,
+.parking-info {
+  display: grid;
+  gap: 4px;
+  color: #111;
+  font-size: 11px;
+}
+
+.vehicle-info p,
+.parking-info p {
+  color: #111;
+  white-space: nowrap;
+}
+
+.vehicle-info span,
+.parking-info span {
+  display: inline-block;
+  width: 10px;
+  color: #111;
+}
+
+.status-parking {
+  color: #09d82e;
   font-weight: 400;
 }
 
-.gate-label::before,
-.gate-label::after {
-  content: '';
-  display: inline-block;
-  width: 2px;
-  height: 48px;
-  margin: 0 11px -14px;
-  background: #333;
+.status-exited {
+  color: #c7352c;
+  font-weight: 400;
 }
 
-.gate-label.out {
-  top: 75px;
-  left: 2.5%;
+.status-muted {
+  color: #898989;
+  font-weight: 400;
 }
 
-.gate-label.in {
-  top: 75px;
-  left: 10%;
+.face-driver {
+  text-align: center;
 }
 
-.gate-label.up {
-  top: 58%;
-  left: 7%;
-}
-
-.gate-label.down {
-  top: 58%;
-  left: 39%;
-}
-
-.row-label {
-  right: 14px;
-  font-size: 35px;
-}
-
-.flow-lines {
-  position: absolute;
-  inset: 58px 44px 52px;
-  width: calc(100% - 88px);
-  height: calc(100% - 110px);
-  z-index: 1;
-  pointer-events: none;
-}
-
-.flow-lines path {
-  fill: none;
-  stroke: rgba(255, 167, 145, 0.64);
-  stroke-width: 9;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 5px rgba(255, 211, 200, 0.8));
-}
-
-.slot {
-  position: absolute;
-  z-index: 4;
-  width: clamp(25px, 2.4vw, 34px);
-  height: clamp(30px, 3vw, 42px);
-  transform: translate(-50%, -50%);
-  border: 1px solid rgba(20, 20, 20, 0.6);
-  color: #101010;
-  display: grid;
-  place-items: center;
-  font-size: clamp(10px, 0.85vw, 15px);
-  font-weight: 500;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.14);
-}
-
-.slot.available {
-  background: #4caf50;
-  color: #0f2a12;
-}
-
-.slot.incoming {
-  background: #f5c443;
-  color: #3d2a00;
-}
-
-.slot.occupied {
-  background: linear-gradient(#ff6b6b 0 55%, #dc2626 56% 100%);
-  color: #f2f2f2;
-  box-shadow:
-    inset 0 -6px 0 rgba(0, 0, 0, 0.35),
-    5px 6px 4px rgba(0, 0, 0, 0.34);
-}
-
-.slot.disabled {
-  background: #9e9e9e;
-  color: #282828;
-}
-
-.slot.selected {
-  border: 3px solid #22c7f2;
-  color: #fff;
-  box-shadow:
-    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
-    0 0 0 3px rgba(103, 220, 247, 0.65),
-    0 4px 4px rgba(0, 0, 0, 0.25);
-}
-
-.slot.selected svg {
-  width: 20px;
-  height: 20px;
-  padding: 2px;
-  border-radius: 999px;
-  background: #67dcf7;
-  color: #fff;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
-}
-
-.slot-controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-  min-height: 82px;
-  padding: 14px 0 0;
-  background: transparent;
-  border-radius: 0;
-}
-
-.control-info {
-  font-size: 15px;
+.face-driver > p {
   color: #111;
-  white-space: nowrap;
+  margin-bottom: 5px;
+  font-size: 12px;
 }
 
-.selected-count {
-  font-weight: 700;
-  color: #9f2f30;
-}
-
-.control-buttons {
+.face-driver > div {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.slot-popup-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.42);
-}
-
-.slot-popup {
-  width: min(360px, 100%);
-  border-radius: 8px;
-  background: #fff;
-  color: #202020;
-  padding: 20px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
-}
-
-.slot-popup-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  justify-content: center;
   gap: 18px;
 }
 
-.slot-popup-header p {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-
-.slot-popup-header h3 {
-  color: #111827;
-  font-size: 24px;
-}
-
-.slot-popup-close {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 999px;
-  background: #f3f4f6;
-  color: #111827;
-  font-size: 18px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.slot-popup-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 22px 0;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-}
-
-.slot-popup-status span {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.slot-popup-status strong {
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-}
-
-.slot-popup-status .available {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.slot-popup-status .incoming {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.slot-popup-status .occupied {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.slot-popup-status .disabled {
-  background: #e5e7eb;
-  color: #374151;
-}
-
-.slot-popup-actions {
+.face-placeholder {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  justify-items: center;
+  gap: 3px;
 }
 
-.slot-popup-actions .btn {
-  width: 100%;
-  min-height: 44px;
+.face-placeholder div {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: #dfe1e6;
+  display: grid;
+  place-items: end center;
+  color: #6d7376;
+  overflow: hidden;
 }
 
-.slot-popup-actions .btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+.face-placeholder figcaption {
+  color: #111;
+  font-size: 11px;
 }
 
-.slot-popup-note {
-  margin-top: 14px;
-  color: #991b1b;
-  font-size: 13px;
-  font-weight: 600;
+.staff-manager-section,
+.setup-section {
+  padding: 24px 30px 28px;
 }
 
-.status-legend {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  flex: 1;
-  flex-wrap: wrap;
-  min-width: 280px;
-  color: #333;
-  font-size: 14px;
+.setup-section {
+  padding: 0 0 28px;
 }
 
-.status-legend span {
+.staff-list-panel,
+.setup-workspace {
+  width: min(914px, calc(100vw - 180px));
+  margin: 0 auto;
+  border-radius: 4px;
+  background: #e3e3e3;
+  padding: 17px 15px 32px;
+}
+
+.setup-workspace {
+  min-height: 585px;
+  margin-top: 26px;
+}
+
+.staff-list-header {
+  display: grid;
+  grid-template-columns: 145px 1fr 250px;
+  align-items: start;
+  gap: 16px;
+  margin: 4px 0 17px;
+}
+
+.staff-list-header h2 {
+  justify-self: center;
+  color: #111;
+  font-size: 19px;
+  font-weight: 400;
+}
+
+.staff-list-header p {
+  color: #111;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.green-button,
+.blue-button,
+.red-button {
+  min-width: 84px;
+  height: 35px;
+  border-radius: 4px;
+  color: #111;
+  font-size: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18);
+}
+
+.green-button {
+  background: #23df5c;
+}
+
+.blue-button {
+  background: #149cf0;
+  color: #001322;
+}
+
+.red-button {
+  background: #c7382f;
+  color: #fff;
+}
+
+.add-staff-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.status-legend i {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  border: 1px solid rgba(20, 20, 20, 0.35);
-}
-
-.status-legend .available {
-  background: #4caf50;
-}
-
-.status-legend .incoming {
-  background: #f5c443;
-}
-
-.status-legend .occupied {
-  background: #dc2626;
-}
-
-.status-legend .disabled {
-  background: #9e9e9e;
-}
-
-/* CCTV */
-.cctv-container {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.cctv-header {
-  display: flex;
-  gap: 16px;
-}
-
-.camera-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
-}
-
-.camera-card {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.camera-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.camera-feed {
-  width: 100%;
-  height: 200px;
-  background: #000;
-  position: relative;
-  overflow: hidden;
-}
-
-.camera-feed img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.camera-status {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.7);
-  color: white;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #16a34a;
-}
-
-.camera-status.offline .status-dot {
-  background: #dc2626;
-}
-
-.camera-info {
-  padding: 12px;
-  border-top: 1px solid #e5e7eb;
-}
-
-.camera-info h3 {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.camera-info p {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 4px;
-}
-
-.camera-actions {
-  padding: 12px;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  gap: 8px;
-}
-
-/* Staff */
-.staff-container {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.staff-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.staff-header h2 {
-  font-size: 18px;
-  margin-bottom: 8px;
-}
-
-.staff-note {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.5;
-}
-
-.staff-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  justify-content: center;
+  gap: 10px;
+  width: 137px;
 }
 
 .staff-card {
-  display: flex;
-  gap: 16px;
-  padding: 16px;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  align-items: flex-start;
-}
-
-.staff-avatar {
-  width: 80px;
-  height: 80px;
-  background: #f3f4f6;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: #d1d5db;
-}
-
-.staff-details {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.staff-details p {
-  font-size: 13px;
-  color: #1f2937;
-}
-
-.staff-actions {
-  display: flex;
-  gap: 8px;
-}
-
-/* Setup */
-.setup-container {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-}
-
-.setup-section h2 {
-  font-size: 18px;
-  margin-bottom: 24px;
-}
-
-.setup-subsection {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.subsection-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.subsection-header h3 {
-  font-size: 16px;
-  color: #1f2937;
-}
-
-.setup-grid {
+  min-height: 145px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.28);
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
-}
-
-.setup-card {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.setup-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.setup-card-image {
-  width: 100%;
-  height: 160px;
-  background: #f3f4f6;
-  overflow: hidden;
-}
-
-.setup-card-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.setup-card-icon {
-  width: 100%;
-  height: 160px;
-  background: #f3f4f6;
-  display: flex;
+  grid-template-columns: 80px 1fr 130px;
   align-items: center;
-  justify-content: center;
-  color: #d1d5db;
+  gap: 18px;
+  padding: 14px 36px 14px 20px;
+  margin-bottom: 12px;
 }
 
-.setup-card-content {
-  padding: 16px;
+.profile-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  background: #dfe1e6;
+  color: #6d7376;
+  display: grid;
+  place-items: end center;
+  overflow: hidden;
 }
 
-.setup-card-content h4 {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 8px;
+.profile-icon.large {
+  width: 95px;
+  height: 95px;
+  margin: 0 auto 18px;
 }
 
-.setup-card-content p {
+.staff-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.staff-copy p {
+  color: #111;
   font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 6px;
 }
 
-.setup-card-actions {
-  padding: 12px 16px;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  gap: 8px;
+.staff-copy strong {
+  font-weight: 400;
 }
 
-/* Log */
-.log-container {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+.status-online {
+  color: #16a36a;
 }
 
-.log-header {
+.status-offline {
+  color: #c7352c;
+}
+
+.status-disable {
+  color: #a0a0a0;
+}
+
+.inline-icon {
+  display: inline-block;
+  margin-left: 6px;
+  color: #858585;
+  vertical-align: -3px;
+}
+
+.row-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: flex-end;
+  gap: 32px;
+  color: #202020;
 }
 
-.log-header h2 {
-  font-size: 18px;
+.staff-form-panel {
+  position: relative;
+  width: min(914px, calc(100vw - 180px));
+  min-height: 610px;
+  margin: 0 auto;
+  border-radius: 4px;
+  background: #e3e3e3;
+  padding: 24px 15px 82px;
 }
 
-.log-filters {
+.staff-form-panel h2,
+.cctv-form-panel h2 {
+  color: #111;
+  text-align: center;
+  font-size: 19px;
+  font-weight: 400;
+  margin-bottom: 16px;
+}
+
+.staff-form-card,
+.cctv-form-card {
+  position: relative;
+  min-height: 326px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.24);
+  padding: 25px;
+}
+
+.staff-form-panel.edit .staff-form-card {
+  min-height: 506px;
+}
+
+.staff-form-fields {
+  width: 320px;
+  margin: 0 auto;
+  display: grid;
+  gap: 20px;
+}
+
+.staff-form-fields label {
+  display: grid;
+  grid-template-columns: 120px 120px 20px;
+  align-items: center;
+  color: #111;
+  font-size: 12px;
+}
+
+.staff-form-fields input,
+.overlay-card input,
+.overlay-card select,
+.cctv-form-card input,
+.cctv-form-card select {
+  height: 36px;
+  border: 0;
+  border-bottom: 1px solid #bcbcbc;
+  background: transparent;
+  color: #777;
+  text-align: center;
+  outline: none;
+}
+
+.field-icon {
+  color: #858585;
+}
+
+.add-more-row {
+  width: 100%;
+  height: 33px;
+  margin-top: 12px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.24);
+  color: #222;
+  font-size: 12px;
+}
+
+.save-add {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+}
+
+.form-actions {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
   display: flex;
+  gap: 18px;
+}
+
+.parking-setup-list,
+.cctv-setup-list {
+  display: grid;
+  gap: 0;
+}
+
+.setup-actions,
+.cctv-filter-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.setup-actions .green-button {
+  width: 123px;
+}
+
+.building-row,
+.floor-row,
+.cctv-row-card {
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.24);
+  display: grid;
+  align-items: center;
+  gap: 14px;
+}
+
+.building-row {
+  grid-template-columns: 80px 1fr 92px 90px;
+  min-height: 101px;
+  padding: 12px 10px 12px 15px;
+}
+
+.floor-row {
+  grid-template-columns: 72px 1fr 170px 96px 90px;
+  min-height: 86px;
+  padding: 10px 10px 10px 22px;
+}
+
+.building-photo {
+  width: 80px;
+  height: 59px;
+  border-radius: 3px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent 42%),
+    linear-gradient(90deg, #6b4b3d 0 22%, #b9886a 23% 43%, #78412f 44% 70%, #c2c7be 71% 100%);
+}
+
+.building-photo.large {
+  width: 176px;
+  height: 132px;
+  margin: 0 auto 18px;
+}
+
+.setup-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.setup-copy p,
+.floor-status {
+  color: #111;
+  font-size: 12px;
+}
+
+.floor-status strong {
+  font-weight: 400;
+}
+
+.floor-status .available {
+  color: #19d348;
+}
+
+.floor-status .disable {
+  color: #969696;
+}
+
+.floor-icon {
+  color: #858585;
+  display: grid;
+  place-items: center;
+}
+
+.map-link {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  color: #202020;
+  font-size: 12px;
+}
+
+.overlay-card {
+  position: relative;
+  width: min(410px, 100%);
+  min-height: 303px;
+  margin: 0 auto;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.24);
+  padding: 20px 34px;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+}
+
+.overlay-card.floor-form {
+  width: 326px;
+  min-height: 353px;
   gap: 12px;
 }
 
-.filter-input {
-  padding: 8px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 13px;
+.overlay-card h2 {
+  color: #111;
+  font-size: 19px;
+  font-weight: 400;
 }
 
-.log-table {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
+.close-x {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  color: #202020;
 }
 
-.log-table-header {
+.overlay-card label {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 12px 16px;
-  font-weight: 600;
-  font-size: 12px;
-  color: #374151;
+  gap: 8px;
+  color: #222;
+  font-size: 16px;
+  text-align: left;
 }
 
-.log-table-body {
-  display: flex;
-  flex-direction: column;
+.overlay-card.floor-form label {
+  width: 110px;
+  font-size: 16px;
 }
 
-.log-row {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
-  font-size: 13px;
+.overlay-card input,
+.overlay-card select {
+  width: 106px;
+  border: 1px solid #d5d5d5;
+  border-radius: 7px;
+  text-align: left;
+  padding: 0 12px;
 }
 
-.log-row:last-child {
-  border-bottom: none;
-}
-
-.log-col {
-  color: #1f2937;
-}
-
-/* Buttons */
-.btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.btn-primary {
-  background: #2563eb;
-  color: white;
-}
-
-.btn-primary:hover {
-  background: #1d4ed8;
-}
-
-.btn-success {
-  background: #16a34a;
-  color: white;
-}
-
-.btn-success:hover {
-  background: #15803d;
-}
-
-.btn-danger {
-  background: #dc2626;
-  color: white;
-}
-
-.btn-danger:hover {
-  background: #b91c1c;
-}
-
-.btn-secondary {
-  background: #e5e7eb;
-  color: #374151;
-}
-
-.btn-secondary:hover {
-  background: #d1d5db;
-}
-
-.btn-lg {
-  padding: 10px 20px;
-  font-size: 14px;
-}
-
-.btn-sm {
-  padding: 6px 12px;
+.import-row {
+  color: #222;
   font-size: 12px;
 }
 
-/* Status Badges */
-.status-badge {
-  display: inline-block;
-  padding: 4px 8px;
+.import-row button {
+  height: 34px;
+  margin-right: 8px;
   border-radius: 4px;
+  background: #e8e8e8;
+  padding: 0 14px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.18);
+}
+
+.cctv-filter-row {
+  align-items: end;
+}
+
+.cctv-filter-row label {
+  display: grid;
+  gap: 6px;
+  color: #222;
+  font-size: 13px;
+}
+
+.cctv-row-card {
+  grid-template-columns: 270px 1fr 106px;
+  min-height: 188px;
+  padding: 16px;
+}
+
+.inline-camera-scene {
+  position: relative;
+  overflow: hidden;
+  width: 270px;
+  height: 153px;
+  border-radius: 4px;
+  background:
+    linear-gradient(0deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0)),
+    linear-gradient(115deg, #1f272a 0 16%, #777d7d 17% 36%, #c8cbc7 37% 52%, #696e6d 53% 100%);
+}
+
+.inline-camera-scene::before {
+  content: '';
+  position: absolute;
+  inset: 44% -10% 0;
+  background:
+    linear-gradient(95deg, transparent 0 32%, rgba(255, 255, 255, 0.18) 33% 34%, transparent 35%),
+    radial-gradient(ellipse at 50% 0, rgba(255, 255, 255, 0.18), transparent 55%),
+    #676b66;
+  transform: perspective(220px) rotateX(45deg);
+  transform-origin: top;
+}
+
+.timestamp,
+.plate,
+.pillar,
+.scene-car,
+.direction-arrow {
+  position: absolute;
+}
+
+.timestamp {
+  left: 9px;
+  top: 7px;
+  z-index: 5;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  text-shadow: 0 1px 1px #000;
+}
+
+.pillar {
+  top: 14px;
+  z-index: 3;
+  width: 35px;
+  height: 108px;
+  background: linear-gradient(#d8dddd, #b9bdbb);
+  color: #5d4030;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 9px;
+  font-size: 9px;
+}
+
+.pillar.one {
+  left: 25%;
+}
+
+.pillar.two {
+  right: 19%;
+}
+
+.scene-car {
+  z-index: 4;
+  width: 76px;
+  height: 38px;
+  border-radius: 48% 48% 16px 16px;
+  background: linear-gradient(135deg, #1a1d20, #596064 52%, #151719);
+  box-shadow: 0 12px 18px rgba(0, 0, 0, 0.48);
+}
+
+.car-a {
+  left: 2%;
+  top: 55px;
+  transform: rotate(-13deg);
+}
+
+.car-b {
+  right: 15%;
+  top: 86px;
+  transform: rotate(8deg);
+  background: linear-gradient(135deg, #dde3e0, #8c9696 55%, #202427);
+}
+
+.car-c {
+  left: -5%;
+  bottom: 12px;
+  transform: rotate(18deg);
+}
+
+.direction-arrow {
+  left: 45%;
+  bottom: 21px;
+  z-index: 3;
+  width: 16px;
+  height: 67px;
+  background: rgba(255, 255, 255, 0.2);
+  clip-path: polygon(35% 0, 65% 0, 65% 60%, 100% 60%, 50% 100%, 0 60%, 35% 60%);
+}
+
+.plate {
+  right: 8px;
+  bottom: 7px;
+  z-index: 5;
+  color: #fff;
+  font-family: ui-serif, Georgia, serif;
+  font-size: 10px;
+  font-weight: 800;
+  text-shadow: 0 1px 2px #000;
+}
+
+.cctv-row-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.cctv-row-copy p {
+  color: #111;
+  font-size: 12px;
+}
+
+.cctv-row-copy strong {
+  color: #16a36a;
+  font-weight: 400;
+}
+
+.edit-camera {
+  height: 52px;
+}
+
+.cctv-form-panel {
+  width: min(860px, 100%);
+  margin: 0 auto;
+  border-radius: 4px;
+  background: #e3e3e3;
+  padding: 15px;
+}
+
+.cctv-form-card {
+  min-height: 466px;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 11px;
+}
+
+.cctv-form-card label {
+  width: 230px;
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  align-items: center;
+  color: #111;
+  font-size: 12px;
+}
+
+.cctv-form-card select,
+.cctv-form-card input {
+  height: 34px;
+  border: 1px solid #d5d5d5;
+  border-radius: 8px;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.search-field {
+  position: relative;
+}
+
+.search-field svg {
+  position: absolute;
+  right: 10px;
+  top: 9px;
+  color: #111;
+}
+
+.form-scene {
+  width: 270px;
+  height: 153px;
+  margin: 8px 0 0;
+}
+
+.offline-scene {
+  width: 229px;
+  height: 144px;
+  border-radius: 5px;
+  background: #d3d3d3;
+  color: #333;
+  display: grid;
+  place-items: center;
+}
+
+.cctv-fields {
+  width: 330px;
+  display: grid;
+  gap: 8px;
+}
+
+.cctv-fields p {
+  display: grid;
+  grid-template-columns: 95px 1fr 20px;
+  align-items: center;
+  color: #111;
+  font-size: 12px;
+}
+
+.cctv-fields input {
+  height: 24px;
+  border: 0;
+  border-bottom: 1px solid #bcbcbc;
+  border-radius: 0;
+}
+
+.cctv-fields small {
+  margin-left: 88px;
+  color: #d33a32;
   font-size: 11px;
-  font-weight: 600;
-  text-transform: capitalize;
 }
 
-.status-badge.online {
-  background: #dcfce7;
-  color: #166534;
+.ok-icon {
+  color: #16a36a;
 }
 
-.status-badge.offline {
-  background: #fee2e2;
-  color: #991b1b;
+.bad-icon {
+  color: #c7352c;
 }
 
-.status-badge.disable {
-  background: #f3f4f6;
-  color: #374151;
+.cctv-fields strong.online {
+  color: #16a36a;
+  font-weight: 400;
 }
 
-.status-badge.available {
-  background: #dcfce7;
-  color: #166534;
+.cctv-fields strong.offline {
+  color: #8f8f8f;
+  font-weight: 400;
 }
 
-.status-badge.parking {
-  background: #dbeafe;
-  color: #1e40af;
-}
+@media (max-width: 980px) {
+  .admin-cctv-grid {
+    grid-template-columns: 1fr;
+  }
 
-.status-badge.exited {
-  background: #f0fdf4;
-  color: #166534;
+  .staff-list-header,
+  .staff-card,
+  .building-row,
+  .floor-row,
+  .cctv-row-card,
+  .log-card {
+    grid-template-columns: 1fr;
+  }
+
+  .staff-list-panel,
+  .setup-workspace,
+  .staff-form-panel {
+    width: calc(100vw - 150px);
+  }
 }
 </style>
