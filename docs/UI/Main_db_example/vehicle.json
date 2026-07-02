@@ -1,0 +1,20 @@
+[
+  {
+    "_id": 1,
+    "veh_type": "car",
+    "name": "นายกิตติ เรียนดี",
+    "license_num": "กข-1234",
+    "province": "เชียงราย",
+    "veh_des": "Toyota Camry สีดำ",
+    "driver_face": "storage/faces/user_3_face.jpg"
+  },
+  {
+    "_id": 2,
+    "veh_type": "motorcycle",
+    "name": "สมศรี รักดี",
+    "license_num": "รมน-999",
+    "province": "กรุงเทพมหานคร",
+    "veh_des": "Honda Wave สีแดง",
+    "driver_face": "storage/faces/user_2_face.jpg"
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "_id": 1,
+    "role": "staff",
+    "name": "สมศรี รักดี",
+    "building": "E4",
+    "floor": "1",
+    "slot_num": "A02",
+    "date_edit": "2026-06-29",
+    "time_edit": "14:25:30",
+    "change_to": "Changed slot_status from Available to Disable due to maintenance"
+  }
+]
