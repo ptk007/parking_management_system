@@ -1,0 +1,35 @@
+[
+  {
+    "_id": 1,
+    "username": "somchai_admin",
+    "password": "$2b$10$hashedpasswordhere...", 
+    "pin_code": "123456",
+    "name": "สมชาย ใจดี",
+    "role": "admin",
+    "status": "online",
+    "date_add": "2026-06-29",
+    "time_add": "08:30:00"
+  },
+  {
+    "_id": 2,
+    "username": "somsri_staff",
+    "password": "$2b$10$hashedpasswordhere...",
+    "pin_code": "654321",
+    "name": "สมศรี รักดี",
+    "role": "staff",
+    "status": "offline",
+    "date_add": "2026-06-29",
+    "time_add": "09:15:00"
+  },
+  {
+    "_id": 3,
+    "username": "user_test01",
+    "password": "$2b$10$hashedpasswordhere...",
+    "pin_code": "000000",
+    "name": "นายกิตติ เรียนดี",
+    "role": "user",
+    "status": "disable",
+    "date_add": "2026-06-29",
+    "time_add": "10:00:00"
+  }
+]

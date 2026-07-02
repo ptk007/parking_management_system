@@ -1,8 +1,11 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '')
+
 const apiClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -51,6 +54,12 @@ export const cctvService = {
     }),
   getStreamUrl: (cameraId: string) => apiClient.get(`/staff/cctv/cameras/${cameraId}/stream`),
   getSnapshot: (cameraId: string) => apiClient.get(`/staff/cctv/cameras/${cameraId}/snapshot`),
+  getMediaUrl: (mediaPath: string) => {
+    const url = new URL(mediaPath, API_ORIGIN)
+    const token = localStorage.getItem('token')
+    if (token) url.searchParams.set('token', token)
+    return url.toString()
+  },
 }
 
 export const chatService = {
@@ -73,6 +82,28 @@ export const staffService = {
   getProfile: () => apiClient.get('/staff/profile'),
   getAssignedArea: () => apiClient.get('/staff/profile/assigned-area'),
   updateProfile: (data: any) => apiClient.put('/staff/profile', data),
+}
+
+const createResourceService = (resource: string) => ({
+  list: () => apiClient.get(`/${resource}`),
+  get: (id: string) => apiClient.get(`/${resource}/${id}`),
+  create: (data: any) => apiClient.post(`/${resource}`, data),
+  update: (id: string, data: any) => apiClient.put(`/${resource}/${id}`, data),
+  remove: (id: string) => apiClient.delete(`/${resource}/${id}`),
+  checkDuplicate: (params: Record<string, string | number>) =>
+    apiClient.get(`/${resource}/check-duplicate`, { params }),
+})
+
+export const databaseService = {
+  users: createResourceService('users'),
+  vehicles: createResourceService('vehicles'),
+  parkingZones: createResourceService('parking-zones'),
+  history: createResourceService('history'),
+  parkingLogs: createResourceService('parking-logs'),
+  cctv: createResourceService('cctv'),
+  parkingSlots: createResourceService('parking-slots'),
+  cctvinfo2: createResourceService('cctvinfo2'),
+  oldcctvinfo4: createResourceService('oldcctvinfo4'),
 }
 
 export default apiClient

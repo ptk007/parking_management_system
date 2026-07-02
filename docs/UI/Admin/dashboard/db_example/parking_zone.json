@@ -1,0 +1,12 @@
+[
+  {
+    "_id": 1,
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car",
+    "date_add": "2026-06-29",
+    "time_add": "11:00:00",
+    "parking_status": "Active",
+    "park_map": "storage/maps/e4_floor1_map.png"
+  }
+]

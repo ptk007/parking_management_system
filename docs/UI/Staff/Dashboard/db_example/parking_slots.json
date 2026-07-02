@@ -1,0 +1,34 @@
+[
+  {
+    "_id": 1,
+    "slot_num": "A01",
+    "slot_status": "Occupied",
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car"
+  },
+  {
+    "_id": 2,
+    "slot_num": "A02",
+    "slot_status": "Disable",
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car"
+  },
+  {
+    "_id": 3,
+    "slot_num": "A03",
+    "slot_status": "Incoming",
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "car"
+  },
+  {
+    "_id": 4,
+    "slot_num": "M01",
+    "slot_status": "Available",
+    "building": "E4",
+    "floor": "1",
+    "veh_type": "motorcycle"
+  }
+]

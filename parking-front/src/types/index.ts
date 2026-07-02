@@ -48,7 +48,10 @@ export interface CCTVCamera {
   floorId: string
   status: 'online' | 'offline'
   streamUrl: string
-  lastUpdate: Date
+  streamProtocol?: string
+  snapshotUrl?: string
+  mjpegUrl?: string
+  lastUpdate: Date | string | null
 }
 
 export interface DashboardStats {
