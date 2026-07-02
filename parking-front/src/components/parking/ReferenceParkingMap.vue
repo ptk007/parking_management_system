@@ -73,7 +73,7 @@ const slots = ref<SceneSlot[]>([
   { slotNumber: 10, status: 'occupied', carColor: 'pink' },
 ])
 
-const selectedSlots = ref(new Set<number>([3, 5, 7, 9]))
+const selectedSlots = ref(new Set<number>())
 
 const toggleSlot = (slotNumber: number) => {
   const slot = slots.value.find((item) => item.slotNumber === slotNumber)
@@ -94,6 +94,7 @@ const setSelectedStatus = (status: SlotStatus) => {
     if (slot.status === 'occupied' || slot.status === 'incoming') return slot
     return { ...slot, status }
   })
+  selectedSlots.value = new Set()
 }
 </script>
 
