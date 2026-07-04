@@ -86,16 +86,33 @@
             <div class="staff-copy">
               <p>Staff Name : {{ staff.staffName }}</p>
               <p>Username : {{ staff.username }}</p>
-              <p>
-                Password : {{ staff.password }}
-                <EyeOff class="inline-icon h-4 w-4" :stroke-width="2.2" />
+              <p class="password-line">
+                Password : {{ visiblePasswordIds.has(staff._id) ? staff.password : maskPassword(staff.password) }}
+                <button
+                  class="password-eye"
+                  type="button"
+                  :aria-label="visiblePasswordIds.has(staff._id) ? 'Hide password' : 'Show password'"
+                  @click="togglePasswordVisibility(staff._id)"
+                >
+                  <component
+                    :is="visiblePasswordIds.has(staff._id) ? EyeOff : Eye"
+                    class="inline-icon h-4 w-4"
+                    :stroke-width="2.2"
+                  />
+                </button>
               </p>
               <p>Date added : {{ staff.dateAdded }}</p>
               <p>Time added : {{ staff.timeAdded }}</p>
               <p>Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong></p>
             </div>
             <div class="row-actions">
-              <button type="button" aria-label="Edit staff" @click="openEditStaff(staff)">
+              <button
+                type="button"
+                aria-label="Edit staff"
+                :disabled="!canEditStaff(staff)"
+                :title="canEditStaff(staff) ? 'Edit staff' : 'Cannot edit staff while online or logging in'"
+                @click="openEditStaff(staff)"
+              >
                 <SquarePen class="h-6 w-6" :stroke-width="2.4" />
               </button>
               <button type="button" aria-label="Delete staff" @click="adminStore.deleteStaff(staff._id)">
@@ -108,10 +125,10 @@
         <StaffFormPanel
           v-else
           :mode="staffMode"
-          :form="staffForm"
+          :forms="staffForms"
           @save="saveStaff"
           @cancel="staffMode = 'list'"
-          @add-more="resetStaffForm()"
+          @add-more="addStaffForm"
         />
       </section>
 
@@ -193,11 +210,13 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, reactive, ref } from 'vue'
 import {
+  ArrowLeft,
   Bell,
   Bike,
   CarFront,
   CheckCircle2,
   CircleArrowUp,
+  Eye,
   EyeOff,
   Map,
   Monitor,
@@ -248,6 +267,7 @@ const staffMode = ref<StaffMode>('list')
 const setupTab = ref<SetupTab>('parking')
 const setupMode = ref<SetupMode>('parking-list')
 const editingStaffId = ref<string | null>(null)
+const visiblePasswordIds = ref(new Set<string>())
 
 const navItems = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: Monitor },
@@ -272,13 +292,15 @@ const adminStats = [
 
 const adminDashboardCameras = ['Entrance', 'Exit', 'Floor4 B6', 'Floor4 A5']
 
-const staffForm = reactive<StaffFormState>({
-  staffName: 'Panuwat Panan',
-  username: 'Panuwat',
-  password: '************',
+const createStaffForm = (staff?: StaffMember): StaffFormState => ({
+  staffName: staff?.staffName || 'Panuwat Panan',
+  username: staff?.username || 'Panuwat',
+  password: staff?.password || 'password123',
   confirmPassword: '',
-  status: 'Offline',
+  status: staff?.status || 'Offline',
 })
+
+const staffForms = ref<StaffFormState[]>([createStaffForm()])
 
 const adminName = computed(() => authStore.user?.fullName || 'Thanawit Boonphom')
 const adminInitials = computed(() => authStore.user?.avatar || 'TB')
@@ -289,42 +311,62 @@ const setSection = (section: AdminSection) => {
   if (section === 'setup') showParkingSetup()
 }
 
-const resetStaffForm = (staff?: StaffMember) => {
-  staffForm.staffName = staff?.staffName || 'Panuwat Panan'
-  staffForm.username = staff?.username || 'Panuwat'
-  staffForm.password = '************'
-  staffForm.confirmPassword = ''
-  staffForm.status = staff?.status || 'Offline'
+const maskPassword = (password: string) => {
+  return '*'.repeat(Math.max(password.length, 8))
+}
+
+const togglePasswordVisibility = (staffId: string) => {
+  const nextVisible = new Set(visiblePasswordIds.value)
+  if (nextVisible.has(staffId)) {
+    nextVisible.delete(staffId)
+  } else {
+    nextVisible.add(staffId)
+  }
+  visiblePasswordIds.value = nextVisible
+}
+
+const canEditStaff = (staff: StaffMember) => {
+  return staff.status !== 'Online' && staff.status !== 'Logging in'
+}
+
+const addStaffForm = () => {
+  staffForms.value = [...staffForms.value, createStaffForm()]
 }
 
 const openAddStaff = () => {
   editingStaffId.value = null
-  resetStaffForm()
+  staffForms.value = [createStaffForm()]
   staffMode.value = 'add'
 }
 
 const openEditStaff = (staff: StaffMember) => {
+  if (!canEditStaff(staff)) return
   editingStaffId.value = staff._id
-  resetStaffForm(staff)
+  staffForms.value = [createStaffForm(staff)]
   staffMode.value = 'edit'
 }
 
 const saveStaff = () => {
   if (staffMode.value === 'add') {
-    adminStore.addStaff({
-      _id: `${Date.now()}`,
-      staffName: staffForm.staffName,
-      username: staffForm.username,
-      password: '**********',
-      dateAdded: '19/3/2569',
-      timeAdded: '12:00:00',
-      status: staffForm.status,
+    staffForms.value.forEach((form, index) => {
+      adminStore.addStaff({
+        _id: `${Date.now()}-${index}`,
+        staffName: form.staffName,
+        username: form.username,
+        password: form.password,
+        dateAdded: '19/3/2569',
+        timeAdded: '12:00:00',
+        status: form.status,
+      })
     })
   } else if (editingStaffId.value) {
+    const form = staffForms.value[0]
+    if (!form) return
     adminStore.updateStaff(editingStaffId.value, {
-      staffName: staffForm.staffName,
-      username: staffForm.username,
-      status: staffForm.status,
+      staffName: form.staffName,
+      username: form.username,
+      password: form.password,
+      status: form.status,
     })
   }
   staffMode.value = 'list'
@@ -341,7 +383,7 @@ const showCctvSetup = () => {
 }
 
 const statusClass = (status: StaffMember['status']) => {
-  return `status-${status.toLowerCase()}`
+  return `status-${status.toLowerCase().replace(/\s+/g, '-')}`
 }
 
 const FilterStats = defineComponent({
@@ -499,72 +541,77 @@ const StaffFormPanel = defineComponent({
       type: String as () => 'add' | 'edit',
       required: true,
     },
-    form: {
-      type: Object as () => StaffFormState,
+    forms: {
+      type: Array as () => StaffFormState[],
       required: true,
     },
   },
   emits: ['save', 'cancel', 'add-more'],
   setup(props, { emit }) {
+    const renderStaffCard = (form: StaffFormState, index: number) =>
+      h('div', { class: 'staff-form-card', key: index }, [
+        h('div', { class: 'profile-icon large' }, [h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })]),
+        h('div', { class: 'staff-form-fields' }, [
+          h('label', [
+            h('span', 'Staff Name :'),
+            h('input', {
+              value: form.staffName,
+              onInput: (event: Event) => {
+                form.staffName = (event.target as HTMLInputElement).value
+              },
+            }),
+          ]),
+          h('label', [
+            h('span', 'Username :'),
+            h('input', {
+              value: form.username,
+              onInput: (event: Event) => {
+                form.username = (event.target as HTMLInputElement).value
+              },
+            }),
+          ]),
+          h('label', [
+            h('span', 'Password :'),
+            h('input', {
+              type: 'password',
+              value: form.password,
+              onInput: (event: Event) => {
+                form.password = (event.target as HTMLInputElement).value
+              },
+            }),
+            h(EyeOff, { class: 'field-icon h-4 w-4', strokeWidth: 2.2 }),
+          ]),
+          h('label', [
+            h('span', 'Confirm Password :'),
+            h('input', {
+              type: 'password',
+              value: form.confirmPassword,
+              onInput: (event: Event) => {
+                form.confirmPassword = (event.target as HTMLInputElement).value
+              },
+            }),
+          ]),
+        ]),
+      ])
+
     return () =>
       h('div', { class: ['staff-form-panel', props.mode] }, [
-        h('h2', props.mode === 'add' ? 'Add Staff' : 'Edit Staff'),
-        h('div', { class: 'staff-form-card' }, [
-          h('div', { class: 'profile-icon large' }, [h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })]),
-          h('div', { class: 'staff-form-fields' }, [
-            h('label', [
-              h('span', 'Staff Name :'),
-              h('input', {
-                value: props.form.staffName,
-                onInput: (event: Event) => {
-                  props.form.staffName = (event.target as HTMLInputElement).value
-                },
-              }),
-            ]),
-            h('label', [
-              h('span', 'Username :'),
-              h('input', {
-                value: props.form.username,
-                onInput: (event: Event) => {
-                  props.form.username = (event.target as HTMLInputElement).value
-                },
-              }),
-            ]),
-            h('label', [
-              h('span', 'Password :'),
-              h('input', {
-                type: 'password',
-                value: props.form.password,
-                onInput: (event: Event) => {
-                  props.form.password = (event.target as HTMLInputElement).value
-                },
-              }),
-              h(EyeOff, { class: 'field-icon h-4 w-4', strokeWidth: 2.2 }),
-            ]),
-            h('label', [
-              h('span', 'Confirm Password :'),
-              h('input', {
-                type: 'password',
-                value: props.form.confirmPassword,
-                onInput: (event: Event) => {
-                  props.form.confirmPassword = (event.target as HTMLInputElement).value
-                },
-              }),
-            ]),
-          ]),
-          props.mode === 'edit'
-            ? h('div', { class: 'form-actions' }, [
-                h('button', { class: 'blue-button', type: 'button', onClick: () => emit('save') }, 'Edit'),
-                h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
-              ])
-            : null,
+        h('button', { class: 'form-back-button', type: 'button', onClick: () => emit('cancel') }, [
+          h(ArrowLeft, { class: 'h-5 w-5', strokeWidth: 2.4 }),
         ]),
+        h('h2', props.mode === 'add' ? 'Add Staff' : 'Edit Staff'),
+        props.forms.map(renderStaffCard),
         props.mode === 'add'
           ? h('button', { class: 'add-more-row', type: 'button', onClick: () => emit('add-more') }, '+ Add More Staff')
           : null,
-        props.mode === 'add'
-          ? h('button', { class: 'green-button save-add', type: 'button', onClick: () => emit('save') }, 'Add')
-          : null,
+        h('div', { class: 'form-actions' }, [
+          h(
+            'button',
+            { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
+            props.mode === 'add' ? 'Add' : 'Edit',
+          ),
+          h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
+        ]),
       ])
   },
 })
@@ -578,13 +625,38 @@ const ParkingSetupList = defineComponent({
   },
   emits: ['add-building', 'add-floor', 'edit-floor'],
   setup(props, { emit }) {
+    const isFloorExpanded = ref(false)
+
+    const renderFloorRow = (floor: Floor) =>
+      h('article', { class: 'floor-row', key: floor._id }, [
+        h('div', { class: 'floor-icon' }, [
+          floor.vehicleType === 'Motorcycle'
+            ? h(Bike, { class: 'h-11 w-11', strokeWidth: 2.5 })
+            : h(CarFront, { class: 'h-11 w-11', strokeWidth: 2.5 }),
+        ]),
+        h('div', { class: 'setup-copy' }, [
+          h('p', `Floor : ${floor.floorNumber}      (${floor.vehicleType})`),
+          h('p', 'Date added : 19/3/2569'),
+          h('p', `Time added : ${floor.floorNumber === 3 ? '11:00:00' : '12:00:00'}`),
+        ]),
+        h('p', { class: 'floor-status' }, [
+          'Status : ',
+          h('strong', { class: floor.status === 'Available' ? 'available' : 'disable' }, floor.status),
+        ]),
+        h('button', { class: 'map-link', type: 'button' }, [
+          h(Map, { class: 'h-10 w-10', strokeWidth: 2.5 }),
+          h('span', 'Parking Map'),
+        ]),
+        h('button', { class: 'blue-button', type: 'button', onClick: () => emit('edit-floor') }, 'Edit'),
+      ])
+
     return () =>
       h('div', { class: 'parking-setup-list' }, [
         h('div', { class: 'setup-actions' }, [
           h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-building') }, '+ Add Building'),
           h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-floor') }, '+ Add Floor'),
         ]),
-        h('article', { class: 'building-row' }, [
+        h('article', { class: ['building-row', isFloorExpanded.value ? 'is-expanded' : ''] }, [
           h('div', { class: 'building-photo' }),
           h('div', { class: 'setup-copy' }, [
             h('p', 'Building : E4'),
@@ -592,35 +664,21 @@ const ParkingSetupList = defineComponent({
             h('p', 'Last Date added : 19/3/2569'),
             h('p', 'Last Time added : 12:00:00'),
           ]),
-          h('button', { class: 'map-link', type: 'button' }, [
+          h('button', { class: 'map-link view-floor-button', type: 'button', onClick: () => (isFloorExpanded.value = !isFloorExpanded.value) }, [
             h(CircleArrowUp, { class: 'h-10 w-10', strokeWidth: 2.4 }),
-            h('span', 'View Floor'),
+            h('span', isFloorExpanded.value ? 'Hide Floor' : 'View Floor'),
           ]),
           h('button', { class: 'blue-button', type: 'button', onClick: () => emit('add-building') }, 'Edit'),
         ]),
-        props.floors.map((floor) =>
-          h('article', { class: 'floor-row', key: floor._id }, [
-            h('div', { class: 'floor-icon' }, [
-              floor.vehicleType === 'Motorcycle'
-                ? h(Bike, { class: 'h-11 w-11', strokeWidth: 2.5 })
-                : h(CarFront, { class: 'h-11 w-11', strokeWidth: 2.5 }),
-            ]),
-            h('div', { class: 'setup-copy' }, [
-              h('p', `Floor : ${floor.floorNumber}      (${floor.vehicleType})`),
-              h('p', 'Date added : 19/3/2569'),
-              h('p', `Time added : ${floor.floorNumber === 3 ? '11:00:00' : '12:00:00'}`),
-            ]),
-            h('p', { class: 'floor-status' }, [
-              'Status : ',
-              h('strong', { class: floor.status === 'Available' ? 'available' : 'disable' }, floor.status),
-            ]),
-            h('button', { class: 'map-link', type: 'button' }, [
-              h(Map, { class: 'h-10 w-10', strokeWidth: 2.5 }),
-              h('span', 'Parking Map'),
-            ]),
-            h('button', { class: 'blue-button', type: 'button', onClick: () => emit('edit-floor') }, 'Edit'),
-          ]),
-        ),
+        isFloorExpanded.value
+          ? h('section', { class: 'floor-expansion-panel' }, [
+              h('div', { class: 'floor-expansion-header' }, [
+                h('strong', 'E4 Parking Floors'),
+                h('span', `${props.floors.length} floor configurations`),
+              ]),
+              props.floors.map(renderFloorRow),
+            ])
+          : h('p', { class: 'floor-collapsed-hint' }, 'Click View Floor to expand parking floors for building E4.'),
       ])
   },
 })
@@ -1305,11 +1363,33 @@ const CCTVFormPanel = defineComponent({
   color: #a0a0a0;
 }
 
+.status-logging-in {
+  color: #bd7a10;
+}
+
+.password-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.password-eye {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #858585;
+}
+
+.password-eye:hover {
+  background: #f1f1f1;
+  color: #202020;
+}
+
 .inline-icon {
   display: inline-block;
-  margin-left: 6px;
   color: #858585;
-  vertical-align: -3px;
 }
 
 .row-actions {
@@ -1320,6 +1400,11 @@ const CCTVFormPanel = defineComponent({
   color: #202020;
 }
 
+.row-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.28;
+}
+
 .staff-form-panel {
   position: relative;
   width: min(914px, calc(100vw - 180px));
@@ -1328,6 +1413,25 @@ const CCTVFormPanel = defineComponent({
   border-radius: 4px;
   background: #e3e3e3;
   padding: 24px 15px 82px;
+}
+
+.form-back-button {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  background: #fff;
+  color: #202020;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.18);
+}
+
+.form-back-button:hover {
+  background: #fdeceb;
+  color: #9e2d25;
 }
 
 .staff-form-panel h2,
@@ -1347,6 +1451,10 @@ const CCTVFormPanel = defineComponent({
   background: #fff;
   box-shadow: 0 3px 4px rgba(0, 0, 0, 0.24);
   padding: 25px;
+}
+
+.staff-form-card + .staff-form-card {
+  margin-top: 12px;
 }
 
 .staff-form-panel.edit .staff-form-card {
@@ -1397,12 +1505,6 @@ const CCTVFormPanel = defineComponent({
   font-size: 12px;
 }
 
-.save-add {
-  position: absolute;
-  right: 18px;
-  bottom: 14px;
-}
-
 .form-actions {
   position: absolute;
   right: 14px;
@@ -1444,6 +1546,64 @@ const CCTVFormPanel = defineComponent({
   grid-template-columns: 80px 1fr 92px 90px;
   min-height: 101px;
   padding: 12px 10px 12px 15px;
+}
+
+.building-row.is-expanded {
+  border: 2px solid rgba(20, 156, 240, 0.35);
+  box-shadow: 0 4px 12px rgba(20, 156, 240, 0.2);
+}
+
+.view-floor-button {
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.view-floor-button:hover {
+  background: #edf7ff;
+}
+
+.view-floor-button svg {
+  transition: transform 0.18s ease;
+}
+
+.building-row.is-expanded .view-floor-button svg {
+  transform: rotate(180deg);
+}
+
+.floor-expansion-panel {
+  margin-top: 10px;
+  border-radius: 8px;
+  background: #f6f6f6;
+  border: 1px solid #d7d7d7;
+  padding: 12px;
+}
+
+.floor-expansion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 34px;
+  margin-bottom: 10px;
+  padding: 0 8px;
+}
+
+.floor-expansion-header strong {
+  color: #111;
+  font-size: 15px;
+}
+
+.floor-expansion-header span,
+.floor-collapsed-hint {
+  color: #777;
+  font-size: 12px;
+}
+
+.floor-collapsed-hint {
+  margin-top: 10px;
+  border-radius: 6px;
+  background: #f8f8f8;
+  border: 1px dashed #c9c9c9;
+  padding: 12px 14px;
 }
 
 .floor-row {
