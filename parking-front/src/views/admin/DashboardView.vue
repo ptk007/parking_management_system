@@ -52,7 +52,7 @@
         <FilterStats :stats="adminStats" />
 
         <div class="dashboard-content">
-          <ReferenceParkingMap v-if="activeDashboardTab === 'slots'" />
+          <ReferenceParkingMap v-if="activeDashboardTab === 'slots'" @stats-change="updateSlotStats" />
 
           <div v-else-if="activeDashboardTab === 'cctv'" class="admin-cctv-grid">
             <CameraPreviewCard
@@ -258,6 +258,14 @@ interface StaffFormState {
   status: StaffMember['status']
 }
 
+interface SlotStats {
+  total: number
+  available: number
+  incoming: number
+  occupied: number
+  disabled: number
+}
+
 const authStore = useAuthStore()
 const adminStore = useAdminStore()
 
@@ -281,14 +289,30 @@ const dashboardTabs: { id: DashboardTab; label: string }[] = [
   { id: 'log', label: 'Log' },
 ]
 
-const adminStats = [
+const adminStats = ref([
   { label: 'Total slots', value: 124, color: '#cf3b30' },
   { label: 'Available', value: 47, color: '#16a36a' },
   { label: 'Incoming', value: 6, color: '#f4c233' },
   { label: 'Occupied', value: 74, color: '#bd7a10' },
   { label: 'Disable', value: 3, color: '#777777' },
   { label: 'Active Staff', value: 6, color: '#5141c9' },
-]
+])
+
+const getSlotStatValue = (label: string, slotStats: SlotStats) => {
+  if (label === 'Total slots') return slotStats.total
+  if (label === 'Available') return slotStats.available
+  if (label === 'Incoming') return slotStats.incoming
+  if (label === 'Occupied') return slotStats.occupied
+  if (label === 'Disable') return slotStats.disabled
+  return null
+}
+
+const updateSlotStats = (slotStats: SlotStats) => {
+  adminStats.value = adminStats.value.map((stat) => {
+    const value = getSlotStatValue(stat.label, slotStats)
+    return value === null ? stat : { ...stat, value }
+  })
+}
 
 const adminDashboardCameras = ['Entrance', 'Exit', 'Floor4 B6', 'Floor4 A5']
 
@@ -548,6 +572,20 @@ const StaffFormPanel = defineComponent({
   },
   emits: ['save', 'cancel', 'add-more'],
   setup(props, { emit }) {
+    const visibleFormPasswordIndexes = ref(new Set<number>())
+
+    const isFormPasswordVisible = (index: number) => visibleFormPasswordIndexes.value.has(index)
+
+    const toggleFormPasswordVisibility = (index: number) => {
+      const nextVisible = new Set(visibleFormPasswordIndexes.value)
+      if (nextVisible.has(index)) {
+        nextVisible.delete(index)
+      } else {
+        nextVisible.add(index)
+      }
+      visibleFormPasswordIndexes.value = nextVisible
+    }
+
     const renderStaffCard = (form: StaffFormState, index: number) =>
       h('div', { class: 'staff-form-card', key: index }, [
         h('div', { class: 'profile-icon large' }, [h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })]),
@@ -573,13 +611,28 @@ const StaffFormPanel = defineComponent({
           h('label', [
             h('span', 'Password :'),
             h('input', {
-              type: 'password',
+              type: isFormPasswordVisible(index) ? 'text' : 'password',
               value: form.password,
               onInput: (event: Event) => {
                 form.password = (event.target as HTMLInputElement).value
               },
             }),
-            h(EyeOff, { class: 'field-icon h-4 w-4', strokeWidth: 2.2 }),
+            h(
+              'button',
+              {
+                class: 'field-icon-button',
+                type: 'button',
+                'aria-label': isFormPasswordVisible(index) ? 'Hide password' : 'Show password',
+                title: isFormPasswordVisible(index) ? 'Hide password' : 'Show password',
+                onClick: () => toggleFormPasswordVisibility(index),
+              },
+              [
+                h(isFormPasswordVisible(index) ? Eye : EyeOff, {
+                  class: 'field-icon h-4 w-4',
+                  strokeWidth: 2.2,
+                }),
+              ],
+            ),
           ]),
           h('label', [
             h('span', 'Confirm Password :'),
@@ -851,7 +904,7 @@ const CCTVFormPanel = defineComponent({
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 40;
-  width: 120px;
+  width: 138px;
   background: #cf4647;
   display: flex;
   flex-direction: column;
@@ -913,7 +966,7 @@ const CCTVFormPanel = defineComponent({
 
 .admin-main {
   min-height: 100vh;
-  margin-left: 120px;
+  margin-left: 138px;
 }
 
 .admin-topbar {
@@ -1492,6 +1545,20 @@ const CCTVFormPanel = defineComponent({
 
 .field-icon {
   color: #858585;
+}
+
+.field-icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: #858585;
+  display: grid;
+  place-items: center;
+}
+
+.field-icon-button:hover {
+  background: #f1f1f1;
+  color: #202020;
 }
 
 .add-more-row {

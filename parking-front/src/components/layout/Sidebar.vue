@@ -46,7 +46,7 @@ const logout = async () => {
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 40;
-  width: 122px;
+  width: 138px;
   background: #cf4647;
   display: flex;
   flex-direction: column;
@@ -73,7 +73,8 @@ const logout = async () => {
   margin-top: 18px;
   display: grid;
   gap: 10px;
-  padding: 0 4px;
+  padding: 0 6px;
+  box-sizing: border-box;
 }
 
 .nav-card {

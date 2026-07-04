@@ -33,7 +33,7 @@
     </div>
 
     <section class="dashboard-content">
-      <ReferenceParkingMap v-if="activeTab === 'slots'" />
+      <ReferenceParkingMap v-if="activeTab === 'slots'" @stats-change="updateSlotStats" />
 
       <div v-else-if="activeTab === 'cctv'" class="cctv-grid">
         <CameraPreviewCard
@@ -89,6 +89,14 @@ import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
 
 type ActiveTab = 'slots' | 'cctv' | 'log'
 
+interface SlotStats {
+  total: number
+  available: number
+  incoming: number
+  occupied: number
+  disabled: number
+}
+
 const FacePlaceholder = defineComponent({
   props: {
     label: {
@@ -122,13 +130,29 @@ const filters = [
   { label: 'Vehicle', model: selectedVehicle, options: ['Cars', 'Motorcycles'] },
 ]
 
-const stats = [
+const stats = ref([
   { label: 'Total slots', value: 124, color: '#cf3b30' },
   { label: 'Available', value: 47, color: '#16a36a' },
   { label: 'Incoming', value: 6, color: '#f4c233' },
   { label: 'Occupied', value: 74, color: '#bd7a10' },
   { label: 'Disable', value: 3, color: '#777777' },
-]
+])
+
+const getSlotStatValue = (label: string, slotStats: SlotStats) => {
+  if (label === 'Total slots') return slotStats.total
+  if (label === 'Available') return slotStats.available
+  if (label === 'Incoming') return slotStats.incoming
+  if (label === 'Occupied') return slotStats.occupied
+  if (label === 'Disable') return slotStats.disabled
+  return null
+}
+
+const updateSlotStats = (slotStats: SlotStats) => {
+  stats.value = stats.value.map((stat) => {
+    const value = getSlotStatValue(stat.label, slotStats)
+    return value === null ? stat : { ...stat, value }
+  })
+}
 
 const staffCameras = [
   { title: 'Entrance', plateSuffix: '7' },
@@ -186,7 +210,7 @@ const statusClass = (status: string) => {
 <style scoped>
 .staff-dashboard {
   min-height: calc(100vh - 78px);
-  margin-left: 122px;
+  margin-left: 138px;
   background: #d8d8d8;
   color: #202020;
 }

@@ -51,7 +51,7 @@ const unreadNotifications = computed(() => chatStore.unreadCount || 3)
   top: 0;
   z-index: 30;
   height: 78px;
-  margin-left: 122px;
+  margin-left: 138px;
   background: #fff;
   border-bottom: 1px solid #d2d2d2;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
