@@ -1,41 +1,6 @@
 <template>
   <div class="admin-dashboard">
-    <aside class="admin-sidebar">
-      <button class="sidebar-crest" type="button" @click="setSection('dashboard')">
-        <img :src="mfuLogo" alt="Mae Fah Luang University" />
-      </button>
-
-      <nav class="sidebar-nav">
-        <button
-          v-for="item in navItems"
-          :key="item.id"
-          :class="['nav-card', activeSection === item.id ? 'is-active' : '']"
-          type="button"
-          @click="setSection(item.id)"
-        >
-          <component :is="item.icon" class="nav-icon" :stroke-width="2.7" />
-          <span>{{ item.label }}</span>
-        </button>
-      </nav>
-    </aside>
-
     <main class="admin-main">
-      <header class="admin-topbar">
-        <div>
-          <h1>MFU Parking Management</h1>
-          <p>{{ adminName }} ● Admin</p>
-        </div>
-
-        <div class="topbar-actions">
-          <div class="online-status"><span></span><strong>Online</strong></div>
-          <button class="bell-button" type="button" aria-label="Notifications">
-            <Bell class="h-8 w-8" :stroke-width="1.8" />
-            <span></span>
-          </button>
-          <div class="avatar">{{ adminInitials }}</div>
-        </div>
-      </header>
-
       <section v-if="activeSection === 'dashboard'" class="section-shell dashboard-section">
         <div class="tabbar">
           <button
@@ -202,16 +167,13 @@
         </div>
       </section>
     </main>
-
-    <ChatWidget />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, reactive, ref } from 'vue'
+import { computed, defineComponent, h, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
-  Bell,
   Bike,
   CarFront,
   CheckCircle2,
@@ -219,23 +181,18 @@ import {
   Eye,
   EyeOff,
   Map,
-  Monitor,
   Search,
   SquarePen,
   Trash2,
   UserPlus,
   UserRound,
-  Users,
   VideoOff,
-  Wrench,
   X,
 } from 'lucide-vue-next'
-import { useAuthStore } from '@/stores/auth'
+import { useRoute } from 'vue-router'
 import { useAdminStore, type StaffMember, type Floor } from '@/stores/admin'
 import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
-import ChatWidget from '@/components/chat/ChatWidget.vue'
-import mfuLogo from '@/assets/mae-fah-luang-university.png'
 
 type AdminSection = 'dashboard' | 'staff' | 'setup'
 type DashboardTab = 'slots' | 'cctv' | 'log'
@@ -266,22 +223,20 @@ interface SlotStats {
   disabled: number
 }
 
-const authStore = useAuthStore()
 const adminStore = useAdminStore()
+const route = useRoute()
 
-const activeSection = ref<AdminSection>('dashboard')
+const activeSection = computed<AdminSection>(() => {
+  if (route.path.endsWith('/staff')) return 'staff'
+  if (route.path.endsWith('/setup')) return 'setup'
+  return 'dashboard'
+})
 const activeDashboardTab = ref<DashboardTab>('slots')
 const staffMode = ref<StaffMode>('list')
 const setupTab = ref<SetupTab>('parking')
 const setupMode = ref<SetupMode>('parking-list')
 const editingStaffId = ref<string | null>(null)
 const visiblePasswordIds = ref(new Set<string>())
-
-const navItems = [
-  { id: 'dashboard' as const, label: 'Dashboard', icon: Monitor },
-  { id: 'staff' as const, label: 'Staff\nManager', icon: Users },
-  { id: 'setup' as const, label: 'System\nSetup', icon: Wrench },
-]
 
 const dashboardTabs: { id: DashboardTab; label: string }[] = [
   { id: 'slots', label: 'Slots' },
@@ -326,14 +281,11 @@ const createStaffForm = (staff?: StaffMember): StaffFormState => ({
 
 const staffForms = ref<StaffFormState[]>([createStaffForm()])
 
-const adminName = computed(() => authStore.user?.fullName || 'Thanawit Boonphom')
-const adminInitials = computed(() => authStore.user?.avatar || 'TB')
-
-const setSection = (section: AdminSection) => {
-  activeSection.value = section
+watch(activeSection, (section, previousSection) => {
+  if (section === previousSection) return
   if (section === 'staff') staffMode.value = 'list'
   if (section === 'setup') showParkingSetup()
-}
+})
 
 const maskPassword = (password: string) => {
   return '*'.repeat(Math.max(password.length, 8))
@@ -895,166 +847,19 @@ const CCTVFormPanel = defineComponent({
 
 <style>
 .admin-dashboard {
-  min-height: 100vh;
+  min-height: calc(100vh - 78px);
   background: #d8d8d8;
   color: #202020;
 }
 
-.admin-sidebar {
-  position: fixed;
-  inset: 0 auto 0 0;
-  z-index: 40;
-  width: 138px;
-  background: #cf4647;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.sidebar-crest {
-  width: 104px;
-  height: 116px;
-  margin-top: 18px;
-  display: grid;
-  place-items: center;
-}
-
-.sidebar-crest img {
-  width: 78px;
-  height: 102px;
-  object-fit: contain;
-  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.18));
-}
-
-.sidebar-nav {
-  width: 100%;
-  margin-top: 17px;
-  display: grid;
-  gap: 6px;
-  padding: 0 6px;
-  box-sizing: border-box;
-}
-
-.nav-card {
-  width: 100%;
-  box-sizing: border-box;
-  height: 57px;
-  border-radius: 4px;
-  background: #fff;
-  color: #a7a7a7;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  text-align: left;
-  white-space: pre-line;
-  font-size: 11px;
-}
-
-.nav-card.is-active {
-  background: #fdeceb;
-  color: #9e2d25;
-  font-weight: 800;
-}
-
-.nav-icon {
-  width: 29px;
-  height: 29px;
-  color: #202020;
-  flex: 0 0 auto;
-}
-
 .admin-main {
-  min-height: 100vh;
+  min-height: calc(100vh - 78px);
   margin-left: 138px;
-}
-
-.admin-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  height: 57px;
-  background: #fff;
-  border-bottom: 1px solid #d2d2d2;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 13px;
-}
-
-.admin-topbar h1 {
-  color: #111;
-  font-size: 18px;
-  font-weight: 400;
-  line-height: 1.1;
-}
-
-.admin-topbar p {
-  color: #9a9a9a;
-  font-size: 11px;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.online-status {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: #19d348;
-  font-size: 13px;
-}
-
-.online-status span {
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: #19d348;
-}
-
-.online-status strong {
-  color: #19d348;
-  font-weight: 400;
-}
-
-.bell-button {
-  position: relative;
-  width: 32px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  color: #111;
-}
-
-.bell-button span {
-  position: absolute;
-  top: 8px;
-  right: 3px;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: #ff0d0d;
-}
-
-.avatar {
-  width: 43px;
-  height: 43px;
-  border-radius: 999px;
-  background: #fdeceb;
-  color: #9e2d25;
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-  font-weight: 800;
 }
 
 .tabbar,
 .setup-tabs {
-  height: 35px;
+  height: 46px;
   background: #fff;
   display: flex;
   align-items: stretch;
@@ -1070,18 +875,18 @@ const CCTVFormPanel = defineComponent({
 }
 
 .tab-button {
-  width: 74px;
+  width: 110px;
   border: 1px solid #a6a6a6;
-  border-radius: 4px;
+  border-radius: 5px;
   background: #fff;
   color: #9a9a9a;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
-  margin-right: 5px;
+  margin-right: 8px;
 }
 
 .setup-tabs .tab-button {
-  width: 78px;
+  width: 110px;
   height: 35px;
 }
 
@@ -1091,12 +896,12 @@ const CCTVFormPanel = defineComponent({
 }
 
 .dashboard-toolbar {
-  min-height: 82px;
+  min-height: 116px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding: 9px 27px 13px 20px;
+  padding: 12px 25px 18px 16px;
 }
 
 .filters {
@@ -1107,38 +912,38 @@ const CCTVFormPanel = defineComponent({
 
 .filter-control {
   display: grid;
-  gap: 7px;
+  gap: 9px;
 }
 
 .filter-control span {
   color: #333;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .filter-control select,
 .cctv-filter-row select {
-  width: 101px;
-  height: 34px;
-  border-radius: 6px;
+  width: 107px;
+  height: 43px;
+  border-radius: 8px;
   background: #fff;
   border: 0;
-  padding: 0 14px;
+  padding: 0 16px;
   color: #242424;
-  font-size: 14px;
+  font-size: 16px;
   outline: none;
   box-shadow: inset 0 0 0 1px #e4e4e4;
 }
 
 .stats {
   display: flex;
-  gap: 14px;
+  gap: 13px;
   flex-wrap: wrap;
-  padding-top: 24px;
+  padding-top: 25px;
 }
 
 .stat-card {
-  width: 75px;
+  width: 74px;
   min-height: 42px;
   border-radius: 5px;
   background: #fff;
@@ -1148,7 +953,7 @@ const CCTVFormPanel = defineComponent({
 }
 
 .stat-card strong {
-  font-size: 23px;
+  font-size: 24px;
   line-height: 0.95;
   font-weight: 800;
 }
@@ -1160,7 +965,7 @@ const CCTVFormPanel = defineComponent({
 }
 
 .dashboard-content {
-  padding: 0 34px 28px;
+  padding: 16px 31px 32px;
 }
 
 .admin-cctv-grid {
@@ -1173,19 +978,19 @@ const CCTVFormPanel = defineComponent({
 .logs-panel {
   background: #e3e3e3;
   border-radius: 5px;
-  min-height: 478px;
-  padding: 9px 15px 25px;
+  min-height: 670px;
+  padding: 10px 20px 44px;
 }
 
 .warning-banner {
   width: max-content;
-  margin: 0 0 14px;
-  border-radius: 4px;
+  margin: 0 0 21px;
+  border-radius: 5px;
   background: #fff;
-  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.28);
   color: #111;
-  padding: 8px 16px;
-  font-size: 12px;
+  padding: 11px 22px;
+  font-size: 16px;
 }
 
 .warning-banner span {
@@ -1193,16 +998,16 @@ const CCTVFormPanel = defineComponent({
 }
 
 .log-card {
-  min-height: 113px;
-  border-radius: 4px;
+  min-height: 158px;
+  border-radius: 5px;
   background: #fff;
   box-shadow: 0 3px 4px rgba(0, 0, 0, 0.28);
   display: grid;
-  grid-template-columns: 36px minmax(245px, 1fr) minmax(250px, 1fr) 160px;
+  grid-template-columns: 54px minmax(280px, 1fr) minmax(310px, 1fr) 205px;
   align-items: center;
-  gap: 14px;
-  padding: 10px 20px;
-  margin-bottom: 15px;
+  gap: 18px;
+  padding: 14px 28px 14px 22px;
+  margin-bottom: 21px;
 }
 
 .log-car {
@@ -1212,9 +1017,9 @@ const CCTVFormPanel = defineComponent({
 .vehicle-info,
 .parking-info {
   display: grid;
-  gap: 4px;
+  gap: 7px;
   color: #111;
-  font-size: 11px;
+  font-size: 16px;
 }
 
 .vehicle-info p,
@@ -1226,7 +1031,7 @@ const CCTVFormPanel = defineComponent({
 .vehicle-info span,
 .parking-info span {
   display: inline-block;
-  width: 10px;
+  width: 12px;
   color: #111;
 }
 
@@ -1251,26 +1056,26 @@ const CCTVFormPanel = defineComponent({
 
 .face-driver > p {
   color: #111;
-  margin-bottom: 5px;
-  font-size: 12px;
+  margin-bottom: 10px;
+  font-size: 16px;
 }
 
 .face-driver > div {
   display: flex;
   justify-content: center;
-  gap: 18px;
+  gap: 26px;
 }
 
 .face-placeholder {
   display: grid;
   justify-items: center;
-  gap: 3px;
+  gap: 5px;
 }
 
 .face-placeholder div {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
   background: #dfe1e6;
   display: grid;
   place-items: end center;
@@ -1280,7 +1085,7 @@ const CCTVFormPanel = defineComponent({
 
 .face-placeholder figcaption {
   color: #111;
-  font-size: 11px;
+  font-size: 16px;
 }
 
 .staff-manager-section,

@@ -267,6 +267,8 @@ watch(
   position: relative;
   width: 960px;
   height: 510px;
+  --flow-arrow-color: #ef3f35;
+  --flow-arrow-shadow: rgba(109, 18, 12, 0.38);
   margin: 0 auto;
   border: 3px solid #d8d2c7;
   border-radius: 3px;
@@ -483,25 +485,25 @@ watch(
   position: absolute;
   z-index: 3;
   pointer-events: none;
-  opacity: 0.7;
+  opacity: 0.94;
 }
 
 .flow-arrow {
   width: 96px;
   height: 0;
-  border-top: 4px solid rgba(255, 184, 166, 0.72);
-  filter: drop-shadow(0 0 5px rgba(255, 210, 195, 0.45));
+  border-top: 5px solid var(--flow-arrow-color);
+  filter: drop-shadow(0 1px 2px var(--flow-arrow-shadow));
 }
 
 .flow-arrow::after {
   content: '';
   position: absolute;
   right: -1px;
-  top: -9px;
+  top: -10px;
   width: 15px;
   height: 15px;
-  border-right: 4px solid rgba(255, 184, 166, 0.82);
-  border-top: 4px solid rgba(255, 184, 166, 0.82);
+  border-right: 5px solid var(--flow-arrow-color);
+  border-top: 5px solid var(--flow-arrow-color);
   transform: rotate(45deg);
 }
 
@@ -548,9 +550,9 @@ watch(
 }
 
 .arrow-right-down {
-  left: 872px;
+  left: 918px;
   top: 104px;
-  width: 90px;
+  width: 84px;
   transform: rotate(90deg);
   transform-origin: left center;
 }
@@ -567,10 +569,10 @@ watch(
   bottom: 100px;
   width: 260px;
   height: 126px;
-  border-right: 5px solid rgba(255, 184, 166, 0.72);
-  border-bottom: 5px solid rgba(255, 184, 166, 0.72);
+  border-right: 5px solid var(--flow-arrow-color);
+  border-bottom: 5px solid var(--flow-arrow-color);
   border-radius: 0 0 128px 0;
-  filter: drop-shadow(0 0 5px rgba(255, 210, 195, 0.45));
+  filter: drop-shadow(0 1px 2px var(--flow-arrow-shadow));
 }
 
 .flow-loop::after {
@@ -580,8 +582,8 @@ watch(
   top: 7px;
   width: 15px;
   height: 15px;
-  border-left: 5px solid rgba(255, 184, 166, 0.82);
-  border-top: 5px solid rgba(255, 184, 166, 0.82);
+  border-left: 5px solid var(--flow-arrow-color);
+  border-top: 5px solid var(--flow-arrow-color);
   transform: rotate(45deg);
 }
 

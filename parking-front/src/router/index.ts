@@ -28,6 +28,20 @@ const router = createRouter({
       component: AdminDashboardView,
     },
     {
+      path: '/admin/staff',
+      name: 'AdminStaff',
+      component: AdminDashboardView,
+    },
+    {
+      path: '/admin/setup',
+      name: 'AdminSetup',
+      component: AdminDashboardView,
+    },
+    {
+      path: '/admin',
+      redirect: '/admin/dashboard',
+    },
+    {
       path: '/admin/login',
       redirect: '/login',
     },

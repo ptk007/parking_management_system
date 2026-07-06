@@ -1,8 +1,8 @@
 <template>
-  <header class="staff-topbar">
+  <header class="app-topbar">
     <div>
       <h1>MFU Parking Management</h1>
-      <p>{{ userFullName }}</p>
+      <p>{{ userSubtitle }}</p>
     </div>
 
     <div class="topbar-actions">
@@ -24,15 +24,29 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Bell } from 'lucide-vue-next'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 
 const authStore = useAuthStore()
 const chatStore = useChatStore()
+const route = useRoute()
 
-const userFullName = computed(() => authStore.user?.fullName || 'Thanatip P.')
+const roleLabel = computed(() => {
+  return authStore.user?.role === 'admin' || route.path.startsWith('/admin') ? 'Admin' : 'Staff'
+})
+
+const userFullName = computed(() => {
+  if (authStore.user?.fullName) return authStore.user.fullName
+  return roleLabel.value === 'Admin' ? 'Thanawit Boonphom' : 'Thanatip P.'
+})
+
+const userSubtitle = computed(() => `${userFullName.value} - ${roleLabel.value}`)
+
 const userInitials = computed(() => {
-  const name = authStore.user?.fullName || 'Thanatip P.'
+  if (authStore.user?.avatar) return authStore.user.avatar
+
+  const name = userFullName.value
   return name
     .split(' ')
     .filter(Boolean)
@@ -46,7 +60,7 @@ const unreadNotifications = computed(() => chatStore.unreadCount || 3)
 </script>
 
 <style scoped>
-.staff-topbar {
+.app-topbar {
   position: sticky;
   top: 0;
   z-index: 30;
