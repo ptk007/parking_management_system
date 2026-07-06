@@ -1,21 +1,18 @@
 <template>
-  <aside class="staff-sidebar">
-    <router-link to="/dashboard" class="sidebar-crest" aria-label="Go to dashboard">
+  <aside class="app-sidebar">
+    <router-link :to="homePath" class="sidebar-crest" aria-label="Go to dashboard">
       <img :src="mfuLogo" alt="Mae Fah Luang University" />
     </router-link>
 
     <nav class="sidebar-nav">
       <router-link
-        to="/dashboard"
-        :class="['nav-card', route.path.startsWith('/dashboard') ? 'is-active' : '']"
+        v-for="item in navItems"
+        :key="item.to"
+        :to="item.to"
+        :class="['nav-card', item.isActive(route.path) ? 'is-active' : '']"
       >
-        <Monitor class="nav-icon" :stroke-width="2.6" />
-        <span>Dashboard</span>
-      </router-link>
-
-      <router-link to="/history" :class="['nav-card', route.path === '/history' ? 'is-active' : '']">
-        <Clock3 class="nav-icon" :stroke-width="3" />
-        <span>History</span>
+        <component :is="item.icon" class="nav-icon" :stroke-width="2.6" />
+        <span>{{ item.label }}</span>
       </router-link>
     </nav>
 
@@ -26,7 +23,8 @@
 </template>
 
 <script setup lang="ts">
-import { Clock3, LogOut, Monitor } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { Clock3, LogOut, Monitor, Users, Wrench } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import mfuLogo from '@/assets/mae-fah-luang-university.png'
@@ -35,6 +33,27 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
+const currentRole = computed(() => {
+  return authStore.user?.role === 'admin' || route.path.startsWith('/admin') ? 'admin' : 'staff'
+})
+
+const homePath = computed(() => (currentRole.value === 'admin' ? '/admin/dashboard' : '/dashboard'))
+
+const navItems = computed(() => {
+  if (currentRole.value === 'admin') {
+    return [
+      { to: '/admin/dashboard', label: 'Dashboard', icon: Monitor, isActive: (path: string) => path === '/admin/dashboard' },
+      { to: '/admin/staff', label: 'Staff Manager', icon: Users, isActive: (path: string) => path === '/admin/staff' },
+      { to: '/admin/setup', label: 'System Setup', icon: Wrench, isActive: (path: string) => path === '/admin/setup' },
+    ]
+  }
+
+  return [
+    { to: '/dashboard', label: 'Dashboard', icon: Monitor, isActive: (path: string) => path.startsWith('/dashboard') },
+    { to: '/history', label: 'Slot Status Log', icon: Clock3, isActive: (path: string) => path === '/history' },
+  ]
+})
+
 const logout = async () => {
   await authStore.logout()
   router.push('/login')
@@ -42,11 +61,11 @@ const logout = async () => {
 </script>
 
 <style scoped>
-.staff-sidebar {
+.app-sidebar {
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 40;
-  width: 160px;
+  width: 138px;
   background: #cf4647;
   display: flex;
   flex-direction: column;
@@ -54,7 +73,7 @@ const logout = async () => {
 }
 
 .sidebar-crest {
-  width: 104px;
+  width: 96px;
   height: 116px;
   margin-top: 24px;
   display: grid;
@@ -62,8 +81,8 @@ const logout = async () => {
 }
 
 .sidebar-crest img {
-  width: 84px;
-  height: 108px;
+  width: 76px;
+  height: 100px;
   object-fit: contain;
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.18));
 }
@@ -73,7 +92,8 @@ const logout = async () => {
   margin-top: 18px;
   display: grid;
   gap: 10px;
-  padding: 0 4px;
+  padding: 0 6px;
+  box-sizing: border-box;
 }
 
 .nav-card {
@@ -83,9 +103,9 @@ const logout = async () => {
   color: #a7a7a7;
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 0 16px;
-  font-size: 14px;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12px;
   transition:
     background 0.16s ease,
     color 0.16s ease,
@@ -102,9 +122,14 @@ const logout = async () => {
   font-weight: 700;
 }
 
+.nav-card span {
+  min-width: 0;
+  line-height: 1.15;
+}
+
 .nav-icon {
-  width: 34px;
-  height: 34px;
+  width: 31px;
+  height: 31px;
   color: #232323;
   flex: 0 0 auto;
 }

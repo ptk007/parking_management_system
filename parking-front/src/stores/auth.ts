@@ -29,12 +29,12 @@ export const useAuthStore = defineStore('auth', () => {
         const mockUser: User = {
           id: '1',
           username: username,
-          fullName: username === 'staff1' ? 'Thanatip P.' : username === 'Admin1' ? 'Administrator' : 'Admin User',
+          fullName: username === 'staff1' ? 'Thanatip P.' : username === 'Admin1' ? 'Thanawit Boonphom' : 'Admin User',
           role: demoUser.role,
           buildingId: 'E4',
           floorId: '4',
           status: 'online',
-          avatar: username.slice(0, 2).toUpperCase() || 'U',
+          avatar: username === 'staff1' ? 'TP' : username === 'Admin1' ? 'TB' : username.slice(0, 2).toUpperCase() || 'U',
         }
         const mockToken = `demo_token_${Date.now()}`
 

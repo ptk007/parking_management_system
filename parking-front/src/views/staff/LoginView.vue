@@ -4,6 +4,20 @@
       <img :src="mfuLogo" alt="Mae Fah Luang University" />
     </div>
 
+    <aside class="demo-credentials" aria-label="Demo login credentials">
+      <p>Demo Login</p>
+      <div>
+        <strong>Staff</strong>
+        <span>Username: staff1</span>
+        <span>Password: password123</span>
+      </div>
+      <div>
+        <strong>Admin</strong>
+        <span>Username: Admin1</span>
+        <span>Password: password123</span>
+      </div>
+    </aside>
+
     <div class="login-content">
       <div class="app-badge" aria-hidden="true">
         <div class="badge-ring">
@@ -13,7 +27,6 @@
       </div>
 
       <h1>MFU Parking Management</h1>
-      <p class="login-subtitle">Admin & Staff Portal</p>
 
       <form @submit.prevent="handleLogin" class="login-form">
         <input
@@ -43,12 +56,6 @@
           <span v-else>Login</span>
         </button>
       </form>
-
-      <p class="demo-info">
-        <strong>Demo Credentials:</strong><br>
-        Admin: Admin1 / password123<br>
-        Staff: staff1 / password123
-      </p>
     </div>
   </div>
 </template>
@@ -136,17 +143,11 @@ const handleLogin = async () => {
 }
 
 h1 {
-  margin: 68px 0 8px;
+  margin: 68px 0 56px;
   color: #ffb400;
   font-size: 46px;
   font-weight: 400;
   line-height: 1;
-}
-
-.login-subtitle {
-  color: #ffe2e2;
-  font-size: 14px;
-  margin-bottom: 32px;
 }
 
 .login-form {
@@ -224,18 +225,41 @@ h1 {
   filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.2));
 }
 
-.demo-info {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-  margin-top: 32px;
-  text-align: center;
-  line-height: 1.6;
+.demo-credentials {
+  position: fixed;
+  left: 28px;
+  bottom: 26px;
+  width: 238px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffe8e8;
+  padding: 14px 16px;
+  display: grid;
+  gap: 11px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(4px);
 }
 
-.demo-info strong {
-  color: #ffb400;
-  display: block;
-  margin-bottom: 8px;
+.demo-credentials p {
+  color: #ffcf4d;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.demo-credentials div {
+  display: grid;
+  gap: 3px;
+}
+
+.demo-credentials strong {
+  color: #fff;
+  font-size: 13px;
+}
+
+.demo-credentials span {
+  color: #ffe8e8;
+  font-size: 12px;
 }
 
 @media (max-width: 720px) {
@@ -249,6 +273,13 @@ h1 {
   h1 {
     font-size: 34px;
     text-align: center;
+  }
+
+  .demo-credentials {
+    position: static;
+    width: min(292px, 90vw);
+    margin: 16px auto 0;
+    order: 2;
   }
 }
 </style>
