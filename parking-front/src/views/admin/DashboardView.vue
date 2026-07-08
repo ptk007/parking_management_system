@@ -249,7 +249,7 @@ const adminStats = ref([
   { label: 'Available', value: 47, color: '#16a36a' },
   { label: 'Incoming', value: 6, color: '#f4c233' },
   { label: 'Occupied', value: 74, color: '#bd7a10' },
-  { label: 'Disable', value: 3, color: '#777777' },
+  { label: 'Disabled', value: 3, color: '#777777' },
   { label: 'Active Staff', value: 6, color: '#5141c9' },
 ])
 
@@ -258,7 +258,7 @@ const getSlotStatValue = (label: string, slotStats: SlotStats) => {
   if (label === 'Available') return slotStats.available
   if (label === 'Incoming') return slotStats.incoming
   if (label === 'Occupied') return slotStats.occupied
-  if (label === 'Disable') return slotStats.disabled
+  if (label === 'Disabled') return slotStats.disabled
   return null
 }
 

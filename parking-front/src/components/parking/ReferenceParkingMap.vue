@@ -75,14 +75,14 @@
           Disable
         </button>
       </div>
-      <strong>Selecting : {{ selectedSlots.size }}</strong>
+      <strong>Selected: {{ selectedSlots.size }}</strong>
     </div>
 
     <div class="status-legend" aria-label="Slot status legend">
       <span><i class="available"></i>Available</span>
       <span><i class="occupied"></i>Occupied</span>
       <span><i class="incoming"></i>Incoming</span>
-      <span><i class="disabled"></i>Disable</span>
+      <span><i class="disabled"></i>Disabled</span>
     </div>
   </section>
 </template>
