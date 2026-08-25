@@ -210,6 +210,9 @@ def select_camera(
 
 def open_capture(rtsp_url: str) -> Any:
     capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+    buffer_size = getattr(cv2, "CAP_PROP_BUFFERSIZE", None)
+    if buffer_size is not None:
+        capture.set(buffer_size, 1)
     open_timeout = getattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC", None)
     read_timeout = getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None)
     if open_timeout is not None:

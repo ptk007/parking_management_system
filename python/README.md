@@ -86,6 +86,31 @@ run.bat --camera 172.28.109.31
 
 Press `q` or `Esc` to close the video window.
 
+## Realtime Parking Monitor
+
+The parking monitor reads the selected CCTV RTSP stream, uses the YOLO models
+from `..\yolo_models`, and uses the Zone A parking annotations by default.
+
+```bat
+run_parking.bat --camera 1 --parking on
+```
+
+Disable parking-slot detection while keeping car and plate recognition:
+
+```bat
+run_parking.bat --camera 1 --parking off
+```
+
+Useful options:
+
+```bat
+run_parking.bat --camera Guardhouse-ANPR-01 --parking on
+run_parking.bat --video "rtsp://user:password@camera/stream" --parking off
+python parkng_model.py --help
+```
+
+Press `q` or `Esc` in the `Parking CCTV` window to stop the realtime monitor.
+
 ## Notes
 
 - You must be on the same network or VPN that can reach the CCTV IP addresses.
