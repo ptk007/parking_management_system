@@ -15,5 +15,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+".venv\Scripts\python.exe" -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" >nul 2>&1
+if errorlevel 1 (
+  echo CUDA is unavailable in this venv. CPU fallback is enabled.
+  echo For better performance, install CUDA-enabled PyTorch in .venv.
+  set "PARKING_ALLOW_CPU=1"
+)
+
 set PYTHONDONTWRITEBYTECODE=1
 ".venv\Scripts\python.exe" parkng_model.py %*

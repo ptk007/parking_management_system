@@ -1,0 +1,8 @@
+{
+  "name": "E4-zoneC",
+  "cctv_json": "oldcctvinfo4.json",
+  "camera": "351",
+  "parking_json": "E4_zoneC_cars.json",
+  "parking_slots": [],
+  "parking": "on"
+}

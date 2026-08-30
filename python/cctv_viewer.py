@@ -1,6 +1,8 @@
 import argparse
 import json
+import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -208,18 +210,186 @@ def select_camera(
     return matches[0]
 
 
-def open_capture(rtsp_url: str) -> Any:
-    capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-    buffer_size = getattr(cv2, "CAP_PROP_BUFFERSIZE", None)
-    if buffer_size is not None:
-        capture.set(buffer_size, 1)
+def _is_live_network_stream(source: str) -> bool:
+    source = str(source).strip().lower()
+    return source.startswith(("rtsp://", "rtsps://", "rtmp://", "http://", "https://"))
+
+
+def _open_opencv_capture(source: str) -> Any:
+    """Open one FFmpeg capture with RTSP timeouts configured at open time."""
+    source = str(source)
+
+    # TCP is more stable for CCTV/ANPR streams. The LatestFrameCapture below
+    # continuously drains FFmpeg, so old frames cannot build up for seconds.
+    if source.lower().startswith(("rtsp://", "rtsps://")):
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+            "rtsp_transport;tcp"
+        )
+
+    params = []
     open_timeout = getattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC", None)
     read_timeout = getattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC", None)
+
     if open_timeout is not None:
-        capture.set(open_timeout, 10000)
+        params.extend([int(open_timeout), 10000])
     if read_timeout is not None:
-        capture.set(read_timeout, 10000)
+        params.extend([int(read_timeout), 5000])
+
+    try:
+        capture = cv2.VideoCapture(
+            source,
+            cv2.CAP_FFMPEG,
+            params
+        )
+    except (TypeError, cv2.error):
+        capture = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+
+    buffer_size = getattr(cv2, "CAP_PROP_BUFFERSIZE", None)
+    if buffer_size is not None:
+        # Some FFmpeg builds ignore this property, so do not rely on it alone.
+        capture.set(buffer_size, 1)
+
     return capture
+
+
+class LatestFrameCapture:
+    """
+    Low-latency RTSP reader.
+
+    A background thread continuously drains the CCTV stream and stores only
+    the newest frame. If AI/OCR takes 200-800 ms, old RTSP frames are dropped
+    instead of being queued and shown several seconds late.
+
+    read() keeps an OpenCV-like interface and waits for a *new* frame, but
+    always returns the newest available one.
+    """
+
+    def __init__(self, source: str, read_wait_timeout: float = 5.0) -> None:
+        self.source = str(source)
+        self.read_wait_timeout = float(read_wait_timeout)
+        self._condition = threading.Condition()
+        self._capture = _open_opencv_capture(self.source)
+        self._running = bool(self._capture.isOpened())
+        self._frame = None
+        self._sequence = 0
+        self._delivered_sequence = 0
+        self._thread = None
+
+        if self._running:
+            self._thread = threading.Thread(
+                target=self._reader_loop,
+                name="rtsp-latest-frame",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def _reader_loop(self) -> None:
+        while self._running:
+            capture = self._capture
+
+            if capture is None or not capture.isOpened():
+                if not self._reconnect():
+                    time.sleep(0.25)
+                continue
+
+            ok, frame = capture.read()
+
+            if ok and frame is not None:
+                with self._condition:
+                    # cv2.read() returns a new ndarray. Keep just this newest
+                    # frame; replacing the reference drops every stale frame.
+                    self._frame = frame
+                    self._sequence += 1
+                    self._condition.notify_all()
+                continue
+
+            # A failed network read should not make the main AI loop consume
+            # a long stale queue. Reconnect the producer in the background.
+            try:
+                capture.release()
+            except Exception:
+                pass
+            self._capture = None
+            time.sleep(0.20)
+            self._reconnect()
+
+    def _reconnect(self) -> bool:
+        if not self._running:
+            return False
+
+        capture = _open_opencv_capture(self.source)
+        if not capture.isOpened():
+            try:
+                capture.release()
+            except Exception:
+                pass
+            return False
+
+        self._capture = capture
+        return True
+
+    def isOpened(self) -> bool:
+        return bool(self._running)
+
+    def read(self):
+        deadline = time.monotonic() + self.read_wait_timeout
+
+        with self._condition:
+            while (
+                self._running
+                and self._sequence <= self._delivered_sequence
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False, None
+                self._condition.wait(timeout=remaining)
+
+            if not self._running or self._frame is None:
+                return False, None
+
+            # The AI thread owns this copy while the RTSP producer continues
+            # replacing its internal latest-frame reference.
+            frame = self._frame.copy()
+            self._delivered_sequence = self._sequence
+            return True, frame
+
+    def release(self) -> None:
+        self._running = False
+        with self._condition:
+            self._condition.notify_all()
+
+        capture = self._capture
+        self._capture = None
+        if capture is not None:
+            try:
+                capture.release()
+            except Exception:
+                pass
+
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+
+    def get(self, prop_id: int) -> float:
+        capture = self._capture
+        if capture is None:
+            return 0.0
+        return float(capture.get(prop_id))
+
+    def set(self, prop_id: int, value: float) -> bool:
+        capture = self._capture
+        if capture is None:
+            return False
+        return bool(capture.set(prop_id, value))
+
+
+def open_capture(source: str) -> Any:
+    # Do NOT use latest-frame dropping for normal video files; it is intended
+    # only for live streams where old frames have no value and create latency.
+    if _is_live_network_stream(source):
+        return LatestFrameCapture(source)
+    return _open_opencv_capture(source)
 
 
 def watch_camera(

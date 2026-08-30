@@ -17,9 +17,12 @@ import os
 import json
 import glob
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from cctv_viewer import load_cameras, open_capture, select_camera
+from parking_config import add_runtime_arguments
+from parking_export import export_results
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -35,38 +38,11 @@ def parse_runtime_args():
     parser = argparse.ArgumentParser(
         description='Realtime CCTV parking monitor.'
     )
-    parser.add_argument(
-        '--camera',
-        default='1',
-        help='Camera NO, list index, IP, or name from the CCTV JSON.'
-    )
-    parser.add_argument(
-        '--cctv-json',
-        type=Path,
-        default=DEFAULT_CCTV_JSON,
-        help='CCTV JSON file containing RTSP URLs.'
-    )
-    parser.add_argument(
-        '--parking',
-        choices=('on', 'off'),
-        default='on',
-        help='Enable or disable parking-slot detection.'
-    )
-    parser.add_argument(
-        '--parking-json',
-        type=Path,
-        default=DEFAULT_PARKING_JSON,
-        help='COCO JSON file containing parking-slot annotations.'
-    )
-    parser.add_argument(
-        '--video',
-        help='Optional RTSP URL or video path; overrides --camera.'
-    )
-    parser.add_argument(
-        '--max-frames',
-        type=int,
-        default=0,
-        help='Stop after this many frames; 0 means keep running.'
+    add_runtime_arguments(
+        parser,
+        project_root=PROJECT_ROOT,
+        default_cctv_json=DEFAULT_CCTV_JSON,
+        default_parking_json=DEFAULT_PARKING_JSON,
     )
     return parser.parse_args()
 
@@ -485,6 +461,18 @@ if PARKING_ENABLED:
         disabled_slots=DISABLED_SLOTS,
         coord_mode=PARKING_COORD_MODE
     )
+    if RUNTIME_ARGS.parking_slots:
+        selected_slots = {
+            value.strip()
+            for value in RUNTIME_ARGS.parking_slots.split(',')
+            if value.strip()
+        }
+        parking_slots = [
+            slot for slot in parking_slots
+            if slot['name'] in selected_slots
+        ]
+        if not parking_slots:
+            raise ValueError('No parking slots matched --parking-slots.')
 else:
     parking_json_path = PARKING_JSON_PATH
     PARKING_ZONE = 'disabled'
@@ -668,9 +656,49 @@ if SHOW_PARKING_SETUP_PREVIEW:
 # 1) Setup & Constants
 # ============================================================
 
-USE_GPU = torch.cuda.is_available()
-DEVICE = 'cuda' if USE_GPU else 'cpu'
-print(f'Device: {DEVICE}')
+# Prefer the NVIDIA GPU explicitly for the realtime CCTV process. Previously
+# torch.cuda.is_available() silently fell back to CPU, which can make YOLO +
+# EasyOCR pause long enough for the RTSP stream to build a multi-second queue.
+REQUESTED_DEVICE = os.environ.get('PARKING_DEVICE', 'cuda:0').strip().lower()
+ALLOW_CPU_FALLBACK = os.environ.get('PARKING_ALLOW_CPU', '0').strip() == '1'
+
+if REQUESTED_DEVICE == 'auto':
+    REQUESTED_DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
+if REQUESTED_DEVICE.startswith('cuda'):
+    if not torch.cuda.is_available():
+        print('\n[GPU ERROR] CUDA was requested but this Python environment cannot use it.')
+        print(f'  torch version      : {torch.__version__}')
+        print(f'  torch CUDA runtime : {torch.version.cuda}')
+        print(f'  cuda available     : {torch.cuda.is_available()}')
+        print('  Run: nvidia-smi')
+        print('  Then check the SAME venv with:')
+        print('  .venv\\Scripts\\python.exe -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"')
+        if not ALLOW_CPU_FALLBACK:
+            raise RuntimeError(
+                'CUDA is unavailable. Refusing silent CPU fallback because it '
+                'causes realtime CCTV lag. Install a CUDA-enabled PyTorch build '
+                'for this .venv, or set PARKING_ALLOW_CPU=1 intentionally.'
+            )
+        REQUESTED_DEVICE = 'cpu'
+
+USE_GPU = REQUESTED_DEVICE.startswith('cuda')
+
+if USE_GPU:
+    # Parse cuda:N and pin both Ultralytics models to that exact device.
+    _cuda_parts = REQUESTED_DEVICE.split(':', 1)
+    CUDA_DEVICE_INDEX = int(_cuda_parts[1]) if len(_cuda_parts) == 2 else 0
+    torch.cuda.set_device(CUDA_DEVICE_INDEX)
+    DEVICE = f'cuda:{CUDA_DEVICE_INDEX}'
+    YOLO_DEVICE = DEVICE
+    print(f'Device: {DEVICE}')
+    print(f'GPU   : {torch.cuda.get_device_name(CUDA_DEVICE_INDEX)}')
+    print(f'Torch : {torch.__version__} | CUDA runtime: {torch.version.cuda}')
+else:
+    CUDA_DEVICE_INDEX = None
+    DEVICE = 'cpu'
+    YOLO_DEVICE = 'cpu'
+    print('Device: cpu (explicit)')
 
 LICENSE_PLATE_MODEL_PATH = MODEL_DIR / 'best_license_plate_detector.pt'
 if 'trained_model' not in globals():
@@ -683,6 +711,7 @@ car_detector_model = YOLO(CAR_MODEL_PATH)
 car_detector_model.to(DEVICE)
 print(f'Car detector model loaded from: {CAR_MODEL_PATH}')
 
+# EasyOCR uses the same CUDA-enabled PyTorch runtime as YOLO.
 reader = easyocr.Reader(['th'], gpu=USE_GPU, verbose=False)
 
 
@@ -814,7 +843,9 @@ CAR_BOX_SHRINK_RATIO = 0.10
 DRAW_PADDED_CAR_BOX = False
 
 # Performance optimization: keep model resolution and car-detection cadence unchanged.
-YOLO_QUANTIZE = 16 if USE_GPU else None  # FP16 on GPU; FP32 on CPU
+# Keep FP32 by default: speedup comes from GPU + low-latency capture, not lower precision.
+USE_FP16 = USE_GPU and os.environ.get('PARKING_FP16', '0').strip() == '1'
+YOLO_QUANTIZE = 16 if USE_FP16 else 32
 DISPLAY_EVERY_N_FRAMES = 1              # Show every frame for realtime playback
 STABLE_STAGE2_EVERY_N_FRAMES = 6        # once stable, re-check plate/OCR less often
 
@@ -2158,11 +2189,12 @@ def detect_best_plate_in_car(
         return None, 0.0
 
     plate_results = plate_model(
-    car_crop,
-    conf=conf_threshold,
-    imgsz=imgsz,
-    verbose=False,
-    quantize=YOLO_QUANTIZE
+        car_crop,
+        conf=conf_threshold,
+        imgsz=imgsz,
+        device=YOLO_DEVICE,
+        verbose=False,
+        quantize=YOLO_QUANTIZE
     )
 
     best_box = None
@@ -2228,6 +2260,7 @@ def detect_best_plates_batch(
             valid_crops,
             conf=conf_threshold,
             imgsz=imgsz,
+            device=YOLO_DEVICE,
             verbose=False,
             quantize=YOLO_QUANTIZE
         )
@@ -2717,6 +2750,61 @@ def _candidate_can_hold_parking_owner(candidate):
 
 parking_state = {}
 
+
+def _event_datetime_parts():
+    event_at = datetime.now(timezone.utc)
+    return (
+        event_at.isoformat(),
+        event_at.strftime('%Y-%m-%d'),
+        event_at.strftime('%H:%M:%S UTC')
+    )
+
+
+def _record_parking_start(state, frame_idx):
+    event_at, event_date, event_time = _event_datetime_parts()
+    state.update({
+        'parking_started_at': event_at,
+        'date_parking': event_date,
+        'parking_time': event_time,
+        'parking_start_frame': int(frame_idx),
+        'date_exited': None,
+        'exited_time': None,
+        'exited_at': None,
+        'parking_duration_seconds': None
+    })
+
+
+def _record_parking_exit(state, frame_idx):
+    if not state.get('parking_started_at'):
+        return
+
+    event_at, event_date, event_time = _event_datetime_parts()
+    started_at = datetime.fromisoformat(state['parking_started_at'])
+    duration_seconds = max(
+        0.0,
+        (datetime.fromisoformat(event_at) - started_at).total_seconds()
+    )
+    history = state.setdefault('parking_history', [])
+    history.append({
+        'car_id': state.get('car_id'),
+        'plate': state.get('owner_plate_text', ''),
+        'date_parking': state.get('date_parking'),
+        'parking_time': state.get('parking_time'),
+        'date_exited': event_date,
+        'exited_time': event_time,
+        'parking_started_at': state.get('parking_started_at'),
+        'exited_at': event_at,
+        'parking_start_frame': state.get('parking_start_frame'),
+        'exited_frame': int(frame_idx),
+        'parking_duration_seconds': round(duration_seconds, 3)
+    })
+    state.update({
+        'date_exited': event_date,
+        'exited_time': event_time,
+        'exited_at': event_at,
+        'parking_duration_seconds': round(duration_seconds, 3)
+    })
+
 for slot in parking_slots:
     parking_state[slot['name']] = {
         'status': 'disable' if slot.get('disabled') else 'available',
@@ -2737,6 +2825,15 @@ for slot in parking_slots:
         'inferred_parking': False,
         'owner_last_seen_frame': None,
         'owner_plate_text': '',
+        'date_parking': None,
+        'parking_time': None,
+        'date_exited': None,
+        'exited_time': None,
+        'parking_started_at': None,
+        'exited_at': None,
+        'parking_start_frame': None,
+        'parking_duration_seconds': None,
+        'parking_history': [],
         'last_center': None,
         'last_anchor': None,
         'last_car_box': None,
@@ -3367,6 +3464,10 @@ def match_cars_to_slots(car_boxes):
 # ============================================================
 
 def _clear_slot_to_available(state, frame_idx):
+    if state.get('status') == 'parking':
+        _record_parking_exit(state, frame_idx)
+
+    parking_history = state.get('parking_history', [])
     state.update({
         'status': 'available',
         'car_id': None,
@@ -3386,6 +3487,7 @@ def _clear_slot_to_available(state, frame_idx):
         'inferred_parking': False,
         'owner_last_seen_frame': None,
         'owner_plate_text': '',
+        'parking_history': parking_history,
         'last_center': None,
         'last_anchor': None,
         'last_car_box': None,
@@ -3503,6 +3605,7 @@ def update_parking_states(car_boxes, frame_idx):
                 ):
                     state['status'] = 'parking'
                     state['inferred_parking'] = True
+                    _record_parking_start(state, frame_idx)
                     state['missing_hits'] = state.get('occupied_missing_hits', 0)
                     state['empty_hits'] = 0
 
@@ -3622,6 +3725,7 @@ def update_parking_states(car_boxes, frame_idx):
                 and state['stationary_hits'] >= PARKING_STABLE_DETECTIONS
             ):
                 state['status'] = 'parking'
+                _record_parking_start(state, frame_idx)
             else:
                 state['status'] = 'occupied'
 
@@ -3777,6 +3881,50 @@ def print_parking_statuses():
 
 
 # ============================================================
+# 15.5) Realtime GPU warm-up
+# ============================================================
+# Pay CUDA/CuDNN first-call setup cost before live frames arrive. This removes
+# the large first YOLO/OCR hitch without changing runtime image size/thresholds.
+def warmup_realtime_models():
+    if not USE_GPU:
+        return
+
+    print('[GPU] Warming up YOLO + EasyOCR before opening live processing...')
+    dummy_car = np.zeros((720, 1280, 3), dtype=np.uint8)
+    dummy_plate = np.zeros((160, 320, 3), dtype=np.uint8)
+    dummy_ocr = np.full((96, 320, 3), 255, dtype=np.uint8)
+
+    with torch.inference_mode():
+        car_detector_model.predict(
+            dummy_car,
+            conf=TRACKER_INPUT_CONF,
+            imgsz=CAR_DETECTOR_IMGSZ,
+            device=YOLO_DEVICE,
+            quantize=YOLO_QUANTIZE,
+            verbose=False,
+        )
+        trained_model.predict(
+            [dummy_plate],
+            conf=PLATE_CONF_THRESHOLD,
+            imgsz=DETECTOR_IMGSZ,
+            device=YOLO_DEVICE,
+            quantize=YOLO_QUANTIZE,
+            verbose=False,
+        )
+        reader.readtext(
+            dummy_ocr,
+            batch_size=1,
+            workers=0,
+        )
+
+    torch.cuda.synchronize()
+    print('[GPU] Warm-up complete.')
+
+
+warmup_realtime_models()
+
+
+# ============================================================
 # 16) Combined Main Loop
 # Car -> License Plate -> OCR + Parking Slot Status
 # ============================================================
@@ -3785,6 +3933,9 @@ cap = open_capture(video_path)
 
 if not cap.isOpened():
     raise RuntimeError(f'Could not open video: {video_path}')
+
+if str(video_path).lower().startswith(('rtsp://', 'rtsps://', 'rtmp://', 'http://', 'https://')):
+    print('[RTSP] Low-latency latest-frame capture: ENABLED (stale frames are dropped)')
 
 frame_count_drive = 0
 max_frames_to_process = RUNTIME_ARGS.max_frames or None
@@ -3835,6 +3986,7 @@ try:
                 imgsz=CAR_DETECTOR_IMGSZ,
                 tracker=CUSTOM_TRACKER_PATH,
                 persist=True,
+                device=YOLO_DEVICE,
                 verbose=False,
                 quantize=YOLO_QUANTIZE
             )
@@ -4496,6 +4648,23 @@ except KeyboardInterrupt:
 
 finally:
     cap.release()
+    cv2.destroyAllWindows()
+
+    if not RUNTIME_ARGS.no_export:
+        try:
+            exported_json = export_results(
+                RUNTIME_ARGS.export_dir,
+                source=video_path,
+                parking_enabled=PARKING_ENABLED,
+                parking_zone=PARKING_ZONE,
+                frame_count=frame_count_drive,
+                car_memory=car_memory,
+                parking_slots=parking_slots,
+                parking_state=parking_state,
+            )
+            print(f'Results exported to: {exported_json}')
+        except Exception as export_error:
+            print(f'WARNING: Could not export results: {export_error}')
 
     print('\nProcessing Finished.')
     print_threshold_config()

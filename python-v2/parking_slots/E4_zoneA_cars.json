@@ -1,0 +1,231 @@
+{
+    "info": {
+        "year": "2026",
+        "version": "8",
+        "description": "Exported from roboflow.com",
+        "contributor": "",
+        "url": "https://public.roboflow.com/object-detection/undefined",
+        "date_created": "2026-08-12T04:21:46+00:00"
+    },
+    "licenses": [
+        {
+            "id": 1,
+            "url": "https://creativecommons.org/licenses/by/4.0/",
+            "name": "CC BY 4.0"
+        }
+    ],
+    "categories": [
+        {
+            "id": 0,
+            "name": "parking-slot",
+            "supercategory": "none"
+        },
+        {
+            "id": 1,
+            "name": "zoneA_slot01",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 2,
+            "name": "zoneA_slot02",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 3,
+            "name": "zoneA_slot03",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 4,
+            "name": "zoneA_slot04",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 5,
+            "name": "zoneA_slot05",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 6,
+            "name": "zoneA_slot06",
+            "supercategory": "parking-slot"
+        }
+    ],
+    "images": [
+        {
+            "id": 0,
+            "license": 1,
+            "file_name": "ZoneA_png.rf.7eeba79c0a87e304c2a2ca78d7751023.jpg",
+            "height": 1078,
+            "width": 1918,
+            "date_captured": "2026-08-12T04:21:46+00:00",
+            "extra": {
+                "name": "ZoneA.png"
+            }
+        }
+    ],
+    "annotations": [
+        {
+            "id": 1,
+            "image_id": 0,
+            "category_id": 2,
+            "bbox": [
+                129.2,
+                487.63,
+                476.8,
+                108.73
+            ],
+            "iscrowd": 0,
+            "area": 51842.464,
+            "segmentation": [
+                [
+                    185.2,
+                    487.632,
+                    129.2,
+                    561.185,
+                    551.6,
+                    596.363,
+                    606,
+                    492.4,
+                    185.2,
+                    487.632
+                ]
+            ]
+        },
+        {
+            "id": 2,
+            "image_id": 0,
+            "category_id": 1,
+            "bbox": [
+                194.8,
+                378.9,
+                513.2,
+                87.95
+            ],
+            "iscrowd": 0,
+            "area": 45135.94,
+            "segmentation": [
+                [
+                    287.6,
+                    378.9,
+                    194.8,
+                    446.058,
+                    647.6,
+                    466.845,
+                    708,
+                    396.4,
+                    287.6,
+                    378.9
+                ]
+            ]
+        },
+        {
+            "id": 3,
+            "image_id": 0,
+            "category_id": 3,
+            "bbox": [
+                9.2,
+                637.94,
+                492.8,
+                212.67
+            ],
+            "iscrowd": 0,
+            "area": 104803.776,
+            "segmentation": [
+                [
+                    23.6,
+                    637.937,
+                    9.2,
+                    786.644,
+                    423.6,
+                    850.603,
+                    502,
+                    654.4,
+                    23.6,
+                    637.937
+                ]
+            ]
+        },
+        {
+            "id": 4,
+            "image_id": 0,
+            "category_id": 4,
+            "bbox": [
+                1304,
+                396.4,
+                380.4,
+                73.64
+            ],
+            "iscrowd": 0,
+            "area": 28012.656,
+            "segmentation": [
+                [
+                    1354.8,
+                    462.048,
+                    1684.4,
+                    470.043,
+                    1612.4,
+                    406.083,
+                    1304,
+                    396.4,
+                    1354.8,
+                    462.048
+                ]
+            ]
+        },
+        {
+            "id": 5,
+            "image_id": 0,
+            "category_id": 5,
+            "bbox": [
+                1382,
+                486.4,
+                435.2,
+                105.17
+            ],
+            "iscrowd": 0,
+            "area": 45769.984,
+            "segmentation": [
+                [
+                    1455.6,
+                    591.566,
+                    1817.2,
+                    562.784,
+                    1756.4,
+                    494.028,
+                    1382,
+                    486.4,
+                    1455.6,
+                    591.566
+                ]
+            ]
+        },
+        {
+            "id": 6,
+            "image_id": 0,
+            "category_id": 6,
+            "bbox": [
+                1506,
+                618.75,
+                407.2,
+                219.06
+            ],
+            "iscrowd": 0,
+            "area": 89201.232,
+            "segmentation": [
+                [
+                    1654,
+                    837.811,
+                    1913.2,
+                    773.852,
+                    1879.6,
+                    618.749,
+                    1506,
+                    648.4,
+                    1654,
+                    837.811
+                ]
+            ]
+        }
+    ]
+}

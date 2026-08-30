@@ -111,6 +111,82 @@ python parkng_model.py --help
 
 Press `q` or `Esc` in the `Parking CCTV` window to stop the realtime monitor.
 
+When the monitor stops normally, with `q`/`Esc`, or with `Ctrl+C`, it exports
+the final in-memory results to `..\results`:
+
+- `parking_result_<timestamp>.json`: complete run summary, car results, and slot results
+- `parking_result_<timestamp>_cars.csv`: one row per detected car
+- `parking_result_<timestamp>_slots.csv`: one row per parking slot
+- `parking_result_<timestamp>_history.csv`: completed parking visits with slot, plate, dates, times, and duration
+
+Each slot also includes `date_parking` and `parking_time` when it changes from
+`occupied` to `parking`, then `date_exited` and `exited_time` after confirmed
+exit. The JSON `parking_history` list keeps completed visits for later history
+screens and reports. Timestamps are recorded in UTC.
+
+Use a different output folder or disable exporting when needed:
+
+```bat
+run_parking.bat --camera 1 --export-dir "D:\parking-results"
+run_parking.bat --camera 1 --no-export
+```
+
+## Multiple CCTV Cameras
+
+Create and confirm a reusable camera profile. The interactive creator asks for
+the CCTV JSON, camera selector, parking-slot JSON, and selected parking slots:
+
+```bat
+python parking_profiles.py create
+python parking_profiles.py list
+python parking_profiles.py edit PROFILE_NAME
+python parking_profiles.py confirm PROFILE_NAME
+python parking_profiles.py confirm --all
+python parking_profiles.py active
+```
+
+Profiles are stored in `..\cctv\parking-cam`. The confirmed profile can be
+started directly:
+
+```bat
+run_multi_camera.bat --active
+```
+
+`active.json` may contain one profile or multiple profiles. To run every saved
+profile together, use `confirm --all` and then `run_multi_camera.bat --active`.
+
+Run one isolated model worker per camera. This keeps each camera's tracker,
+plate memory, parking state, and history independent:
+
+```bat
+run_multi_camera.bat --cameras 1,2,3 --parking on
+```
+
+Run several saved profiles, each with its own camera and parking-slot file:
+
+```bat
+run_multi_camera.bat --profiles E4-East,E4-West --parking on
+```
+
+Camera numbers, list indexes, names, and IP addresses are accepted:
+
+```bat
+run_multi_camera.bat --cameras 344,AD1-FL1-East,172.28.109.31 --parking on
+```
+
+Every worker uses the same YOLO/EasyOCR settings as the single-camera monitor.
+Results are separated automatically into `..\results\camera_<NO>`. Use
+`--parking-json` when all cameras share one slot annotation file, or use
+`--parking off` when cameras do not have parking-slot annotations.
+
+Each camera starts its own model process, which is safer for BoT-SORT identity
+tracking but uses additional GPU memory. Start only as many concurrent cameras
+as the GPU can support; for a small GPU, run fewer cameras at a time.
+
+The monitor now keeps CLI configuration in `parking_config.py` and result
+serialization in `parking_export.py`. Both modules are independent from the
+YOLO/EasyOCR runtime and can be tested or reused without opening a camera.
+
 ## Notes
 
 - You must be on the same network or VPN that can reach the CCTV IP addresses.
