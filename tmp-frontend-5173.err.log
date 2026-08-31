@@ -1,5 +1,0 @@
-[2m5:07:20 PM[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mLogout error: AxiosError: Network Error
-    at XMLHttpRequest.handleError (http://127.0.0.1:5173/node_modules/.vite/deps/axios.js?v=d86dff38:2134:16)
-    at Axios$1.request (http://127.0.0.1:5173/node_modules/.vite/deps/axios.js?v=d86dff38:2854:37)
-    at async Proxy.logout (http://127.0.0.1:5173/src/stores/auth.ts:63:4)
-    at async logout (http://127.0.0.1:5173/src/components/layout/Sidebar.vue:28:4)

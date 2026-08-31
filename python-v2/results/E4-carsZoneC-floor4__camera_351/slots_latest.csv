@@ -1,0 +1,6 @@
+﻿slot,status,car_id,plate,overlap_score,slot_coverage,car_coverage,stationary_hits,inside_hits,deep_hits,inferred_parking,date_parking,parking_time,date_exited,exited_time,parking_started_at,exited_at,parking_duration_seconds
+zoneC_slot13,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
+zoneC_slot14,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
+zoneC_slot15,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
+zoneC_slot16,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
+zoneC_slot17,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
