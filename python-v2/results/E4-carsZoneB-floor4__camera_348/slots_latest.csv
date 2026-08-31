@@ -1,7 +1,0 @@
-﻿slot,status,car_id,plate,overlap_score,slot_coverage,car_coverage,stationary_hits,inside_hits,deep_hits,inferred_parking,date_parking,parking_time,date_exited,exited_time,parking_started_at,exited_at,parking_duration_seconds
-zoneB_slot07,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
-zoneB_slot08,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
-zoneB_slot09,parking,8,,0.798566063502902,0.16616936629724355,0.798566063502902,892,893,893,True,2026-08-31,04:23:05 UTC,,,2026-08-31T04:23:05.091236+00:00,,
-zoneB_slot10,parking,14,,0.27981314647981315,0.23110204756524375,0.27981314647981315,15,137,0,True,2026-08-31,06:00:24 UTC,,,2026-08-31T06:00:24.713754+00:00,,
-zoneB_slot11,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,
-zoneB_slot12,available,,,0.0,0.0,0.0,0,0,0,False,,,,,,,

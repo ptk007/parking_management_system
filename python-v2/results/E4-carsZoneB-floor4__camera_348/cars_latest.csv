@@ -1,2 +1,0 @@
-﻿car_id,plate,stable_memory,locked,digits_locked,ocr_score,car_confidence,plate_confidence,stable_frame,observations,last_seen_frame
-5,ต.,False,False,False,0.1088814311813135,0.9202539324760437,0.3003404140472412,,5,100064
