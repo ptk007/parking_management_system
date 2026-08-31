@@ -733,7 +733,7 @@ reader = easyocr.Reader(['th'], gpu=USE_GPU, verbose=False)
 # Thresholds
 # ============================================================
 
-CAR_CONF_THRESHOLD = 0.60
+CAR_CONF_THRESHOLD = 0.80
 PLATE_CONF_THRESHOLD = 0.3
 SHARPNESS_THRESHOLD = 40.0
 LOCK_CONF_THRESHOLD = 0.5
