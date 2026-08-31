@@ -1,0 +1,12 @@
+{
+  "name": "E4-carsZoneA-floor4",
+  "cctv_json": "cctv/sources/oldcctvinfo4.json",
+  "camera": "344",
+  "camera_name": "Floor4 B6",
+  "camera_ip": "172.28.113.103",
+  "parking_json": "parking_slots/E4_zoneA_cars.json",
+  "parking_slots": [],
+  "parking": "on",
+  "updated_at": "2026-08-30T07:12:15.990998+00:00",
+  "created_at": "2026-08-30T07:12:15.990998+00:00"
+}
