@@ -66,12 +66,6 @@ cd parking_management_system
 ```bash
 cd parking-backend
 npm ci
-cp .env.example .env
-```
-
-On Windows Command Prompt, use `copy .env.example .env` instead of `cp`.
-
-```bash
 npm start
 ```
 
@@ -86,40 +80,15 @@ In another terminal, from the repository root:
 ```bash
 cd parking-front
 npm ci
-```
-
-Create `parking-front/.env.development.local`:
-
-```dotenv
-VITE_API_BASE_URL=http://localhost:3000/api
-```
-
-```bash
 npm run dev
 ```
 
-Open the URL printed by Vite, normally `http://localhost:5173`. Keep `FRONTEND_ORIGIN` aligned with the actual frontend origin.
+Open the URL printed by Vite, normally `http://localhost:5173`.
 
 ### 4. Choose a login path
 
-- **UI demo:** The login page displays the built-in demo accounts. The frontend accepts them locally even with no backend running. Data operations still need the API. Setting `ALLOW_DEMO_AUTH=false` rejects demo tokens at the backend; enabling `ALLOW_DEMO_AUTH=true` is for isolated local demonstrations only and does not make every demo operation work.
+- **UI demo:** The login page displays the built-in demo accounts. The frontend accepts them locally even with no backend running. Data operations still need the API. Backend demo access is intended for isolated local demonstrations only and does not make every demo operation work.
 - **Database login:** Use a separately provisioned test account in the `users` collection whose username is different from the built-in demo accounts. The current implementation compares the stored password directly. Database roles are numeric: `1` = user, `2` = staff, `3` = admin; status `3` disables login. There is no dedicated registration or user-seeding command.
-
-### Configuration reference
-
-| Variable | Location | Purpose |
-| --- | --- | --- |
-| `VITE_API_BASE_URL` | Frontend | API base URL; development default is `http://localhost:3000/api` |
-| `PORT` | Backend | HTTP port; default `3000` |
-| `MONGODB_URI` | Backend | MongoDB connection string |
-| `FRONTEND_ORIGIN` | Backend | Origin allowed by CORS; default `http://localhost:5173` |
-| `TOKEN_SECRET` | Backend | HMAC signing key; replace the source fallback |
-| `ALLOW_DEMO_AUTH` | Backend | Demo-token acceptance; only the literal value `false` disables it |
-| `FFMPEG_PATH` | Backend | FFmpeg executable; default `ffmpeg` |
-| `CCTV_RTSP_USERNAME`, `CCTV_RTSP_PASSWORD`, `CCTV_RTSP_PATH` | Backend | Fallback RTSP connection settings; use authorized local configuration |
-| `CCTV_MEDIA_TIMEOUT_MS` | Backend | Initial camera-media timeout; default `15000` ms |
-
-Never put secrets in `VITE_*` variables: those values are exposed in the frontend build. For a deployment build, override the placeholder API URL in `.env.production` using `.env.production.local`. Building the frontend does not resolve the authentication limitations described below.
 
 ## Authentication
 
@@ -200,7 +169,7 @@ These are implementation gaps, not guarantees provided by the application:
 - **Generic resource APIs have no authentication check.** `requestHandler()` routes endpoints such as `/api/users` directly to `handleResource()`. They can read or modify records without a token, and user reads return raw documents including password/PIN fields.
 - **Staff APIs verify tokens but do not enforce roles or current account status.** A signed role claim and frontend role-based navigation do not provide server-side authorization. Disabling an account after login does not by itself invalidate an issued token.
 - **Password hashing is not implemented.** Add password hashing and input validation before using real credentials.
-- **Demo bypass is enabled by default on the backend.** Set `ALLOW_DEMO_AUTH=false` and remove or gate the frontend demo branch before deployment.
+- **Demo bypass is enabled by default on the backend.** Disable backend demo access and remove or gate the frontend demo branch before deployment.
 - **Browser token presence is trusted for navigation.** Add route guards, server verification on restoration, and expired-token handling; server authorization is still required independently.
 - **Logout does not revoke issued tokens.** A copied token remains usable until expiry under the current verifier.
 - **Camera credentials need protection.** Source contains fallback RTSP credentials, and camera DTOs/stream responses can include credential-bearing source URLs. Keep credentials server-side, redact responses, and rotate any real credentials that have been committed. Do not publish real camera inventories as sample data.
@@ -212,7 +181,7 @@ Older [login documentation](docs/md_file/main/LOGIN_PAGE.md) describes bcrypt, J
 | Path | Contents |
 | --- | --- |
 | [`parking-front/`](parking-front/) | Vue application, views, components, stores, API services, and frontend guides |
-| [`parking-backend/`](parking-backend/) | Node.js server, MongoDB models, environment example, and camera seed data |
+| [`parking-backend/`](parking-backend/) | Node.js server, MongoDB models and camera seed data |
 | [`python/`](python/) | Optional Windows-oriented Python RTSP viewer and setup scripts |
 | [`cctv/`](cctv/) | Camera inventory assets; review sensitive data before sharing |
 | [`docs/`](docs/) | Proposal, UI design references, database examples, and feature notes |
