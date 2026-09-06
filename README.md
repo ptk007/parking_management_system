@@ -71,18 +71,6 @@ cp .env.example .env
 
 On Windows Command Prompt, use `copy .env.example .env` instead of `cp`.
 
-Edit `parking-backend/.env` for your local environment:
-
-```dotenv
-PORT=3000
-MONGODB_URI=mongodb://127.0.0.1:27017/parking_management_system
-FRONTEND_ORIGIN=http://localhost:5173
-TOKEN_SECRET=replace-with-a-random-local-secret
-ALLOW_DEMO_AUTH=false
-```
-
-Generate a secret locally with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` and use the output as `TOKEN_SECRET`.
-
 ```bash
 npm start
 ```
@@ -114,7 +102,7 @@ Open the URL printed by Vite, normally `http://localhost:5173`. Keep `FRONTEND_O
 
 ### 4. Choose a login path
 
-- **UI demo:** The login page displays the built-in demo accounts. The frontend accepts them locally even with no backend running. Data operations still need the API. The suggested configuration above rejects demo tokens at the backend; enabling `ALLOW_DEMO_AUTH=true` is for isolated local demonstrations only and does not make every demo operation work.
+- **UI demo:** The login page displays the built-in demo accounts. The frontend accepts them locally even with no backend running. Data operations still need the API. Setting `ALLOW_DEMO_AUTH=false` rejects demo tokens at the backend; enabling `ALLOW_DEMO_AUTH=true` is for isolated local demonstrations only and does not make every demo operation work.
 - **Database login:** Use a separately provisioned test account in the `users` collection whose username is different from the built-in demo accounts. The current implementation compares the stored password directly. Database roles are numeric: `1` = user, `2` = staff, `3` = admin; status `3` disables login. There is no dedicated registration or user-seeding command.
 
 ### Configuration reference
