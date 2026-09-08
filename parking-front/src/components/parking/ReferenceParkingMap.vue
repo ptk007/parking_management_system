@@ -40,7 +40,11 @@
           class="slot-group"
           :style="groupStyle(group)"
         >
-          <div v-for="row in group.rows" :key="row.map((slot) => slot.slotNumber).join('-')" class="slot-row">
+          <div
+            v-for="row in group.rows"
+            :key="row.map((slot) => slot.slotNumber).join('-')"
+            class="slot-row"
+          >
             <button
               v-for="slot in row"
               :key="slot.slotNumber"
@@ -54,6 +58,14 @@
               ]"
               type="button"
               :aria-label="`Slot ${slot.slotNumber} ${slot.status}`"
+              :disabled="
+                !authStore.canManageParking ||
+                slot.status === 'occupied' ||
+                slot.status === 'incoming'
+              "
+              :aria-pressed="
+                authStore.canManageParking ? selectedSlots.has(slot.slotNumber) : undefined
+              "
               @click="toggleSlot(slot.slotNumber)"
             >
               <span v-if="selectedSlots.has(slot.slotNumber)" class="slot-check">
@@ -66,7 +78,7 @@
       </div>
     </div>
 
-    <div class="map-actions">
+    <div v-if="authStore.canManageParking" class="map-actions">
       <div class="button-group">
         <button class="action-button enable" type="button" @click="setSelectedStatus('available')">
           Enable
@@ -91,6 +103,7 @@
 import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
 import parkingSlotData from '@/data/parking-slots.json'
+import { useAuthStore } from '@/stores/auth'
 
 type SlotStatus = 'available' | 'incoming' | 'occupied' | 'disabled'
 
@@ -105,6 +118,7 @@ interface SlotStats {
 const emit = defineEmits<{
   'stats-change': [stats: SlotStats]
 }>()
+const authStore = useAuthStore()
 
 interface ParkingGroup {
   id: string
@@ -150,19 +164,127 @@ const parkingLayout: ParkingGroup[] = [
   { id: 'a-7', x: 770, y: 50, rows: [[21, 22, 23]] },
   { id: 'a-8', x: 868, y: 50, rows: [[24, 25, 26]] },
 
-  { id: 'bc-1', x: 112, y: 137, rows: [[49, 48, 47], [50, 51, 52]], compact: true },
-  { id: 'bc-2', x: 218, y: 137, rows: [[46, 45, 44, 43], [53, 54, 55, 56]], compact: true },
-  { id: 'bc-3', x: 350, y: 137, rows: [[42, 41, 40, 39], [57, 58, 59, 60]], compact: true },
-  { id: 'bc-4', x: 484, y: 137, rows: [[36, 37, 38], [61, 62, 63]], compact: true },
-  { id: 'bc-5', x: 598, y: 137, rows: [[35, 34, 33], [64, 65, 66]], compact: true },
-  { id: 'bc-6', x: 712, y: 137, rows: [[32, 31, 30], [67, 68, 69]], compact: true },
-  { id: 'bc-7', x: 828, y: 137, rows: [[29, 28, 27], [70, 71, 72]], compact: true },
+  {
+    id: 'bc-1',
+    x: 112,
+    y: 137,
+    rows: [
+      [49, 48, 47],
+      [50, 51, 52],
+    ],
+    compact: true,
+  },
+  {
+    id: 'bc-2',
+    x: 218,
+    y: 137,
+    rows: [
+      [46, 45, 44, 43],
+      [53, 54, 55, 56],
+    ],
+    compact: true,
+  },
+  {
+    id: 'bc-3',
+    x: 350,
+    y: 137,
+    rows: [
+      [42, 41, 40, 39],
+      [57, 58, 59, 60],
+    ],
+    compact: true,
+  },
+  {
+    id: 'bc-4',
+    x: 484,
+    y: 137,
+    rows: [
+      [36, 37, 38],
+      [61, 62, 63],
+    ],
+    compact: true,
+  },
+  {
+    id: 'bc-5',
+    x: 598,
+    y: 137,
+    rows: [
+      [35, 34, 33],
+      [64, 65, 66],
+    ],
+    compact: true,
+  },
+  {
+    id: 'bc-6',
+    x: 712,
+    y: 137,
+    rows: [
+      [32, 31, 30],
+      [67, 68, 69],
+    ],
+    compact: true,
+  },
+  {
+    id: 'bc-7',
+    x: 828,
+    y: 137,
+    rows: [
+      [29, 28, 27],
+      [70, 71, 72],
+    ],
+    compact: true,
+  },
 
-  { id: 'de-1', x: 112, y: 293, rows: [[94, 93, 92], [95, 96, 97]], compact: true },
-  { id: 'de-2', x: 225, y: 293, rows: [[91, 90, 89, 88], [98, 99, 100, 101]], compact: true },
-  { id: 'de-3', x: 456, y: 284, rows: [[85, 86, 87], [102, 103, 104]], compact: true },
-  { id: 'de-4', x: 650, y: 284, rows: [[79, 80, 81], [82, 83, 84]], compact: true },
-  { id: 'de-5', x: 785, y: 284, rows: [[73, 74, 75], [76, 77, 78]], compact: true },
+  {
+    id: 'de-1',
+    x: 112,
+    y: 293,
+    rows: [
+      [94, 93, 92],
+      [95, 96, 97],
+    ],
+    compact: true,
+  },
+  {
+    id: 'de-2',
+    x: 225,
+    y: 293,
+    rows: [
+      [91, 90, 89, 88],
+      [98, 99, 100, 101],
+    ],
+    compact: true,
+  },
+  {
+    id: 'de-3',
+    x: 456,
+    y: 284,
+    rows: [
+      [85, 86, 87],
+      [102, 103, 104],
+    ],
+    compact: true,
+  },
+  {
+    id: 'de-4',
+    x: 650,
+    y: 284,
+    rows: [
+      [79, 80, 81],
+      [82, 83, 84],
+    ],
+    compact: true,
+  },
+  {
+    id: 'de-5',
+    x: 785,
+    y: 284,
+    rows: [
+      [73, 74, 75],
+      [76, 77, 78],
+    ],
+    compact: true,
+  },
 
   { id: 'f-1', x: 30, y: 430, rows: [[124, 123, 122, 121, 120, 119, 118]] },
   { id: 'f-2', x: 232, y: 430, rows: [[117, 116, 115]] },
@@ -217,6 +339,8 @@ const groupStyle = (group: LayoutGroup): Record<string, string> => ({
 })
 
 const toggleSlot = (slotNumber: number) => {
+  if (!authStore.canManageParking) return
+
   const status = getSlotStatus(slotNumber)
   if (status === 'occupied' || status === 'incoming') return
 
@@ -230,6 +354,8 @@ const toggleSlot = (slotNumber: number) => {
 }
 
 const setSelectedStatus = (status: SlotStatus) => {
+  if (!authStore.canManageParking) return
+
   selectedSlots.value.forEach((slotNumber) => {
     const currentStatus = getSlotStatus(slotNumber)
     if (currentStatus === 'occupied' || currentStatus === 'incoming') return
@@ -237,6 +363,13 @@ const setSelectedStatus = (status: SlotStatus) => {
   })
   selectedSlots.value = new Set()
 }
+
+watch(
+  () => authStore.canManageParking,
+  (canManage) => {
+    if (!canManage) selectedSlots.value = new Set()
+  },
+)
 
 watch(
   mapStats,
@@ -272,9 +405,7 @@ watch(
   margin: 0 auto;
   border: 3px solid #d8d2c7;
   border-radius: 3px;
-  background:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.28)),
-    #b7a890;
+  background: linear-gradient(0deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.28)), #b7a890;
   overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(70, 55, 36, 0.26);
 }
@@ -427,7 +558,8 @@ watch(
     0 1px 2px rgba(0, 0, 0, 0.22);
 }
 
-.slot-cell.is-locked {
+.slot-cell.is-locked,
+.slot-cell:disabled {
   cursor: default;
 }
 

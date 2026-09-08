@@ -11,7 +11,12 @@
         <strong>Online</strong>
       </div>
 
-      <button class="bell-button" aria-label="Notifications">
+      <button
+        class="bell-button"
+        aria-label="Notifications"
+        :disabled="authStore.isGuest"
+        @click="chatStore.openChat"
+      >
         <Bell class="h-8 w-8" :stroke-width="1.8" />
         <span v-if="unreadNotifications > 0" class="notification-dot"></span>
       </button>
@@ -24,21 +29,23 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Bell } from 'lucide-vue-next'
-import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 
 const authStore = useAuthStore()
 const chatStore = useChatStore()
-const route = useRoute()
 
 const roleLabel = computed(() => {
-  return authStore.user?.role === 'admin' || route.path.startsWith('/admin') ? 'Admin' : 'Staff'
+  if (authStore.isAdmin) return 'Admin'
+  if (authStore.canManageParking) return 'Staff'
+  return 'User'
 })
 
 const userFullName = computed(() => {
   if (authStore.user?.fullName) return authStore.user.fullName
-  return roleLabel.value === 'Admin' ? 'Thanawit Boonphom' : 'Thanatip P.'
+  if (authStore.user?.name) return authStore.user.name
+  if (authStore.user?.username) return authStore.user.username
+  return roleLabel.value
 })
 
 const userSubtitle = computed(() => `${userFullName.value} - ${roleLabel.value}`)
@@ -56,7 +63,7 @@ const userInitials = computed(() => {
     .toUpperCase()
 })
 
-const unreadNotifications = computed(() => chatStore.unreadCount || 3)
+const unreadNotifications = computed(() => chatStore.unreadCount)
 </script>
 
 <style scoped>

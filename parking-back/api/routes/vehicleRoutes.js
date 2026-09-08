@@ -7,6 +7,7 @@ const router = express.Router();
 router.post("/", vehicleController.createVehicle);
 router.get("/", vehicleController.listVehicles);
 router.get("/check-duplicate", vehicleController.checkDuplicateLicense);
+router.get("/user/:userId", vehicleController.listVehiclesByUser);
 router.get("/:id", vehicleController.getVehicle);
 router.put("/:id", vehicleController.updateVehicle);
 router.delete("/:id", vehicleController.deleteVehicle);

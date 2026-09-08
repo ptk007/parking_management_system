@@ -14,6 +14,21 @@ const vehicleSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "name must contain the owner's user id"],
     },
+    brand: {
+      type: String,
+      required: [true, "brand is required"],
+      trim: true,
+    },
+    model: {
+      type: String,
+      required: [true, "model is required"],
+      trim: true,
+    },
+    color: {
+      type: String,
+      required: [true, "color is required"],
+      trim: true,
+    },
     license_num: {
       type: String,
       required: [true, "license_num is required"],
@@ -24,12 +39,6 @@ const vehicleSchema = new mongoose.Schema(
       type: String,
       required: [true, "province is required"],
       trim: true,
-    },
-    veh_des: {
-      type: String,
-      maxlength: [100, "veh_des cannot exceed 100 characters"],
-      trim: true,
-      default: "",
     },
   },
   {

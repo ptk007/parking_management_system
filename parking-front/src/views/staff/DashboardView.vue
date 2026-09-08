@@ -2,11 +2,11 @@
   <div class="staff-dashboard">
     <div class="tabbar">
       <button
-        v-for="tab in tabs"
+        v-for="tab in visibleTabs"
         :key="tab.id"
         :class="['tab-button', activeTab === tab.id ? 'is-active' : '']"
         type="button"
-        @click="activeTab = tab.id"
+        @click="selectTab(tab.id)"
       >
         {{ tab.label }}
       </button>
@@ -33,9 +33,12 @@
     </div>
 
     <section class="dashboard-content">
-      <ReferenceParkingMap v-if="activeTab === 'slots'" @stats-change="updateSlotStats" />
+      <ReferenceParkingMap
+        v-if="activeTab === 'slots' || !authStore.canManageParking"
+        @stats-change="updateSlotStats"
+      />
 
-      <div v-else-if="activeTab === 'cctv'" class="cctv-grid">
+      <div v-else-if="activeTab === 'cctv' && authStore.canManageParking" class="cctv-grid">
         <CameraPreviewCard
           v-for="camera in staffCameras"
           :key="camera.title"
@@ -44,7 +47,7 @@
         />
       </div>
 
-      <div v-else class="logs-panel">
+      <div v-else-if="activeTab === 'log' && authStore.canManageParking" class="logs-panel">
         <div class="warning-banner"><span>Exited</span> car log will reset after 24 hours</div>
 
         <article v-for="log in parkingLogs" :key="log.id" class="log-card">
@@ -82,10 +85,11 @@
 </template>
 
 <script setup lang="ts">
-import { defineComponent, h, ref } from 'vue'
+import { computed, defineComponent, h, ref, watch } from 'vue'
 import { CarFront, UserRound } from 'lucide-vue-next'
 import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
+import { useAuthStore } from '@/stores/auth'
 
 type ActiveTab = 'slots' | 'cctv' | 'log'
 
@@ -114,6 +118,7 @@ const FacePlaceholder = defineComponent({
 })
 
 const activeTab = ref<ActiveTab>('slots')
+const authStore = useAuthStore()
 const selectedBuilding = ref('E4')
 const selectedFloor = ref('4')
 const selectedVehicle = ref('Cars')
@@ -123,6 +128,22 @@ const tabs: { id: ActiveTab; label: string }[] = [
   { id: 'cctv', label: 'CCTV' },
   { id: 'log', label: 'Log' },
 ]
+
+const visibleTabs = computed(() =>
+  tabs.filter((tab) => tab.id === 'slots' || authStore.canManageParking),
+)
+
+const selectTab = (tab: ActiveTab) => {
+  if (tab !== 'slots' && !authStore.canManageParking) return
+  activeTab.value = tab
+}
+
+watch(
+  () => authStore.canManageParking,
+  (canManage) => {
+    if (!canManage) activeTab.value = 'slots'
+  },
+)
 
 const filters = [
   { label: 'Building', model: selectedBuilding, options: ['E4'] },

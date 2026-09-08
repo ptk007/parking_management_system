@@ -24,17 +24,23 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Clock3, LogOut, Monitor, Users, Wrench } from 'lucide-vue-next'
+import { CarFront, Clock3, LogOut, Monitor, Users, Wrench } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import mfuLogo from '@/assets/mae-fah-luang-university.png'
+
+defineOptions({ name: 'AppSidebar' })
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-const currentRole = computed(() => {
-  return authStore.user?.role === 'admin' || route.path.startsWith('/admin') ? 'admin' : 'staff'
+type CurrentRole = 'admin' | 'staff' | 'user'
+
+const currentRole = computed<CurrentRole>(() => {
+  if (authStore.isAdmin) return 'admin'
+  if (authStore.canManageParking) return 'staff'
+  return 'user'
 })
 
 const homePath = computed(() => (currentRole.value === 'admin' ? '/admin/dashboard' : '/dashboard'))
@@ -42,15 +48,57 @@ const homePath = computed(() => (currentRole.value === 'admin' ? '/admin/dashboa
 const navItems = computed(() => {
   if (currentRole.value === 'admin') {
     return [
-      { to: '/admin/dashboard', label: 'Dashboard', icon: Monitor, isActive: (path: string) => path === '/admin/dashboard' },
-      { to: '/admin/staff', label: 'Staff Manager', icon: Users, isActive: (path: string) => path === '/admin/staff' },
-      { to: '/admin/setup', label: 'System Setup', icon: Wrench, isActive: (path: string) => path === '/admin/setup' },
+      {
+        to: '/admin/dashboard',
+        label: 'Dashboard',
+        icon: Monitor,
+        isActive: (path: string) => path === '/admin/dashboard',
+      },
+      {
+        to: '/admin/staff',
+        label: 'Staff Manager',
+        icon: Users,
+        isActive: (path: string) => path === '/admin/staff',
+      },
+      {
+        to: '/admin/setup',
+        label: 'System Setup',
+        icon: Wrench,
+        isActive: (path: string) => path === '/admin/setup',
+      },
+    ]
+  }
+
+  if (currentRole.value === 'user') {
+    return [
+      {
+        to: '/dashboard',
+        label: 'Dashboard',
+        icon: Monitor,
+        isActive: (path: string) => path.startsWith('/dashboard'),
+      },
+      {
+        to: '/my-vehicle',
+        label: 'My Vehicle',
+        icon: CarFront,
+        isActive: (path: string) => path === '/my-vehicle',
+      },
     ]
   }
 
   return [
-    { to: '/dashboard', label: 'Dashboard', icon: Monitor, isActive: (path: string) => path.startsWith('/dashboard') },
-    { to: '/history', label: 'Slot Status Log', icon: Clock3, isActive: (path: string) => path === '/history' },
+    {
+      to: '/dashboard',
+      label: 'Dashboard',
+      icon: Monitor,
+      isActive: (path: string) => path.startsWith('/dashboard'),
+    },
+    {
+      to: '/history',
+      label: 'Slot Status Log',
+      icon: Clock3,
+      isActive: (path: string) => path === '/history',
+    },
   ]
 })
 

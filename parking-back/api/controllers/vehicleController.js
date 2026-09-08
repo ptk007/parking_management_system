@@ -4,6 +4,21 @@ const User = require("../models/userModel");
 
 const OWNER_FIELDS = "_id username name";
 
+function formatVehicle(vehicle) {
+  const data = vehicle.toObject ? vehicle.toObject() : vehicle;
+
+  return {
+    veh_type: data.veh_type,
+    name: data.name,
+    brand: data.brand,
+    model: data.model,
+    color: data.color,
+    license_num: data.license_num,
+    province: data.province,
+    _id: data._id,
+  };
+}
+
 function isValidId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
@@ -37,7 +52,8 @@ function sendError(res, error) {
 // POST /api/vehicles - Create a vehicle for an existing registered user.
 exports.createVehicle = async (req, res) => {
   try {
-    const { veh_type, name, license_num, province, veh_des } = req.body ?? {};
+    const { veh_type, name, brand, model, color, license_num, province } =
+      req.body ?? {};
 
     if (!(await ownerExists(name))) {
       return res.status(400).json({
@@ -59,13 +75,17 @@ exports.createVehicle = async (req, res) => {
     const vehicle = await Vehicle.create({
       veh_type,
       name,
+      brand,
+      model,
+      color,
       license_num,
       province,
-      veh_des,
     });
     await vehicle.populate("name", OWNER_FIELDS);
 
-    return res.status(201).json({ success: true, vehicle });
+    return res
+      .status(201)
+      .json({ success: true, vehicle: formatVehicle(vehicle) });
   } catch (error) {
     return sendError(res, error);
   }
@@ -81,7 +101,40 @@ exports.listVehicles = async (req, res) => {
     return res.json({
       success: true,
       count: vehicles.length,
-      vehicles,
+      vehicles: vehicles.map(formatVehicle),
+    });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+// GET /api/vehicles/user/:userId - List vehicles owned by one user.
+exports.listVehiclesByUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!isValidId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id",
+      });
+    }
+
+    if (!(await User.exists({ _id: userId }))) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const vehicles = await Vehicle.find({ name: userId })
+      .populate("name", OWNER_FIELDS)
+      .sort({ _id: -1 });
+
+    return res.json({
+      success: true,
+      count: vehicles.length,
+      vehicles: vehicles.map(formatVehicle),
     });
   } catch (error) {
     return sendError(res, error);
@@ -128,7 +181,7 @@ exports.getVehicle = async (req, res) => {
       });
     }
 
-    return res.json({ success: true, vehicle });
+    return res.json({ success: true, vehicle: formatVehicle(vehicle) });
   } catch (error) {
     return sendError(res, error);
   }
@@ -175,9 +228,11 @@ exports.updateVehicle = async (req, res) => {
     const allowedFields = [
       "veh_type",
       "name",
+      "brand",
+      "model",
+      "color",
       "license_num",
       "province",
-      "veh_des",
     ];
     for (const field of allowedFields) {
       if (req.body?.[field] !== undefined) {
@@ -187,7 +242,7 @@ exports.updateVehicle = async (req, res) => {
 
     await vehicle.save();
     await vehicle.populate("name", OWNER_FIELDS);
-    return res.json({ success: true, vehicle });
+    return res.json({ success: true, vehicle: formatVehicle(vehicle) });
   } catch (error) {
     return sendError(res, error);
   }

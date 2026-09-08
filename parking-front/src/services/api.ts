@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
+import type { ChatTicket, NewSupportTicket } from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '')
@@ -47,6 +48,13 @@ export const parkingService = {
     }),
 }
 
+export const vehicleService = {
+  getByUser: (userId: string) => apiClient.get(`/vehicles/user/${userId}`),
+  create: (data: any) => apiClient.post('/vehicles', data),
+  update: (vehicleId: string, data: any) => apiClient.put(`/vehicles/${vehicleId}`, data),
+  remove: (vehicleId: string) => apiClient.delete(`/vehicles/${vehicleId}`),
+}
+
 export const cctvService = {
   getCameras: (buildingId: string, floorId: string) =>
     apiClient.get('/staff/cctv/cameras', {
@@ -63,14 +71,19 @@ export const cctvService = {
 }
 
 export const chatService = {
-  getTickets: () => apiClient.get('/staff/chat/tickets'),
-  getTicket: (ticketId: string) => apiClient.get(`/staff/chat/tickets/${ticketId}`),
-  createTicket: (subject: string, message: string) =>
-    apiClient.post('/staff/chat/tickets', { subject, message }),
+  getTickets: () => apiClient.get<{ tickets: ChatTicket[] }>('/support/tickets'),
+  getTicket: (ticketId: string) =>
+    apiClient.get<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}`),
+  createTicket: (data: NewSupportTicket) =>
+    apiClient.post<{ ticket: ChatTicket }>('/support/tickets', data),
   sendMessage: (ticketId: string, message: string) =>
-    apiClient.post(`/staff/chat/messages/${ticketId}`, { message }),
-  updateTicketStatus: (ticketId: string, status: string) =>
-    apiClient.put(`/staff/chat/tickets/${ticketId}`, { status }),
+    apiClient.post<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}/messages`, { message }),
+  claimTicket: (ticketId: string) =>
+    apiClient.post<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}/claim`),
+  updateTicketStatus: (ticketId: string, status: 'open' | 'done') =>
+    apiClient.patch<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}/status`, { status }),
+  markRead: (ticketId: string, messageId: string) =>
+    apiClient.post(`/support/tickets/${ticketId}/read`, { messageId }),
 }
 
 export const historyService = {

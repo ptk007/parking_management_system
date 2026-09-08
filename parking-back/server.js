@@ -9,6 +9,7 @@ const authRoutes = require("./api/routes/authRoutes");
 const vehicleRoutes = require("./api/routes/vehicleRoutes");
 const parkingBuildingRoutes = require("./api/routes/parkingBuildingRoutes");
 const parkingFloorRoutes = require("./api/routes/parkingFloorRoutes");
+const supportRoutes = require("./api/routes/supportRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,6 +27,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/admin/system/buildings", parkingBuildingRoutes);
 app.use("/api/admin/system/floors", parkingFloorRoutes);
+app.use("/api/support", supportRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "Parking management API is running" });
@@ -61,4 +63,6 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) startServer();
+
+module.exports = app;
