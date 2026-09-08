@@ -1,17 +1,28 @@
-export interface User {
-  id: string
+export type UserRole = 'staff' | 'admin' | 'user'
+export type UserStatus = 'online' | 'offline' | 'disable'
+
+export interface ApiUser {
+  _id: string
   username: string
+  name: string
+  role: UserRole
+  status: UserStatus
+  date_add?: string
+  time_add?: string
+  user_image?: string | null
+}
+
+export interface User extends ApiUser {
+  id: string
   fullName: string
-  role: 'staff' | 'admin' | 'user'
   buildingId?: string
   floorId?: string
-  status: 'online' | 'offline' | 'disabled'
   avatar?: string
 }
 
 export interface AuthResponse {
   token: string
-  user: User
+  user: ApiUser
 }
 
 export interface ParkingSlot {
@@ -62,27 +73,44 @@ export interface DashboardStats {
   disabled: number
 }
 
+export type TicketStatus = 'open' | 'in_progress' | 'done'
+export type TicketCategory = 'parking' | 'vehicle' | 'account' | 'other'
+
+export interface ChatParticipant {
+  _id: string
+  name: string
+}
+
+export interface NewSupportTicket {
+  subject: string
+  category: TicketCategory
+  location: string
+  message: string
+}
+
 export interface ChatTicket {
   _id: string
   ticketNumber: string
   subject: string
-  status: 'open' | 'done'
-  messages: ChatMessage[]
-  createdAt: Date
-  assignedSupport?: {
-    id: string
-    name: string
-    avatar?: string
-  }
+  category: TicketCategory
+  location: string
+  status: TicketStatus
+  owner: ChatParticipant
+  assignedSupport: ChatParticipant | null
+  messages?: ChatMessage[]
+  lastMessage: ChatMessage | null
+  unreadCount: number
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ChatMessage {
   _id: string
   sender: string
-  senderType: 'staff' | 'support'
+  senderName: string
+  senderType: 'user' | 'support'
   message: string
-  timestamp: Date
-  attachments?: string[]
+  timestamp: string
 }
 
 export interface HistoryEntry {

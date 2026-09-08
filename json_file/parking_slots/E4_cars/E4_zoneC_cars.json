@@ -1,0 +1,199 @@
+{
+    "info": {
+        "year": "2026",
+        "version": "9",
+        "description": "Exported from roboflow.com",
+        "contributor": "",
+        "url": "https://public.roboflow.com/object-detection/undefined",
+        "date_created": "2026-08-12T04:21:54+00:00"
+    },
+    "licenses": [
+        {
+            "id": 1,
+            "url": "https://creativecommons.org/licenses/by/4.0/",
+            "name": "CC BY 4.0"
+        }
+    ],
+    "categories": [
+        {
+            "id": 0,
+            "name": "parking-slot",
+            "supercategory": "none"
+        },
+        {
+            "id": 1,
+            "name": "zoneC_slot13",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 2,
+            "name": "zoneC_slot14",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 3,
+            "name": "zoneC_slot15",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 4,
+            "name": "zoneC_slot16",
+            "supercategory": "parking-slot"
+        },
+        {
+            "id": 5,
+            "name": "zoneC_slot17",
+            "supercategory": "parking-slot"
+        }
+    ],
+    "images": [
+        {
+            "id": 0,
+            "license": 1,
+            "file_name": "ZoneC_png.rf.76cb84579c794d365f90e20a712d165d.jpg",
+            "height": 1078,
+            "width": 1918,
+            "date_captured": "2026-08-12T04:21:54+00:00",
+            "extra": {
+                "name": "ZoneC.png"
+            }
+        }
+    ],
+    "annotations": [
+        {
+            "id": 1,
+            "image_id": 0,
+            "category_id": 1,
+            "bbox": [
+                20.4,
+                330.4,
+                473.6,
+                99.67
+            ],
+            "iscrowd": 0,
+            "area": 47203.712,
+            "segmentation": [
+                [
+                    78,
+                    346.92,
+                    20.4,
+                    430.068,
+                    438,
+                    410.88,
+                    494,
+                    330.4,
+                    78,
+                    346.92
+                ]
+            ]
+        },
+        {
+            "id": 2,
+            "image_id": 0,
+            "category_id": 2,
+            "bbox": [
+                0,
+                436.4,
+                426,
+                145.57
+            ],
+            "iscrowd": 0,
+            "area": 62012.82,
+            "segmentation": [
+                [
+                    329.2,
+                    581.972,
+                    426,
+                    436.4,
+                    34.8,
+                    463.647,
+                    0,
+                    577.175,
+                    329.2,
+                    581.972
+                ]
+            ]
+        },
+        {
+            "id": 3,
+            "image_id": 0,
+            "category_id": 3,
+            "bbox": [
+                1200,
+                318.4,
+                446,
+                84.49
+            ],
+            "iscrowd": 0,
+            "area": 37682.54,
+            "segmentation": [
+                [
+                    1230,
+                    402.885,
+                    1646,
+                    402.885,
+                    1596.4,
+                    330.93,
+                    1200,
+                    318.4,
+                    1230,
+                    402.885
+                ]
+            ]
+        },
+        {
+            "id": 4,
+            "image_id": 0,
+            "category_id": 4,
+            "bbox": [
+                1258.8,
+                433.27,
+                531.2,
+                145.13
+            ],
+            "iscrowd": 0,
+            "area": 77093.056,
+            "segmentation": [
+                [
+                    1790,
+                    545.195,
+                    1714.8,
+                    433.266,
+                    1258.8,
+                    444.459,
+                    1388,
+                    578.4,
+                    1790,
+                    545.195
+                ]
+            ]
+        },
+        {
+            "id": 5,
+            "image_id": 0,
+            "category_id": 5,
+            "bbox": [
+                1444,
+                613.95,
+                464.4,
+                297.41
+            ],
+            "iscrowd": 0,
+            "area": 138117.204,
+            "segmentation": [
+                [
+                    1606,
+                    911.365,
+                    1908.4,
+                    831.415,
+                    1886,
+                    613.952,
+                    1444,
+                    652.4,
+                    1606,
+                    911.365
+                ]
+            ]
+        }
+    ]
+}
