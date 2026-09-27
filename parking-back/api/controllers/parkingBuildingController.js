@@ -2,9 +2,11 @@ const fs = require("fs/promises");
 const path = require("path");
 const mongoose = require("mongoose");
 const ParkingBuilding = require("../models/parkingBuildingModel");
+const ParkingFloor = require("../models/parkingFloorModel");
 const { getBangkokDateTime } = require("../utils/dateTime");
 
 const IMAGE_ROOT = path.resolve(__dirname, "../../../images/parking_building");
+const FLOOR_FILE_ROOT = path.resolve(__dirname, "../../../json_file/parking_slots");
 
 function isValidId(id) {
   return mongoose.Types.ObjectId.isValid(id);
@@ -31,6 +33,22 @@ async function deleteImage(imagePath) {
     if (error.code !== "ENOENT") {
       throw error;
     }
+  }
+}
+
+async function deleteFloorFile(filePath) {
+  if (!filePath) return;
+
+  const absolutePath = path.resolve(__dirname, "../../..", filePath);
+  const relativePath = path.relative(FLOOR_FILE_ROOT, absolutePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error("Refusing to delete a file outside json_file/parking_slots");
+  }
+
+  try {
+    await fs.unlink(absolutePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
   }
 }
 
@@ -223,7 +241,7 @@ exports.updateBuilding = async (req, res) => {
   }
 };
 
-// DELETE /api/admin/system/buildings/:id - Delete a building and its image.
+// DELETE /api/admin/system/buildings/:id - Delete a building, its floors, and their files.
 exports.deleteBuilding = async (req, res) => {
   try {
     if (!isValidId(req.params.id)) {
@@ -241,11 +259,15 @@ exports.deleteBuilding = async (req, res) => {
       });
     }
 
+    const floors = await ParkingFloor.find({ building: building._id }).select("parking_slot_file");
+    await ParkingFloor.deleteMany({ building: building._id });
     await building.deleteOne();
-    try {
-      await deleteImage(building.building_image);
-    } catch (fileError) {
-      console.error(fileError);
+    const fileResults = await Promise.allSettled([
+      deleteImage(building.building_image),
+      ...floors.map((floor) => deleteFloorFile(floor.parking_slot_file)),
+    ]);
+    for (const result of fileResults) {
+      if (result.status === "rejected") console.error(result.reason);
     }
 
     return res.json({ success: true, message: "Building deleted" });

@@ -55,6 +55,12 @@ const navItems = computed(() => {
         isActive: (path: string) => path === '/admin/dashboard',
       },
       {
+        to: '/my-vehicle',
+        label: 'My Vehicle',
+        icon: CarFront,
+        isActive: (path: string) => path === '/my-vehicle',
+      },
+      {
         to: '/admin/staff',
         label: 'Staff Manager',
         icon: Users,
@@ -62,7 +68,7 @@ const navItems = computed(() => {
       },
       {
         to: '/admin/setup',
-        label: 'System Setup',
+        label: 'Parking Setup',
         icon: Wrench,
         isActive: (path: string) => path === '/admin/setup',
       },
@@ -92,6 +98,12 @@ const navItems = computed(() => {
       label: 'Dashboard',
       icon: Monitor,
       isActive: (path: string) => path.startsWith('/dashboard'),
+    },
+    {
+      to: '/my-vehicle',
+      label: 'My Vehicle',
+      icon: CarFront,
+      isActive: (path: string) => path === '/my-vehicle',
     },
     {
       to: '/history',

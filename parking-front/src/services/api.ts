@@ -55,6 +55,54 @@ export const vehicleService = {
   remove: (vehicleId: string) => apiClient.delete(`/vehicles/${vehicleId}`),
 }
 
+export interface ParkingBuilding {
+  _id: string
+  building_name: string
+  building_image: string | null
+  date_add: string
+  time_add: string
+}
+
+export const buildingService = {
+  list: () => apiClient.get<{ buildings: ParkingBuilding[] }>('/admin/system/buildings'),
+  create: (data: FormData) =>
+    apiClient.post<{ building: ParkingBuilding }>('/admin/system/buildings', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  update: (id: string, data: FormData) =>
+    apiClient.patch<{ building: ParkingBuilding }>(`/admin/system/buildings/${id}`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  remove: (id: string) => apiClient.delete(`/admin/system/buildings/${id}`),
+  imageUrl: (path: string | null) =>
+    path ? new URL(path.replace(/^\/+/, ''), `${API_ORIGIN}/`).toString() : '',
+}
+
+export interface ParkingFloor {
+  _id: string
+  building: ParkingBuilding | null
+  floor: number
+  veh_type: 'car' | 'motorcycle'
+  zone: number
+  parking_slot_file: string | null
+  status: 'available' | 'unavailable' | 'disable'
+  date_add: string
+  time_add: string
+}
+
+export type ParkingFloorPayload = Pick<ParkingFloor, 'floor' | 'veh_type' | 'status'> & {
+  building: string
+}
+
+export const floorService = {
+  list: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors'),
+  create: (data: ParkingFloorPayload) =>
+    apiClient.post<{ floor: ParkingFloor }>('/admin/system/floors', data),
+  update: (id: string, data: ParkingFloorPayload) =>
+    apiClient.patch<{ floor: ParkingFloor }>(`/admin/system/floors/${id}`, data),
+  remove: (id: string) => apiClient.delete(`/admin/system/floors/${id}`),
+}
+
 export const cctvService = {
   getCameras: (buildingId: string, floorId: string) =>
     apiClient.get('/staff/cctv/cameras', {

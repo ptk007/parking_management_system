@@ -90,19 +90,12 @@ function sendError(res, error) {
   });
 }
 
-// POST /api/admin/system/floors - Create a floor with a required JSON file.
+// POST /api/admin/system/floors - Create a floor; legacy map uploads remain optional.
 exports.createFloor = async (req, res) => {
   try {
-    const { building, floor, veh_type, zone, status } = req.body ?? {};
+    const { building, floor, veh_type, zone: requestedZone, status } = req.body ?? {};
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "parking_slot_file is required",
-      });
-    }
-
-    if (!(await isValidJsonFile(req.file))) {
+    if (req.file && !(await isValidJsonFile(req.file))) {
       await removeUploadedFile(req.file);
       return res.status(400).json({
         success: false,
@@ -118,7 +111,7 @@ exports.createFloor = async (req, res) => {
       });
     }
 
-    if (await ParkingFloor.exists({ building, zone })) {
+    if (requestedZone !== undefined && await ParkingFloor.exists({ building, zone: requestedZone })) {
       await removeUploadedFile(req.file);
       return res.status(409).json({
         success: false,
@@ -126,15 +119,30 @@ exports.createFloor = async (req, res) => {
       });
     }
 
-    const parkingFloor = await ParkingFloor.create({
-      building,
-      floor,
-      veh_type,
-      zone,
-      status,
-      parking_slot_file: getFilePath(req.file),
-      ...getBangkokDateTime(),
-    });
+    let parkingFloor;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // Existing databases still enforce a unique (building, zone) index.
+      // Assign that internal value automatically when the form omits it.
+      const lastFloor = requestedZone === undefined
+        ? await ParkingFloor.findOne({ building }).sort({ zone: -1 }).select("zone")
+        : null;
+      const zone = requestedZone ?? (Number(lastFloor?.zone || 0) + 1);
+      try {
+        parkingFloor = await ParkingFloor.create({
+          building,
+          floor,
+          veh_type,
+          zone,
+          status,
+          parking_slot_file: getFilePath(req.file),
+          ...getBangkokDateTime(),
+        });
+        break;
+      } catch (error) {
+        if (requestedZone === undefined && error?.code === 11000 && attempt < 2) continue;
+        throw error;
+      }
+    }
     await parkingFloor.populate("building", BUILDING_FIELDS);
 
     return res.status(201).json({ success: true, floor: parkingFloor });

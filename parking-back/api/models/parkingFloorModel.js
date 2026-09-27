@@ -34,7 +34,7 @@ const parkingFloorSchema = new mongoose.Schema(
     },
     parking_slot_file: {
       type: String,
-      required: [true, "parking_slot_file is required"],
+      default: null,
     },
     status: {
       type: String,

@@ -118,30 +118,34 @@
         <div class="setup-workspace">
           <ParkingSetupList
             v-if="setupMode === 'parking-list'"
-            :floors="adminStore.floors"
-            @add-building="setupMode = 'add-building'"
-            @add-floor="setupMode = 'add-floor'"
-            @edit-floor="setupMode = 'edit-floor'"
+            :floors="parkingFloors"
+            :buildings="buildings"
+            :is-loading="isLoadingBuildings || isLoadingFloors"
+            :error="buildingError || floorError"
+            :expand-building-id="expandBuildingId"
+            @add-building="openAddBuilding"
+            @edit-building="openEditBuilding"
+            @delete-building="openDeleteBuilding"
+            @reload-buildings="loadParkingSetup"
+            @add-floor="openAddFloor"
+            @edit-floor="openEditFloor"
           />
 
           <BuildingFormPanel
-            v-else-if="setupMode === 'add-building'"
-            mode="add"
-            @save="showParkingSetup"
+            v-else-if="setupMode === 'add-building' || setupMode === 'edit-building'"
+            :mode="setupMode === 'add-building' ? 'add' : 'edit'"
+            :building="editingBuilding"
+            @saved="handleBuildingSaved"
             @cancel="showParkingSetup"
           />
 
           <FloorFormPanel
-            v-else-if="setupMode === 'add-floor'"
-            mode="add"
-            @save="showParkingSetup"
-            @cancel="showParkingSetup"
-          />
-
-          <FloorFormPanel
-            v-else-if="setupMode === 'edit-floor'"
-            mode="edit"
-            @save="showParkingSetup"
+            v-else-if="setupMode === 'add-floor' || setupMode === 'edit-floor'"
+            :mode="setupMode === 'add-floor' ? 'add' : 'edit'"
+            :buildings="buildings"
+            :floor="editingFloor"
+            @saved="handleFloorSaved"
+            @deleted="handleFloorSaved"
             @cancel="showParkingSetup"
           />
 
@@ -165,13 +169,27 @@
             @cancel="showCctvSetup"
           />
         </div>
+
+        <div v-if="buildingToDelete" class="building-delete-backdrop" @click.self="!isDeletingBuilding && (buildingToDelete = null)">
+          <div class="building-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="building-delete-title">
+            <h2 id="building-delete-title">Delete {{ buildingToDelete.building_name }}?</h2>
+            <p>The building, its floors, parking map files and image will be deleted.</p>
+            <p v-if="deleteBuildingError" class="building-delete-error" role="alert">{{ deleteBuildingError }}</p>
+            <div class="building-delete-actions">
+              <button type="button" :disabled="isDeletingBuilding" @click="buildingToDelete = null">Cancel</button>
+              <button type="button" class="red-button" :disabled="isDeletingBuilding" @click="deleteBuilding">
+                {{ isDeletingBuilding ? 'Deleting...' : 'Delete' }}
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
   Bike,
@@ -180,7 +198,6 @@ import {
   CircleArrowUp,
   Eye,
   EyeOff,
-  Map,
   Search,
   SquarePen,
   Trash2,
@@ -190,9 +207,13 @@ import {
   X,
 } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
-import { useAdminStore, type StaffMember, type Floor } from '@/stores/admin'
+import { useAdminStore, type StaffMember } from '@/stores/admin'
 import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
+import BuildingFormPanel from './BuildingFormPanel.vue'
+import FloorFormPanel from './FloorFormPanel.vue'
+import { buildingService, floorService, type ParkingBuilding, type ParkingFloor } from '@/services/api'
+import { isAxiosError } from 'axios'
 
 type AdminSection = 'dashboard' | 'staff' | 'setup'
 type DashboardTab = 'slots' | 'cctv' | 'log'
@@ -201,6 +222,7 @@ type SetupTab = 'parking' | 'cctv'
 type SetupMode =
   | 'parking-list'
   | 'add-building'
+  | 'edit-building'
   | 'add-floor'
   | 'edit-floor'
   | 'cctv-list'
@@ -235,6 +257,18 @@ const activeDashboardTab = ref<DashboardTab>('slots')
 const staffMode = ref<StaffMode>('list')
 const setupTab = ref<SetupTab>('parking')
 const setupMode = ref<SetupMode>('parking-list')
+const buildings = ref<ParkingBuilding[]>([])
+const parkingFloors = ref<ParkingFloor[]>([])
+const isLoadingBuildings = ref(false)
+const isLoadingFloors = ref(false)
+const buildingError = ref('')
+const floorError = ref('')
+const editingBuilding = ref<ParkingBuilding | null>(null)
+const editingFloor = ref<ParkingFloor | null>(null)
+const expandBuildingId = ref<string | null>(null)
+const buildingToDelete = ref<ParkingBuilding | null>(null)
+const isDeletingBuilding = ref(false)
+const deleteBuildingError = ref('')
 const editingStaffId = ref<string | null>(null)
 const visiblePasswordIds = ref(new Set<string>())
 
@@ -284,8 +318,101 @@ const staffForms = ref<StaffFormState[]>([createStaffForm()])
 watch(activeSection, (section, previousSection) => {
   if (section === previousSection) return
   if (section === 'staff') staffMode.value = 'list'
-  if (section === 'setup') showParkingSetup()
+  if (section === 'setup') {
+    showParkingSetup()
+    void loadParkingSetup()
+  }
 })
+
+onMounted(() => {
+  if (activeSection.value === 'setup') void loadParkingSetup()
+})
+
+async function loadParkingSetup() {
+  await Promise.all([loadBuildings(), loadFloors()])
+}
+
+async function loadBuildings() {
+  isLoadingBuildings.value = true
+  buildingError.value = ''
+  try {
+    const response = await buildingService.list()
+    buildings.value = response.data.buildings
+  } catch {
+    buildingError.value = 'Failed to load buildings.'
+  } finally {
+    isLoadingBuildings.value = false
+  }
+}
+
+async function loadFloors() {
+  isLoadingFloors.value = true
+  floorError.value = ''
+  try {
+    const response = await floorService.list()
+    parkingFloors.value = response.data.floors
+  } catch {
+    floorError.value = 'Failed to load floors.'
+  } finally {
+    isLoadingFloors.value = false
+  }
+}
+
+const openAddBuilding = () => {
+  editingBuilding.value = null
+  setupMode.value = 'add-building'
+}
+
+const openEditBuilding = (building: ParkingBuilding) => {
+  editingBuilding.value = building
+  setupMode.value = 'edit-building'
+}
+
+const handleBuildingSaved = () => {
+  showParkingSetup()
+  void loadParkingSetup()
+}
+
+const openAddFloor = () => {
+  editingFloor.value = null
+  setupMode.value = 'add-floor'
+}
+
+const openEditFloor = (floor: ParkingFloor) => {
+  editingFloor.value = floor
+  setupMode.value = 'edit-floor'
+}
+
+const handleFloorSaved = (buildingId: string) => {
+  expandBuildingId.value = buildingId
+  showParkingSetup()
+  void loadFloors()
+}
+
+const openDeleteBuilding = (building: ParkingBuilding) => {
+  deleteBuildingError.value = ''
+  buildingToDelete.value = building
+}
+
+const deleteBuilding = async () => {
+  const building = buildingToDelete.value
+  if (!building || isDeletingBuilding.value) return
+
+  isDeletingBuilding.value = true
+  deleteBuildingError.value = ''
+  try {
+    await buildingService.remove(building._id)
+    buildingToDelete.value = null
+    expandBuildingId.value = null
+    await loadParkingSetup()
+  } catch (cause) {
+    deleteBuildingError.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Failed to delete building.'
+      : 'Failed to delete building.'
+  } finally {
+    isDeletingBuilding.value = false
+  }
+}
 
 const maskPassword = (password: string) => {
   return '*'.repeat(Math.max(password.length, 8))
@@ -623,36 +750,39 @@ const StaffFormPanel = defineComponent({
 
 const ParkingSetupList = defineComponent({
   props: {
-    floors: {
-      type: Array as () => Floor[],
+    buildings: {
+      type: Array as () => ParkingBuilding[],
       required: true,
     },
+    floors: {
+      type: Array as () => ParkingFloor[],
+      required: true,
+    },
+    isLoading: { type: Boolean, required: true },
+    error: { type: String, required: true },
+    expandBuildingId: { type: String as () => string | null, default: null },
   },
-  emits: ['add-building', 'add-floor', 'edit-floor'],
+  emits: ['add-building', 'edit-building', 'delete-building', 'add-floor', 'edit-floor', 'reload-buildings'],
   setup(props, { emit }) {
-    const isFloorExpanded = ref(false)
+    const expandedBuildingId = ref<string | null>(props.expandBuildingId)
 
-    const renderFloorRow = (floor: Floor) =>
+    const renderFloorRow = (floor: ParkingFloor) =>
       h('article', { class: 'floor-row', key: floor._id }, [
         h('div', { class: 'floor-icon' }, [
-          floor.vehicleType === 'Motorcycle'
+          floor.veh_type === 'motorcycle'
             ? h(Bike, { class: 'h-11 w-11', strokeWidth: 2.5 })
             : h(CarFront, { class: 'h-11 w-11', strokeWidth: 2.5 }),
         ]),
         h('div', { class: 'setup-copy' }, [
-          h('p', `Floor : ${floor.floorNumber}      (${floor.vehicleType})`),
-          h('p', 'Date added : 19/3/2569'),
-          h('p', `Time added : ${floor.floorNumber === 3 ? '11:00:00' : '12:00:00'}`),
+          h('p', `Floor : ${floor.floor}      (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`),
+          h('p', `Date added : ${floor.date_add}`),
+          h('p', `Time added : ${floor.time_add}`),
         ]),
         h('p', { class: 'floor-status' }, [
           'Status : ',
-          h('strong', { class: floor.status === 'Available' ? 'available' : 'disable' }, floor.status),
+          h('strong', { class: floor.status === 'available' ? 'available' : 'disable' }, floor.status),
         ]),
-        h('button', { class: 'map-link', type: 'button' }, [
-          h(Map, { class: 'h-10 w-10', strokeWidth: 2.5 }),
-          h('span', 'Parking Map'),
-        ]),
-        h('button', { class: 'blue-button', type: 'button', onClick: () => emit('edit-floor') }, 'Edit'),
+        h('button', { class: 'blue-button', type: 'button', onClick: () => emit('edit-floor', floor) }, 'Edit'),
       ])
 
     return () =>
@@ -661,86 +791,57 @@ const ParkingSetupList = defineComponent({
           h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-building') }, '+ Add Building'),
           h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-floor') }, '+ Add Floor'),
         ]),
-        h('article', { class: ['building-row', isFloorExpanded.value ? 'is-expanded' : ''] }, [
-          h('div', { class: 'building-photo' }),
-          h('div', { class: 'setup-copy' }, [
-            h('p', 'Building : E4'),
-            h('p', 'All Floor : 4'),
-            h('p', 'Last Date added : 19/3/2569'),
-            h('p', 'Last Time added : 12:00:00'),
-          ]),
-          h('button', { class: 'map-link view-floor-button', type: 'button', onClick: () => (isFloorExpanded.value = !isFloorExpanded.value) }, [
-            h(CircleArrowUp, { class: 'h-10 w-10', strokeWidth: 2.4 }),
-            h('span', isFloorExpanded.value ? 'Hide Floor' : 'View Floor'),
-          ]),
-          h('button', { class: 'blue-button', type: 'button', onClick: () => emit('add-building') }, 'Edit'),
-        ]),
-        isFloorExpanded.value
-          ? h('section', { class: 'floor-expansion-panel' }, [
-              h('div', { class: 'floor-expansion-header' }, [
-                h('strong', 'E4 Parking Floors'),
-                h('span', `${props.floors.length} floor configurations`),
-              ]),
-              props.floors.map(renderFloorRow),
+        props.isLoading ? h('p', 'Loading parking setup...') : null,
+        props.error
+          ? h('p', { class: 'building-list-error', role: 'alert' }, [
+              props.error,
+              h('button', { type: 'button', onClick: () => emit('reload-buildings') }, 'Retry'),
             ])
-          : h('p', { class: 'floor-collapsed-hint' }, 'Click View Floor to expand parking floors for building E4.'),
-      ])
-  },
-})
-
-const BuildingFormPanel = defineComponent({
-  props: {
-    mode: {
-      type: String as () => 'add' | 'edit',
-      required: true,
-    },
-  },
-  emits: ['save', 'cancel'],
-  setup(props, { emit }) {
-    return () =>
-      h('div', { class: 'overlay-card building-form' }, [
-        h('button', { class: 'close-x', type: 'button', onClick: () => emit('cancel') }, [
-          h(X, { class: 'h-7 w-7', strokeWidth: 3 }),
-        ]),
-        h('div', { class: 'building-photo large' }),
-        h('label', [h('span', 'Building Name'), h('input', { value: 'E4' })]),
-        h(
-          'button',
-          { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
-          'Confirm',
-        ),
-      ])
-  },
-})
-
-const FloorFormPanel = defineComponent({
-  props: {
-    mode: {
-      type: String as () => 'add' | 'edit',
-      required: true,
-    },
-  },
-  emits: ['save', 'cancel'],
-  setup(props, { emit }) {
-    return () =>
-      h('div', { class: 'overlay-card floor-form' }, [
-        h('button', { class: 'close-x', type: 'button', onClick: () => emit('cancel') }, [
-          h(X, { class: 'h-7 w-7', strokeWidth: 3 }),
-        ]),
-        props.mode === 'edit' ? h('h2', 'Floor : 3') : null,
-        props.mode === 'add'
-          ? h('label', [h('span', 'Building *'), h('select', [h('option', 'E4')])])
           : null,
-        props.mode === 'add' ? h('label', [h('span', 'Floor'), h('input', { value: '4' })]) : null,
-        props.mode === 'add'
-          ? h('label', [h('span', 'Vehicle*'), h('select', [h('option', 'Cars'), h('option', 'Motorcycle')])])
-          : h('label', [h('span', 'Status'), h('select', [h('option', 'Disable'), h('option', 'Available')])]),
-        h('p', { class: 'import-row' }, [h('button', { type: 'button' }, 'Import'), ' parking map']),
-        h(
-          'button',
-          { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
-          'Confirm',
-        ),
+        !props.isLoading && !props.error && !props.buildings.length
+          ? h('p', 'No buildings found. Add a building to get started.')
+          : null,
+        ...props.buildings.flatMap((building) => {
+          const buildingFloors = props.floors.filter((floor) => floor.building?._id === building._id)
+          const isExpanded = expandedBuildingId.value === building._id
+          return [
+            h('article', { class: ['building-row', isExpanded ? 'is-expanded' : ''], key: building._id }, [
+              h('div', { class: 'building-photo' },
+                building.building_image
+                  ? [h('img', { src: buildingService.imageUrl(building.building_image), alt: `${building.building_name} building` })]
+                  : [],
+              ),
+              h('div', { class: 'setup-copy' }, [
+                h('p', `Building : ${building.building_name}`),
+                h('p', `Configured floors : ${new Set(buildingFloors.map((floor) => floor.floor)).size}`),
+                h('p', `Date added : ${building.date_add}`),
+                h('p', `Time added : ${building.time_add}`),
+              ]),
+              h('button', { class: 'map-link view-floor-button', type: 'button', onClick: () => {
+                expandedBuildingId.value = isExpanded ? null : building._id
+              } }, [
+                h(CircleArrowUp, { class: 'h-10 w-10', strokeWidth: 2.4 }),
+                h('span', isExpanded ? 'Hide Floor' : 'View Floor'),
+              ]),
+              h('button', { class: 'blue-button', type: 'button', onClick: () => emit('edit-building', building) }, 'Edit'),
+              h('button', {
+                class: 'delete-building-button',
+                type: 'button',
+                'aria-label': `Delete ${building.building_name} building`,
+                onClick: () => emit('delete-building', building),
+              }, [h(Trash2, { class: 'h-6 w-6', strokeWidth: 2.4 })]),
+            ]),
+            isExpanded
+              ? h('section', { class: 'floor-expansion-panel', key: `${building._id}-floors` }, [
+                  h('div', { class: 'floor-expansion-header' }, [
+                    h('strong', `${building.building_name} Parking Floors`),
+                    h('span', `${buildingFloors.length} floor configurations`),
+                  ]),
+                  ...buildingFloors.map(renderFloorRow),
+                ])
+              : null,
+          ]
+        }),
       ])
   },
 })
@@ -1415,9 +1516,67 @@ const CCTVFormPanel = defineComponent({
 }
 
 .building-row {
-  grid-template-columns: 80px 1fr 92px 90px;
+  grid-template-columns: 80px 1fr 92px 90px 44px;
   min-height: 101px;
   padding: 12px 10px 12px 15px;
+}
+
+.delete-building-button {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: #b42318;
+}
+
+.delete-building-button:hover {
+  background: #feeceb;
+}
+
+.building-delete-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.building-delete-dialog {
+  width: min(420px, 100%);
+  border-radius: 8px;
+  background: #fff;
+  padding: 24px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
+}
+
+.building-delete-dialog h2 {
+  margin-bottom: 10px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.building-delete-dialog p {
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.building-delete-error {
+  color: #b42318;
+}
+
+.building-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.building-delete-actions button {
+  min-width: 84px;
+  min-height: 36px;
+  border-radius: 5px;
 }
 
 .building-row.is-expanded {
@@ -1479,7 +1638,7 @@ const CCTVFormPanel = defineComponent({
 }
 
 .floor-row {
-  grid-template-columns: 72px 1fr 170px 96px 90px;
+  grid-template-columns: 72px 1fr 170px 90px;
   min-height: 86px;
   padding: 10px 10px 10px 22px;
 }
@@ -1491,6 +1650,22 @@ const CCTVFormPanel = defineComponent({
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent 42%),
     linear-gradient(90deg, #6b4b3d 0 22%, #b9886a 23% 43%, #78412f 44% 70%, #c2c7be 71% 100%);
+}
+
+.building-photo img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.building-list-error {
+  color: #b42318;
+}
+
+.building-list-error button {
+  margin-left: 10px;
+  text-decoration: underline;
 }
 
 .building-photo.large {

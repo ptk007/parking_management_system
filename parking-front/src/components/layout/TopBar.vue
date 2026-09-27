@@ -12,6 +12,7 @@
       </div>
 
       <button
+        v-if="authStore.user?.role !== 'admin'"
         class="bell-button"
         aria-label="Notifications"
         :disabled="authStore.isGuest"

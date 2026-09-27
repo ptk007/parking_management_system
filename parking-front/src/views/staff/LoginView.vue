@@ -16,8 +16,8 @@
 
         <button type="button" class="role-card" @click="selectRole('admin')">
           <UserRound class="role-icon" :stroke-width="3" />
-          <span>Admin</span>
-          <small>&#x0E40;&#x0E08;&#x0E49;&#x0E32;&#x0E2B;&#x0E19;&#x0E49;&#x0E32;&#x0E17;&#x0E35;&#x0E48;</small>
+          <span>Staff/Admin</span>
+          <small>เจ้าหน้าที่ / ผู้ดูแลระบบ</small>
         </button>
       </div>
 
@@ -79,6 +79,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, GraduationCap, UserRound } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
+import type { UserRole } from '@/types'
 import loginBackground from '@/assets/mba-mfu.jpg'
 import mfuLogo from '@/assets/mae-fah-luang-university.png'
 
@@ -86,7 +87,7 @@ type LoginRole = 'student' | 'admin' | 'guest'
 
 interface RoleConfig {
   label: string
-  apiRole: 'user' | 'admin' | 'staff'
+  apiRoles: UserRole[]
   route: string
 }
 
@@ -109,17 +110,17 @@ const loginScreenStyle = {
 const roleConfigs: Record<LoginRole, RoleConfig> = {
   student: {
     label: 'Student',
-    apiRole: 'user',
+    apiRoles: ['user'],
     route: '/dashboard',
   },
   admin: {
-    label: 'Admin',
-    apiRole: 'admin',
+    label: 'Staff/Admin',
+    apiRoles: ['staff', 'admin'],
     route: '/admin/dashboard',
   },
   guest: {
     label: 'Guest User',
-    apiRole: 'user',
+    apiRoles: ['user'],
     route: '/dashboard',
   },
 }
@@ -177,13 +178,13 @@ const handleLogin = async () => {
       return
     }
 
-    if (authStore.user?.role !== config.apiRole) {
+    if (!authStore.user || !config.apiRoles.includes(authStore.user.role)) {
       await authStore.logout()
       error.value = `This account is not allowed for ${config.label}`
       return
     }
 
-    await router.push(config.route)
+    await router.push(authStore.user.role === 'staff' ? '/dashboard' : config.route)
   } finally {
     isLoading.value = false
   }
