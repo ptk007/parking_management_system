@@ -55,6 +55,14 @@ export const vehicleService = {
   remove: (vehicleId: string) => apiClient.delete(`/vehicles/${vehicleId}`),
 }
 
+export interface BuildingCameraSummary {
+  total: number
+  online: number
+  offline: number
+  disabled: number
+  unknown: number
+}
+
 export interface ParkingBuilding {
   _id: string
   building_name: string
@@ -64,6 +72,8 @@ export interface ParkingBuilding {
 }
 
 export const buildingService = {
+  cameraSummaries: () =>
+    apiClient.get<{ summaries: Record<string, BuildingCameraSummary> }>('/admin/system/buildings/camera-summary'),
   list: () => apiClient.get<{ buildings: ParkingBuilding[] }>('/admin/system/buildings'),
   create: (data: FormData) =>
     apiClient.post<{ building: ParkingBuilding }>('/admin/system/buildings', data, {
