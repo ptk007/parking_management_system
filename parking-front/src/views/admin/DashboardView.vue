@@ -211,7 +211,7 @@ import {
   VideoOff,
   X,
 } from 'lucide-vue-next'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAdminStore, type StaffMember } from '@/stores/admin'
 import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
@@ -830,6 +830,11 @@ const ParkingSetupList = defineComponent({
             floor.status,
           ),
         ]),
+        h(RouterLink, {
+          class: 'floor-parking-map',
+          to: { name: 'AdminParkingMap', params: { floorId: floor._id } },
+          'aria-label': `Parking Map for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+        }, () => 'Parking Map'),
         h(
           'button',
           {
@@ -1805,7 +1810,7 @@ const CCTVFormPanel = defineComponent({
 }
 
 .floor-row {
-  grid-template-columns: 58px minmax(0, 1fr) minmax(110px, 0.65fr) 116px;
+  grid-template-columns: 58px minmax(0, 1fr) minmax(110px, 0.3fr) minmax(100px, 0.35fr) 116px;
   min-height: 100px;
   padding: 12px 20px;
   gap: 18px;
@@ -1851,6 +1856,24 @@ const CCTVFormPanel = defineComponent({
 
 .floor-row .floor-status .disable {
   color: #686868;
+}
+
+.floor-parking-map {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #cf4647;
+  border-radius: 10px;
+  background: #fff1f1;
+  color: #a52f30;
+  text-align: center;
+  font-size: 14px;
+}
+
+.floor-parking-map:hover {
+  background: #ffe1e1;
 }
 
 .edit-floor-button {
@@ -2306,7 +2329,7 @@ const CCTVFormPanel = defineComponent({
   }
 
   .floor-row {
-    grid-template-columns: 62px minmax(0, 1fr) 110px 112px;
+    grid-template-columns: 62px minmax(0, 1fr) 110px 100px 112px;
     gap: 16px;
     padding: 12px 16px;
   }
@@ -2369,6 +2392,7 @@ const CCTVFormPanel = defineComponent({
   }
 
   .floor-row .floor-status,
+  .floor-row .floor-parking-map,
   .floor-row .edit-floor-button {
     grid-column: 2;
   }

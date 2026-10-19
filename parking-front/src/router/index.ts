@@ -49,6 +49,12 @@ const router = createRouter({
       meta: { requiresAdmin: true },
     },
     {
+      path: '/admin/setup/floors/:floorId/parking-map',
+      name: 'AdminParkingMap',
+      component: () => import('@/views/admin/ParkingMapView.vue'),
+      meta: { requiresAdmin: true },
+    },
+    {
       path: '/admin',
       redirect: '/admin/dashboard',
     },

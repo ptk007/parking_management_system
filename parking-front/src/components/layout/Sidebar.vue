@@ -70,7 +70,7 @@ const navItems = computed(() => {
         to: '/admin/setup',
         label: 'Parking Setup',
         icon: Wrench,
-        isActive: (path: string) => path === '/admin/setup',
+        isActive: (path: string) => path.startsWith('/admin/setup'),
       },
     ]
   }
