@@ -28,8 +28,6 @@ The Login Page enables registered users to sign in with credentials and access r
 - **Session handling or token-based auth**
 - **Error messages for invalid login**
 - **Redirects to the correct dashboard**
-- **Optional PIN code verification**
-
 ---
 
 ## User Roles
@@ -42,15 +40,14 @@ The system supports the following roles in `user` collection:
 **Example user document**:
 ```json
 {
-  "_id": 2,
+  "_id": , (mongoDB auto-generate)
   "username": "somsri_staff",
-  "password": "$2b$10$hashedpasswordhere...",
-  "pin_code": "654321",
+  "password": "staff123",
   "name": "สมศรี รักดี",
   "role": "staff",
-  "status": "offline",
-  "date_add": "2026-06-29",
-  "time_add": "09:15:00"
+  "status": "offline", (auto detect)
+  "date_add": "2026-06-29", (input detect)
+  "time_add": "09:15:00" (input detect)
 }
 ```
 
@@ -221,8 +218,7 @@ Stores user login credentials, role, and status.
 {
   "_id": 3,
   "username": "user_test01",
-  "password": "$2b$10$hashedpasswordhere...",
-  "pin_code": "000000",
+  "password": "user1234",
   "name": "นายกิตติ เรียนดี",
   "role": "user",
   "status": "disable",
@@ -241,7 +237,6 @@ db.createCollection('user', {
       properties: {
         username: { bsonType: 'string' },
         password: { bsonType: 'string' },
-        pin_code: { bsonType: ['string', 'null'] },
         name: { bsonType: 'string' },
         role: { enum: ['admin', 'staff', 'user'] },
         status: { enum: ['online', 'offline', 'disable'] },
