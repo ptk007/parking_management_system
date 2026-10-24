@@ -84,14 +84,22 @@
         </button>
       </div>
 
-      <div class="pos-workspace">
+      <div :class="['pos-workspace', { 'layout-workspace': viewMode === 'layout' }]">
         <section class="floor-panel" aria-label="Parking slot layout">
           <div class="panel-heading">
             <div>
               <h2><LayoutGrid :size="19" /> Floor overview</h2>
-              <p>เลือกช่องจอดเหมือนเลือกโต๊ะในระบบ POS</p>
+              <p>
+                {{
+                  viewMode === 'layout'
+                    ? 'จัดวางช่องจอดและออกแบบรายละเอียดบนแผนผัง'
+                    : 'เลือกช่องจอดเหมือนเลือกโต๊ะในระบบ POS'
+                }}
+              </p>
             </div>
-            <span class="slot-count">{{ viewMode === 'layout' ? slots.length : filteredSlots.length }} slots shown</span>
+            <span class="slot-count"
+              >{{ viewMode === 'layout' ? slots.length : filteredSlots.length }} slots shown</span
+            >
           </div>
           <div class="view-mode" aria-label="Parking map view">
             <button
@@ -104,7 +112,7 @@
             <button
               :class="{ active: viewMode === 'layout' }"
               :aria-pressed="viewMode === 'layout'"
-              @click="viewMode = 'layout'"
+              @click="openLayout"
             >
               <PencilRuler :size="16" /> Layout editor
             </button>
@@ -114,6 +122,8 @@
             :key="editorVersion"
             :slots="slots"
             :model-value="layout"
+            :save-message="saveMessage"
+            :save-failed="storageError"
             @update:model-value="updateLayout"
             @inspect-slot="inspectSlot"
           />
@@ -215,7 +225,11 @@
           </footer>
         </section>
 
-        <aside class="details-panel" aria-label="Slot details and actions">
+        <aside
+          v-if="viewMode === 'pos' || inspectedSlot || selected.size"
+          class="details-panel"
+          aria-label="Slot details and actions"
+        >
           <div class="details-heading">
             <h2>Slot details</h2>
             <span>{{ selected.size }} selected</span>
@@ -322,6 +336,7 @@ import {
 import { floorService, type ParkingFloor } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import ParkingLayoutEditor from '@/components/parking/ParkingLayoutEditor.vue'
+import { createDashboardLayout } from '@/components/parking/dashboardLayoutTemplate'
 import { emptyParkingLayout, type ParkingLayout } from '@/components/parking/parkingLayout'
 import {
   createPreviewSlots,
@@ -492,6 +507,18 @@ function persistDraft() {
     storageError.value = true
     saveMessage.value = 'Could not save. Changes will be lost when you leave.'
   }
+}
+function openLayout() {
+  if (
+    auth.isAdmin &&
+    sourceName.value === 'E4 sample' &&
+    !layout.value.background &&
+    !layout.value.shapes.length &&
+    !Object.keys(layout.value.positions).length
+  ) {
+    updateLayout(createDashboardLayout(slots.value))
+  }
+  viewMode.value = 'layout'
 }
 function updateLayout(next: ParkingLayout) {
   if (!auth.isAdmin || loading.value || importing.value) return
@@ -828,6 +855,9 @@ h1 {
   grid-template-columns: minmax(0, 1fr) 290px;
   align-items: start;
   gap: 20px;
+}
+.pos-workspace.layout-workspace {
+  grid-template-columns: minmax(0, 1fr);
 }
 .floor-panel,
 .details-panel {
