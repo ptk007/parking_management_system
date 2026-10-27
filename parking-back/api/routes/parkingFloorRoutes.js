@@ -42,6 +42,11 @@ router.post(
 );
 router.get("/", floorController.listFloors);
 router.get("/check-duplicate", floorController.checkDuplicateZone);
+const slotUpload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 20 },
+  fileFilter: (req, file, callback) => callback(null, path.extname(file.originalname).toLowerCase() === ".json"),
+});
+router.post("/:id/slot-files", slotUpload.array("files", 20), floorController.importSlotFiles);
+router.get("/:id/slot-files/:fileId", floorController.downloadSlotFile);
 router.get("/:id", floorController.getFloor);
 router.patch(
   "/:id",

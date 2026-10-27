@@ -88,6 +88,13 @@ export const buildingService = {
     path ? new URL(path.replace(/^\/+/, ''), `${API_ORIGIN}/`).toString() : '',
 }
 
+export interface ParkingSlotFile {
+  _id: string
+  original_name: string
+  path: string
+  size: number
+}
+
 export interface ParkingFloor {
   _id: string
   building: ParkingBuilding | null
@@ -95,6 +102,7 @@ export interface ParkingFloor {
   veh_type: 'car' | 'motorcycle'
   zone: number
   parking_slot_file: string | null
+  parking_slot_files?: ParkingSlotFile[]
   status: 'available' | 'unavailable' | 'disable'
   date_add: string
   time_add: string
@@ -105,6 +113,15 @@ export type ParkingFloorPayload = Pick<ParkingFloor, 'floor' | 'veh_type' | 'sta
 }
 
 export const floorService = {
+  importSlotFiles: (id: string, files: File[]) => {
+    const data = new FormData()
+    files.forEach((file) => data.append('files', file))
+    return apiClient.post<{ floor: ParkingFloor }>(`/admin/system/floors/${id}/slot-files`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  downloadSlotFile: (id: string, fileId: string) =>
+    apiClient.get<string>(`/admin/system/floors/${id}/slot-files/${fileId}`, { responseType: 'text' }),
   list: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors'),
   create: (data: ParkingFloorPayload) =>
     apiClient.post<{ floor: ParkingFloor }>('/admin/system/floors', data),

@@ -5,105 +5,153 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import ParkingMapView from '@/views/admin/ParkingMapView.vue'
 import { floorService } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import { createPreviewSlots, restorePreviewDraft } from '@/components/parking/parkingMapPreview'
+import { emptyParkingLayout } from '@/components/parking/parkingLayout'
+import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
 
 vi.mock('@/services/api', () => ({ floorService: { list: vi.fn() } }))
 const wrappers: VueWrapper[] = []
 const floors = ['floor-one', 'floor-two'].map((_id, index) => ({
-  _id, floor: index, veh_type: 'car', building: { building_name: `Building ${index}` },
+  _id,
+  floor: index,
+  veh_type: 'car',
+  building: { building_name: `Building ${index}` },
 }))
-
-async function createPage(id = 'floor-one') {
-  const pinia = createPinia()
-  const auth = useAuthStore(pinia)
+const mapSlots = [
+  { number: 1, name: 'camera_slot_01', zone: 'default', status: 'disabled' },
+  { number: 2, name: 'camera_slot_02', zone: 'default', status: 'available' },
+  { number: 3, name: 'camera_slot_03', zone: 'default', status: 'occupied' },
+]
+const key = (id = 'floor-one') => `parking-map-preview:v1:admin-test:${id}`
+async function createPage(seed = true) {
+  if (seed)
+    localStorage.setItem(
+      key(),
+      JSON.stringify({
+        version: 2,
+        slots: mapSlots,
+        sourceName: 'floor.json',
+        layout: emptyParkingLayout(),
+      }),
+    )
+  const pinia = createPinia(),
+    auth = useAuthStore(pinia)
   auth.token = 'preview-test'
-  auth.user = { _id: 'admin-test', id: 'admin-test', username: 'admin', name: 'Admin', fullName: 'Admin', role: 'admin', status: 'online' }
-  const router = createRouter({ history: createMemoryHistory(), routes: [
-    { path: '/floor/:floorId', component: ParkingMapView },
-    { path: '/admin/setup', component: { template: '<div>Setup</div>' } },
-  ] })
-  await router.push(`/floor/${id}`)
-  const wrapper = mount(ParkingMapView, { global: { plugins: [pinia, router] } })
+  auth.user = {
+    _id: 'admin-test',
+    id: 'admin-test',
+    username: 'admin',
+    name: 'Admin',
+    fullName: 'Admin',
+    role: 'admin',
+    status: 'online',
+  }
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/floor/:floorId', component: ParkingMapView },
+      { path: '/admin/setup', component: { template: '<div>Setup</div>' } },
+    ],
+  })
+  await router.push('/floor/floor-one')
+  const wrapper = mount({ template: '<router-view />' }, { global: { plugins: [pinia, router] } })
   wrappers.push(wrapper)
   await flushPromises()
-  return { wrapper, router, auth }
+  return { wrapper, router }
 }
-
+async function select(wrapper: VueWrapper, number: number) {
+  await wrapper.get(`[data-slot="${number}"]`).trigger('keydown', { key: 'Enter' })
+}
+async function editor(wrapper: VueWrapper) {
+  await wrapper.findAll('.view-mode button')[1]!.trigger('click')
+}
 beforeEach(() => {
   vi.resetAllMocks()
+  localStorage.clear()
   vi.mocked(floorService.list).mockResolvedValue({ data: { floors } } as never)
 })
 afterEach(() => {
-  wrappers.splice(0).forEach(wrapper => wrapper.unmount())
-  localStorage.clear()
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
   vi.restoreAllMocks()
+  localStorage.clear()
 })
 
-describe('standalone Parking Map preview', () => {
-  it('shows the chosen floor and combines zone, search and status filters', async () => {
+describe('Parking Map workspace', () => {
+  it('uses one canvas for preview and editor, with name search and no zone controls', async () => {
     const { wrapper } = await createPage()
     expect(wrapper.get('.floor-context').text()).toContain('Building 0 / Floor 0 / Cars')
-    expect(wrapper.findAll('.parking-tile')).toHaveLength(26)
-    await wrapper.get('input[type="search"]').setValue('004')
-    expect(wrapper.findAll('.parking-tile')).toHaveLength(1)
-    expect(wrapper.get('.parking-tile').attributes('data-slot')).toBe('4')
-    await wrapper.get('select').setValue('available')
-    expect(wrapper.find('.empty-results').exists()).toBe(true)
-    await wrapper.get('.empty-results button').trigger('click')
-    expect(wrapper.findAll('.parking-tile')).toHaveLength(124)
+    expect(wrapper.find('.zone-tabs').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Parking Preview')
+    const positions = wrapper
+      .findAll('[data-layout-slot]')
+      .map((item) => item.attributes('transform'))
+    await editor(wrapper)
+    expect(
+      wrapper.findAll('[data-layout-slot]').map((item) => item.attributes('transform')),
+    ).toEqual(positions)
+    expect(wrapper.find('button[aria-label="Ellipse"]').exists()).toBe(false)
+    await wrapper.get('input[type="search"]').setValue('camera_slot_02')
+    expect(wrapper.get('[data-slot="2"]').attributes('opacity')).toBe('1')
+    expect(wrapper.get('[data-slot="1"]').attributes('opacity')).toBe('0.18')
   })
-
-  it('inspects occupied slots without selecting them or allowing changes', async () => {
+  it('keeps occupied slots read-only and renames editable map labels without changing identity or position', async () => {
     const { wrapper } = await createPage()
-    await wrapper.get('[data-slot="4"]').trigger('click')
+    await select(wrapper, 3)
     expect(wrapper.get('.slot-preview').text()).toContain('Occupied')
-    expect(wrapper.get('.details-heading').text()).toContain('0 selected')
     expect(wrapper.get<HTMLButtonElement>('.disable-button').element.disabled).toBe(true)
-    expect(wrapper.get<HTMLButtonElement>('.enable-button').element.disabled).toBe(true)
+    await editor(wrapper)
+    await select(wrapper, 1)
+    const position = wrapper.get('[data-slot="1"]').attributes('transform')
+    await wrapper.get('#slot-name').setValue('camera_slot_02')
+    await wrapper.get('.rename-slot').trigger('submit')
+    expect(wrapper.get('.field-error').text()).toContain('already in use')
+    await wrapper.get('#slot-name').setValue('zoneA_slot01')
+    await wrapper.get('.rename-slot').trigger('submit')
+    expect(wrapper.get('[data-slot="1"]').text()).toContain('zoneA_slot01')
+    expect(wrapper.get('[data-slot="1"]').attributes('transform')).toBe(position)
+    expect(JSON.parse(localStorage.getItem(key())!).slots[0].name).toBe('zoneA_slot01')
   })
-
-  it('updates multiple editable slots and restores drafts only for the same floor', async () => {
+  it('persists autosave independently per floor, saves manually, and warns before losing changes', async () => {
     const { wrapper, router } = await createPage()
-    await wrapper.get('[data-slot="1"]').trigger('click')
-    await wrapper.get('[data-slot="2"]').trigger('click')
-    await wrapper.get('.disable-button').trigger('click')
-    expect(wrapper.get('[data-slot="1"]').classes()).toContain('disabled')
-    expect(wrapper.get('[data-slot="2"]').classes()).toContain('disabled')
-    expect(wrapper.get('.save-message').text()).toContain('Preview saved')
+    await editor(wrapper)
+    await wrapper.get('input[role="switch"]').setValue(false)
+    await select(wrapper, 1)
+    await wrapper.get('.enable-button').trigger('click')
+    expect(JSON.parse(localStorage.getItem(key())!).slots[0].status).toBe('disabled')
     await router.push('/floor/floor-two')
     await flushPromises()
-    expect(wrapper.get('[data-slot="1"]').classes()).toContain('available')
-    expect(wrapper.get('.details-heading').text()).toContain('0 selected')
+    expect(router.currentRoute.value.params.floorId).toBe('floor-one')
+    expect(wrapper.get('[role="alertdialog"]').text()).toContain('Save your changes?')
+    await wrapper.findAll('.leave-dialog button')[2]!.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.params.floorId).toBe('floor-two')
+    expect(wrapper.findAll('[data-slot]')).toHaveLength(0)
+    await editor(wrapper)
+    expect(wrapper.get<HTMLInputElement>('input[role="switch"]').element.checked).toBe(true)
     await router.push('/floor/floor-one')
     await flushPromises()
-    expect(wrapper.get('[data-slot="1"]').classes()).toContain('disabled')
-    await wrapper.get('[data-slot="1"]').trigger('click')
-    await wrapper.get('.enable-button').trigger('click')
+    await editor(wrapper)
+    expect(wrapper.get<HTMLInputElement>('input[role="switch"]').element.checked).toBe(false)
     expect(wrapper.get('[data-slot="1"]').classes()).toContain('available')
-    expect(createPreviewSlots().find(slot => slot.number === 1)?.status).toBe('available')
   })
-
-  it('reports storage failures without claiming the draft was saved', async () => {
+  it('restores a map after deleting every slot and does not invent a sample for a new floor', async () => {
+    const { wrapper } = await createPage(false)
+    expect(wrapper.findAll('[data-slot]')).toHaveLength(0)
+    const empty = { version: 2, slots: [], layout: emptyParkingLayout(), sourceName: 'New map' }
+    expect(restoreMapDraft(JSON.stringify(empty)).slots).toEqual([])
+  })
+  it('reports local storage failures honestly', async () => {
     const { wrapper } = await createPage()
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage full') })
-    await wrapper.get('[data-slot="1"]').trigger('click')
-    await wrapper.get('.disable-button').trigger('click')
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Storage full')
+    })
+    await select(wrapper, 1)
+    await wrapper.get('.enable-button').trigger('click')
     expect(wrapper.get('.save-message.failed').text()).toContain('Could not save')
   })
-
-  it('handles failed requests and missing floors without showing a misleading map', async () => {
-    vi.mocked(floorService.list).mockRejectedValueOnce(new Error('Offline'))
-    const { wrapper } = await createPage('missing')
+  it('loads errors without showing a misleading map', async () => {
+    vi.mocked(floorService.list).mockRejectedValueOnce(new Error('offline'))
+    const { wrapper } = await createPage(false)
     expect(wrapper.get('[role="alert"]').text()).toContain('Unable to load')
-    await wrapper.get('.page-state button').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[role="alert"]').text()).toContain('Floor not found')
-    expect(wrapper.find('.pos-workspace').exists()).toBe(false)
-  })
-
-  it('does not restore draft changes over occupied sample slots', () => {
-    const restored = restorePreviewDraft(JSON.stringify({ version: 1, statuses: { 4: 'available', 1: 'disabled' } }))
-    expect(restored.find(slot => slot.number === 4)?.status).toBe('occupied')
-    expect(restored.find(slot => slot.number === 1)?.status).toBe('disabled')
+    expect(wrapper.find('.map-workspace').exists()).toBe(false)
   })
 })

@@ -9,10 +9,10 @@
       >
         <ArrowLeft :size="21" />
       </button>
-      <h2>Add CCTV</h2>
+      <h2>{{ mode === 'edit' ? 'Edit CCTV' : 'Add CCTV' }}<span v-if="selectedFloor"> / {{ selectedFloor.building?.building_name }} / Floor {{ selectedFloor.floor }}</span></h2>
     </header>
 
-    <form class="add-cctv-card" @submit.prevent="$emit('save')">
+    <form class="add-cctv-card" @submit.prevent="save">
       <div class="add-cctv-fields">
         <div
           class="inline-camera-scene add-cctv-preview"
@@ -36,7 +36,8 @@
 
         <label class="add-cctv-field">
           <span>CCTV .json File</span>
-          <input class="add-cctv-file" type="file" accept=".json,application/json" />
+          <input class="add-cctv-file" type="file" accept=".json,application/json" @change="selectCctvFile" />
+          <small v-if="mode === 'edit' && camera?.cctvFileName">Current file: {{ camera.cctvFileName }}. Choose a file to replace it.</small>
         </label>
 
         <label class="add-cctv-field">
@@ -49,28 +50,17 @@
         </label>
 
         <label class="add-cctv-field">
-          <span>Parking Slot .json <small>(Can add more than 1 file)</small></span>
-          <input
-            class="add-cctv-file"
-            type="file"
-            accept=".json,application/json"
-            multiple
-            @change="selectParkingFiles"
-          />
-        </label>
-
-        <label class="add-cctv-field">
           <span>Select 1 Parking Slot</span>
-          <select v-model="selectedParkingFile" :disabled="!parkingFiles.length">
+          <select v-model="selectedParkingFile" :disabled="!availableParkingFiles.length">
             <option value="" disabled>
               {{
-                parkingFiles.length
+                availableParkingFiles.length
                   ? 'Select a parking slot file'
-                  : 'Choose parking slot files first'
+                  : 'Import parking slot files in the floor preset first'
               }}
             </option>
-            <option v-for="(file, index) in parkingFiles" :key="index" :value="String(index)">
-              {{ file.name }}
+            <option v-for="file in availableParkingFiles" :key="file._id" :value="file._id">
+              {{ file.original_name }}
             </option>
           </select>
         </label>
@@ -98,21 +88,35 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ArrowLeft } from 'lucide-vue-next'
+import type { CctvFormCamera } from './cctvForm'
 
-defineEmits<{ save: []; cancel: [] }>()
-const cameraName = ref('Floor4 B6')
-const cameraSelector = ref('')
-const ipAddress = ref('172.28.113.103')
-const rtspLink = ref('rtsp://mfustream:...')
-const parkingFiles = ref<File[]>([])
-const selectedParkingFile = ref('')
-
-function selectParkingFiles(event: Event) {
-  const input = event.target as HTMLInputElement
-  parkingFiles.value = Array.from(input.files ?? [])
-  selectedParkingFile.value = parkingFiles.value.length ? '0' : ''
+const emit = defineEmits<{ save: [camera: CctvFormCamera, file: File | null]; cancel: [] }>()
+const props = withDefaults(defineProps<{
+  selectedFloor?: import('@/services/api').ParkingFloor | null
+  mode?: 'add' | 'edit'
+  camera?: CctvFormCamera | null
+}>(), { mode: 'add', camera: null })
+const cameraName = ref(props.camera?.name ?? (props.selectedFloor ? `Floor${props.selectedFloor.floor} ${props.selectedFloor.building?.building_name || ''}` : ''))
+const cameraSelector = ref(props.camera?.cameraSelector || '')
+const ipAddress = ref(props.camera?.ipAddress || '')
+const rtspLink = ref(props.camera?.rtspLink || '')
+const cctvFile = ref<File | null>(null)
+const availableParkingFiles = computed(() => props.selectedFloor?.parking_slot_files || [])
+const selectedParkingFile = ref(props.camera?.parkingSlotFileId || '')
+function selectCctvFile(event: Event) {
+  cctvFile.value = (event.target as HTMLInputElement).files?.[0] || null
+}
+function save() {
+  emit('save', {
+    name: cameraName.value,
+    cameraSelector: cameraSelector.value,
+    ipAddress: ipAddress.value,
+    rtspLink: rtspLink.value,
+    cctvFileName: cctvFile.value?.name || props.camera?.cctvFileName || '',
+    parkingSlotFileId: selectedParkingFile.value,
+  }, cctvFile.value)
 }
 </script>
 

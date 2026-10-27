@@ -17,10 +17,28 @@ describe('parking map JSON import', () => {
     )
     expect(slots).toEqual([
       { number: 1, zone: 'North', status: 'available' },
-      { number: 1, zone: 'B', status: 'disabled' },
-      { number: 2, zone: 'C', status: 'available' },
+      { number: 1, zone: 'B', status: 'disabled', name: 'B01' },
+      { number: 2, zone: 'C', status: 'available', name: 'zoneC_slot02' },
     ])
     expect(new Set(slots.map(slotKey)).size).toBe(3)
+  })
+
+  it('preserves camera slot names verbatim and does not derive colliding identities from their labels', () => {
+    const slots = parseParkingMapJson(
+      JSON.stringify({ slots: [{ name: 'A2' }, { name: 'Entrance bay' }] }),
+    )
+    expect(slots.map((slot) => slot.name)).toEqual(['A2', 'Entrance bay'])
+    expect(new Set(slots.map(slotKey)).size).toBe(2)
+    expect(() =>
+      parseParkingMapJson(
+        JSON.stringify({
+          slots: [
+            { number: 1, name: 'same' },
+            { number: 2, name: 'same' },
+          ],
+        }),
+      ),
+    ).toThrow('Duplicate slot name')
   })
 
   it('reads the existing dashboard JSON and Roboflow export from the project', () => {

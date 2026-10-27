@@ -54,7 +54,7 @@ async function isValidJsonFile(file) {
   }
 
   try {
-    JSON.parse(await fs.readFile(file.path, "utf8"));
+    JSON.parse((await fs.readFile(file.path, "utf8")).replace(/^\uFEFF/, ""));
     return true;
   } catch {
     return false;
@@ -325,6 +325,9 @@ exports.deleteFloor = async (req, res) => {
     }
 
     await parkingFloor.deleteOne();
+    for (const file of parkingFloor.parking_slot_files || []) {
+      try { await deleteParkingSlotFile(file.path); } catch (error) { console.error(error); }
+    }
     try {
       await deleteParkingSlotFile(parkingFloor.parking_slot_file);
     } catch (fileError) {
@@ -335,4 +338,54 @@ exports.deleteFloor = async (req, res) => {
   } catch (error) {
     return sendError(res, error);
   }
+};
+
+// Store the original slot JSON files under the selected floor preset.
+exports.importSlotFiles = async (req, res) => {
+  const files = req.files || [];
+  let saved = false;
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid floor id" });
+    const floor = await ParkingFloor.findById(req.params.id);
+    if (!floor) return res.status(404).json({ message: "Floor not found" });
+    if (!files.length) return res.status(400).json({ message: "Choose at least one JSON file" });
+    const existing = floor.parking_slot_files || [];
+    if (files.reduce((sum, file) => sum + file.size, 0) + existing.reduce((sum, file) => sum + file.size, 0) > 5 * 1024 * 1024)
+      return res.status(400).json({ message: "The files for a floor must total 5 MB or less" });
+    const names = new Set(existing.map((file) => file.original_name));
+    for (const file of files) {
+      if (names.has(file.originalname)) return res.status(409).json({ message: `File already imported: ${file.originalname}` });
+      names.add(file.originalname);
+      if (!(await isValidJsonFile(file))) return res.status(400).json({ message: `Invalid JSON: ${file.originalname}` });
+    }
+    // An atomic append preserves concurrent imports into the same floor.
+    const updated = await ParkingFloor.findOneAndUpdate({
+      _id: floor._id,
+      ...(existing.length ? { parking_slot_files: floor.parking_slot_files }
+        : { $or: [{ parking_slot_files: [] }, { parking_slot_files: { $exists: false } }] }),
+    }, { $push: { parking_slot_files: { $each: files.map((file) => ({
+      original_name: file.originalname, path: getFilePath(file), size: file.size,
+    })) } } }, { new: true, runValidators: true }).populate("building", BUILDING_FIELDS);
+    if (!updated) return res.status(409).json({ message: "The floor changed. Reload and try again." });
+    saved = true;
+    return res.status(201).json({ success: true, floor: updated });
+  } catch (error) {
+    return sendError(res, error);
+  } finally {
+    if (!saved) await Promise.allSettled(files.map(removeUploadedFile));
+  }
+};
+
+exports.downloadSlotFile = async (req, res) => {
+  try {
+    if (!isValidId(req.params.id) || !isValidId(req.params.fileId))
+      return res.status(400).json({ message: "Invalid floor or file id" });
+    const floor = await ParkingFloor.findById(req.params.id);
+    const file = floor?.parking_slot_files?.id(req.params.fileId);
+    if (!file) return res.status(404).json({ message: "File not found" });
+    const absolutePath = path.resolve(__dirname, "../../..", file.path);
+    const relative = path.relative(FILE_ROOT, absolutePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Invalid slot file path");
+    return res.download(absolutePath, file.original_name);
+  } catch (error) { return sendError(res, error); }
 };

@@ -259,12 +259,13 @@ exports.deleteBuilding = async (req, res) => {
       });
     }
 
-    const floors = await ParkingFloor.find({ building: building._id }).select("parking_slot_file");
+    const floors = await ParkingFloor.find({ building: building._id }).select("parking_slot_file parking_slot_files");
     await ParkingFloor.deleteMany({ building: building._id });
     await building.deleteOne();
     const fileResults = await Promise.allSettled([
       deleteImage(building.building_image),
-      ...floors.map((floor) => deleteFloorFile(floor.parking_slot_file)),
+      ...floors.flatMap((floor) => [floor.parking_slot_file, ...(floor.parking_slot_files || []).map((file) => file.path)]
+        .map(deleteFloorFile)),
     ]);
     for (const result of fileResults) {
       if (result.status === "rejected") console.error(result.reason);

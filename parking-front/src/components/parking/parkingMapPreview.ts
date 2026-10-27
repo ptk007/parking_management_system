@@ -4,6 +4,7 @@ import { restoreParkingLayout, type ParkingLayout } from './parkingLayout'
 
 export type SlotStatus = 'available' | 'occupied' | 'incoming' | 'disabled'
 export interface PreviewSlot {
+  name?: string
   number: number
   zone: string
   status: SlotStatus
@@ -49,6 +50,7 @@ export function restorePreviewDraft(raw: string | null): PreviewSlot[] {
   if (!raw) return slots
   const draft: unknown = JSON.parse(raw)
   if (draft && typeof draft === 'object' && 'version' in draft && draft.version === 2) {
+    if ('slots' in draft && Array.isArray(draft.slots) && !draft.slots.length) return []
     return parseParkingMapJson(JSON.stringify(draft))
   }
   if (

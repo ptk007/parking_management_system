@@ -1,23 +1,20 @@
 import { test, expect } from '@playwright/test'
-
+import { readFile } from 'node:fs/promises'
 test.use({ headless: true })
-
-test('draws, resizes, moves and restores a custom floor plan without changing slot counts', async ({
-  page,
-}, testInfo) => {
-  const errors: string[] = []
-  page.on('pageerror', (error) => errors.push(error.message))
+async function prepare(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
-    localStorage.setItem('token', 'layout-test')
-    localStorage.setItem(
-      'user',
-      JSON.stringify({
-        _id: 'layout-admin',
-        name: 'Layout Admin',
-        role: 'admin',
-        status: 'online',
-      }),
-    )
+    if (!localStorage.getItem('token')) {
+      localStorage.setItem('token', 'layout-test')
+      localStorage.setItem(
+        'user',
+        JSON.stringify({
+          _id: 'layout-admin',
+          name: 'Layout Admin',
+          role: 'admin',
+          status: 'online',
+        }),
+      )
+    }
   })
   await page.route('**/api/**', (route) =>
     route.fulfill({
@@ -26,108 +23,134 @@ test('draws, resizes, moves and restores a custom floor plan without changing sl
       },
     }),
   )
-  await page.setViewportSize({ width: 1500, height: 1100 })
+  await page.setViewportSize({ width: 1600, height: 1100 })
   await page.goto('/admin/setup/floors/floor4/parking-map')
-  await page.getByLabel('Import parking map JSON', { exact: true }).setInputFiles({
-    name: 'six-slots.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(
-      JSON.stringify({
-        slots: Array.from({ length: 6 }, (_, index) => ({
-          number: index + 1,
-          zone: 'A',
-          status: index === 2 ? 'occupied' : 'available',
-        })),
-      }),
-    ),
-  })
-  await expect(page.locator('.import-success')).toContainText('Imported 6 slots')
-  await page.getByRole('button', { name: 'Layout editor', exact: true }).click()
+}
+async function dragCanvas(page: import('@playwright/test').Page, from: number[], to: number[]) {
   const canvas = page.getByRole('group', { name: 'Editable parking floor plan', exact: true })
-  await page.getByRole('button', { name: 'Rectangle', exact: true }).click()
   await canvas.scrollIntoViewIfNeeded()
-  const bounds = (await canvas.boundingBox())!
-  const scale = bounds.width / 1000
-  await page.mouse.move(bounds.x + 180 * scale, bounds.y + 180 * scale)
+  const b = (await canvas.boundingBox())!,
+    scale = b.width / 1000
+  await page.mouse.move(b.x + from[0]! * scale, b.y + from[1]! * scale)
   await page.mouse.down()
-  await page.mouse.move(bounds.x + 450 * scale, bounds.y + 300 * scale, { steps: 5 })
+  await page.mouse.move(b.x + to[0]! * scale, b.y + to[1]! * scale, { steps: 8 })
   await page.mouse.up()
-  await expect(page.locator('[data-shape]')).toHaveCount(1)
-  await expect(page.getByLabel('Shape width', { exact: true })).toHaveValue('270')
-  await page.getByLabel('Shape width', { exact: true }).fill('320')
-  await page.getByLabel('Shape width', { exact: true }).press('Tab')
-  await expect(page.locator('[data-shape] > rect').first()).toHaveAttribute('width', '320')
+}
+
+test('creates disabled rectangular slots, moves them in Select, and shares geometry with Parking Preview', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await prepare(page)
+  await expect(page.locator('[data-layout-slot]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Layout editor', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Ellipse', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Use Dashboard layout', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Parking slot', exact: true }).click()
+  await dragCanvas(page, [100, 100], [160, 180])
+  const slot = page.locator('[data-slot="1"]')
+  await expect(slot).toHaveClass(/disabled/)
+  await expect(slot).toHaveAttribute('transform', 'translate(100 100)')
+  await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(page.locator('.summary-card.all strong')).toHaveText('1')
+  await dragCanvas(page, [130, 140], [270, 230])
+  await expect(slot).toHaveAttribute('transform', 'translate(240 190)')
   await page.getByRole('button', { name: 'Undo layout change' }).click()
-  await expect(page.locator('[data-shape] > rect').first()).toHaveAttribute('width', /270/)
+  await expect(slot).toHaveAttribute('transform', 'translate(100 100)')
   await page.getByRole('button', { name: 'Redo layout change' }).click()
-  await expect(page.locator('[data-shape] > rect').first()).toHaveAttribute('width', '320')
-  const rectangle = page.locator('[data-shape] > rect').first()
-  await rectangle.click()
-  let shapeBounds = (await rectangle.boundingBox())!
-  await page.mouse.move(shapeBounds.x + 20, shapeBounds.y + 20)
-  await page.mouse.down()
-  await page.mouse.move(shapeBounds.x + 40, shapeBounds.y + 40, { steps: 4 })
-  await page.mouse.up()
-  await expect.poll(async () => Number(await rectangle.getAttribute('x'))).toBeGreaterThan(180)
-  const grip = page.locator('.resize-grip')
-  shapeBounds = (await grip.boundingBox())!
-  await page.mouse.move(shapeBounds.x + 5, shapeBounds.y + 5)
-  await page.mouse.down()
-  await page.mouse.move(shapeBounds.x + 35, shapeBounds.y + 25, { steps: 4 })
-  await page.mouse.up()
-  await expect.poll(async () => Number(await rectangle.getAttribute('width'))).toBeGreaterThan(320)
-  await page.getByRole('button', { name: 'Text', exact: true }).click()
-  await canvas.click({ position: { x: 260 * scale, y: 240 * scale } })
-  await page.getByLabel('Shape text', { exact: true }).fill('Entrance / ทางเข้า')
-  await page.getByLabel('Shape text', { exact: true }).press('Tab')
-  await expect(canvas.locator('text', { hasText: 'Entrance / ทางเข้า' })).toHaveCount(1)
-  await page.getByRole('button', { name: 'Delete shape', exact: true }).click()
-  await expect(page.locator('[data-shape]')).toHaveCount(1)
-  await page.getByRole('button', { name: 'Undo layout change' }).click()
-  await expect(page.locator('[data-shape]')).toHaveCount(2)
-  await page.getByRole('button', { name: 'Move slots', exact: true }).click()
-  const slot = page.getByRole('button', { name: 'Layout slot A / 1, Available', exact: true })
-  await slot.scrollIntoViewIfNeeded()
-  const slotBounds = (await slot.boundingBox())!
-  await page.mouse.move(slotBounds.x + 20, slotBounds.y + 20)
-  await page.mouse.down()
-  await page.mouse.move(slotBounds.x + 170, slotBounds.y + 100, { steps: 5 })
-  await page.mouse.up()
-  await expect(slot).not.toHaveAttribute('transform', 'translate(24 28)')
-  const movedTransform = await slot.getAttribute('transform')
-  await page.getByLabel('Upload floor plan image', { exact: true }).setInputFiles({
-    name: 'floor.png',
-    mimeType: 'image/png',
-    buffer: Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==',
-      'base64',
-    ),
-  })
-  await expect(canvas.locator('image')).toHaveCount(1)
-  await page.evaluate(() => window.scrollTo(0, 0))
-  await page.screenshot({ path: testInfo.outputPath('parking-layout-editor.png'), fullPage: true })
+  await expect(slot).toHaveAttribute('transform', 'translate(240 190)')
+  await page.getByLabel('Slot name', { exact: true }).fill('zoneA_slot01')
+  await page.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(slot).toContainText('zoneA_slot01')
+  await page.getByRole('button', { name: 'Parking Preview', exact: true }).click()
+  await expect(slot).toHaveAttribute('transform', 'translate(240 190)')
+  await expect(slot.locator('rect')).toHaveAttribute('width', '60')
+  await page.screenshot({ path: testInfo.outputPath('parking-preview.png'), fullPage: true })
   await page.reload()
+  await expect(slot).toHaveAttribute('transform', 'translate(240 190)')
+  await expect(slot).toContainText('zoneA_slot01')
   await page.getByRole('button', { name: 'Layout editor', exact: true }).click()
-  await expect(page.locator('[data-shape]')).toHaveCount(2)
-  await expect(slot).toHaveAttribute('transform', movedTransform!)
-  await expect(canvas.locator('image')).toHaveCount(1)
-  await expect(page.locator('.summary-card.all strong')).toHaveText('6')
-  await page.getByRole('button', { name: 'POS view', exact: true }).click()
-  await expect(page.locator('.parking-tile')).toHaveCount(6)
-  await expect(
-    page.getByRole('button', { name: 'Slot 3, Zone A, Occupied', exact: true }),
-  ).toBeVisible()
+  await slot.click()
+  await page.getByRole('button', { name: 'Duplicate selection', exact: true }).click()
+  await expect(page.locator('[data-layout-slot]')).toHaveCount(2)
+  await expect(page.locator('[data-slot="2"]')).toHaveClass(/disabled/)
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export map', exact: true }).click()
+  const file = await download
+  const path = await file.path()
   await page.getByLabel('Import parking map JSON', { exact: true }).setInputFiles({
-    name: 'replacement.json',
+    name: file.suggestedFilename(),
     mimeType: 'application/json',
-    buffer: Buffer.from('{"slots":[{"number":7,"zone":"Z"}]}'),
+    buffer: await readFile(path!),
   })
-  await expect(page.locator('.import-success')).toContainText('Imported 1 slots')
-  await page.getByRole('button', { name: 'Layout editor', exact: true }).click()
-  await expect(page.locator('[data-shape]')).toHaveCount(2)
-  await expect(canvas.locator('image')).toHaveCount(1)
-  await expect(
-    page.getByRole('button', { name: 'Layout slot Z / 7, Available', exact: true }),
-  ).toHaveAttribute('transform', 'translate(24 28)')
+  await expect(page.locator('.import-success')).toContainText('Imported 2 slots')
+  await expect(slot).toHaveAttribute('transform', 'translate(240 190)')
+  await expect(slot).toContainText('zoneA_slot01')
+  await page.screenshot({ path: testInfo.outputPath('parking-editor.png'), fullPage: true })
   expect(errors).toEqual([])
+})
+
+test('autosave is per floor and off means edits require a manual save', async ({ page }) => {
+  await prepare(page)
+  await page.getByRole('button', { name: 'Layout editor', exact: true }).click()
+  await page.getByRole('switch', { name: 'Autosave this floor' }).uncheck()
+  await page.getByRole('button', { name: 'Parking slot', exact: true }).click()
+  await dragCanvas(page, [100, 100], [160, 180])
+  expect(
+    await page.evaluate(() => localStorage.getItem('parking-map-preview:v1:layout-admin:floor4')),
+  ).toBeNull()
+  await page.getByRole('link', { name: 'Back to Parking Setup' }).click()
+  await expect(page.getByRole('alertdialog')).toBeVisible()
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click()
+  await page.getByRole('button', { name: 'Save now', exact: true }).click()
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem('parking-map-preview:v1:layout-admin:floor4')!).slots[0]
+          .status,
+    ),
+  ).toBe('disabled')
+  await page.reload()
+  await expect(page.locator('[data-layout-slot]')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Layout editor', exact: true }).click()
+  await expect(page.getByRole('switch', { name: 'Autosave this floor' })).not.toBeChecked()
+})
+
+test('resizes, duplicates, moves a group, and restores deleted slots with Undo', async ({
+  page,
+}) => {
+  await prepare(page)
+  await page.getByRole('button', { name: 'Layout editor', exact: true }).click()
+  await page.getByRole('button', { name: 'Parking slot', exact: true }).click()
+  await dragCanvas(page, [100, 100], [160, 180])
+  const grip = page.getByLabel('Resize selected element', { exact: true })
+  const b = (await grip.boundingBox())!
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(b.x + b.width / 2 + 35, b.y + b.height / 2 + 35, { steps: 5 })
+  await page.mouse.up()
+  const slot1 = page.locator('[data-slot="1"]'),
+    slot2 = page.locator('[data-slot="2"]')
+  await expect
+    .poll(async () => Number(await slot1.locator('rect').getAttribute('width')))
+    .toBeGreaterThan(60)
+  await page.getByRole('button', { name: 'Duplicate selection', exact: true }).click()
+  await expect(slot2).toBeVisible()
+  await slot1.click({ modifiers: ['Shift'], position: { x: 5, y: 5 } })
+  const first = await slot1.getAttribute('transform'),
+    second = await slot2.getAttribute('transform')
+  await slot1.focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(slot1).not.toHaveAttribute('transform', first!)
+  await expect(slot2).not.toHaveAttribute('transform', second!)
+  await page.getByRole('button', { name: 'Delete selection', exact: true }).click()
+  await expect(page.locator('[data-layout-slot]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Undo layout change' }).click()
+  await expect(page.locator('[data-layout-slot]')).toHaveCount(2)
+  await page.reload()
+  await expect(page.locator('[data-layout-slot]')).toHaveCount(2)
 })

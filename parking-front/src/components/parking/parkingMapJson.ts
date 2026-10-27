@@ -23,12 +23,21 @@ function statusOf(value: unknown): SlotStatus {
   throw new Error(`Unknown status "${value}". Use available, occupied, incoming or disabled.`)
 }
 
-function slotOf(value: unknown, defaultZone?: string): PreviewSlot {
+function slotOf(value: unknown, defaultZone?: string, fallbackNumber = 1): PreviewSlot {
   if (!object(value)) throw new Error('Each slot must be a JSON object.')
   const rawNumber = value.number ?? value.slotNumber ?? value.slot_num ?? value.slot ?? value.name
   let number: number
   let inferredZone = defaultZone || 'A'
-  if (typeof rawNumber === 'number') number = rawNumber
+  if (
+    value.name !== undefined &&
+    value.number === undefined &&
+    value.slotNumber === undefined &&
+    value.slot_num === undefined &&
+    value.slot === undefined
+  ) {
+    number = fallbackNumber
+    inferredZone = 'default'
+  } else if (typeof rawNumber === 'number') number = rawNumber
   else if (typeof rawNumber === 'string') {
     const text = rawNumber.trim()
     const named = text.match(/^zone(.+?)[_-]slot(\d+)$/i) || text.match(/^([a-zA-Z]+)[_-]?(\d+)$/)
@@ -36,6 +45,7 @@ function slotOf(value: unknown, defaultZone?: string): PreviewSlot {
       inferredZone = named[1]!
       number = Number(named[2])
     } else if (/^\d+$/.test(text)) number = Number(text)
+    else if (value.name === rawNumber || value.slot === rawNumber) number = fallbackNumber
     else throw new Error(`Invalid slot number "${text}".`)
   } else throw new Error('Each slot needs number, slotNumber, slot_num or slot.')
   if (!Number.isSafeInteger(number) || number < 1)
@@ -49,29 +59,54 @@ function slotOf(value: unknown, defaultZone?: string): PreviewSlot {
   ) {
     throw new Error('Zone must be non-empty text (up to 64 characters, other than "All").')
   }
-  return { number, zone: zone.trim(), status: statusOf(value.status ?? value.slot_status) }
+  const originalName =
+    value.name ??
+    (typeof value.slot === 'string'
+      ? value.slot
+      : typeof value.slot_num === 'string'
+        ? value.slot_num
+        : undefined)
+  if (
+    originalName !== undefined &&
+    (typeof originalName !== 'string' || !originalName.trim() || originalName.length > 100)
+  )
+    throw new Error('Slot name must be between 1 and 100 characters.')
+  return {
+    number,
+    zone: zone.trim(),
+    status: statusOf(value.status ?? value.slot_status),
+    ...(originalName !== undefined ? { name: String(originalName).trim() } : {}),
+  }
 }
 
 export function validateSlots(slots: PreviewSlot[]): PreviewSlot[] {
   if (!slots.length) throw new Error('No parking slots found in this file.')
   if (slots.length > MAX_SLOTS) throw new Error(`A map supports up to ${MAX_SLOTS} slots.`)
   const seen = new Set<string>()
+  const names = new Set<string>()
   for (const slot of slots) {
     const key = slotKey(slot)
     if (seen.has(key))
       throw new Error(
         `Duplicate slot ${slot.zone} / ${slot.number}. Each slot must be unique within its zone.`,
       )
+    const name =
+      slot.name || (slot.zone === 'default' ? String(slot.number) : `${slot.zone}-${slot.number}`)
+    if (names.has(name))
+      throw new Error(`Duplicate slot name "${name}". Each parking slot needs a unique name.`)
+    names.add(name)
     seen.add(key)
   }
   return slots
 }
 
 function readMap(value: unknown): PreviewSlot[] {
-  if (Array.isArray(value)) return value.map((item) => slotOf(item))
+  if (Array.isArray(value)) return value.map((item, index) => slotOf(item, undefined, index + 1))
   if (!object(value)) throw new Error('Expected a parking map object or a list of slots.')
-  if (Array.isArray(value.slots)) return value.slots.map((item) => slotOf(item))
-  if (Array.isArray(value.parking_slots)) return value.parking_slots.map((item) => slotOf(item))
+  if (Array.isArray(value.slots))
+    return value.slots.map((item, index) => slotOf(item, undefined, index + 1))
+  if (Array.isArray(value.parking_slots))
+    return value.parking_slots.map((item, index) => slotOf(item, undefined, index + 1))
 
   // COCO exports may repeat a slot across training images. Use each referenced category once.
   if (Array.isArray(value.categories) && Array.isArray(value.annotations)) {

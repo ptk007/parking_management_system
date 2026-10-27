@@ -96,3 +96,25 @@ export function restoreParkingLayout(value: unknown): ParkingLayout {
   }
   return result
 }
+
+// Shared by the editor and preview so slots never change position between views.
+export function defaultSlotBox(index: number): LayoutBox {
+  return { x: 30 + (index % 12) * 80, y: 30 + Math.floor(index / 12) * 90, width: 60, height: 76 }
+}
+export function slotDisplayName(slot: import('./parkingMapPreview').PreviewSlot): string {
+  return (
+    slot.name || (slot.zone === 'default' ? String(slot.number) : `${slot.zone}-${slot.number}`)
+  )
+}
+export interface ParkingMapState {
+  slots: import('./parkingMapPreview').PreviewSlot[]
+  layout: ParkingLayout
+}
+export function nextParkingSlot(
+  slots: import('./parkingMapPreview').PreviewSlot[],
+): import('./parkingMapPreview').PreviewSlot {
+  let number = Math.max(0, ...slots.map((slot) => slot.number)) + 1
+  const names = new Set(slots.map(slotDisplayName))
+  while (names.has(String(number))) number++
+  return { number, name: String(number), zone: 'default', status: 'disabled' }
+}

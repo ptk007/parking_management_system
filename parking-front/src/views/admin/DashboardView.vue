@@ -98,24 +98,7 @@
       </section>
 
       <section v-else class="section-shell setup-section">
-        <div class="setup-tabs">
-          <button
-            :class="['tab-button', setupTab === 'parking' ? 'is-active' : '']"
-            type="button"
-            @click="showParkingSetup"
-          >
-            Parking
-          </button>
-          <button
-            :class="['tab-button', setupTab === 'cctv' ? 'is-active' : '']"
-            type="button"
-            @click="showCctvSetup"
-          >
-            CCTV
-          </button>
-        </div>
-
-        <div :class="['setup-workspace', { 'parking-list-workspace': setupMode === 'parking-list', 'cctv-list-workspace': setupMode === 'cctv-list', 'cctv-add-workspace': setupMode === 'add-cctv' }]">
+        <div :class="['setup-workspace', { 'parking-list-workspace': setupMode === 'parking-list', 'cctv-list-workspace': setupMode === 'cctv-list', 'cctv-add-workspace': setupMode === 'add-cctv' || setupMode === 'edit-cctv' }]">
           <ParkingSetupList
             v-if="setupMode === 'parking-list'"
             :floors="parkingFloors"
@@ -133,6 +116,8 @@
             @reload-buildings="loadParkingSetup"
             @add-floor="openAddFloor"
             @edit-floor="openEditFloor"
+            @delete-floor="openDeleteFloor"
+            @view-cctv="openFloorCctv"
           />
 
           <BuildingFormPanel
@@ -155,23 +140,39 @@
 
           <CCTVSetupList
             v-else-if="setupMode === 'cctv-list'"
+            :key="cctvFloor?._id || 'all'"
+            :selected-floor="cctvFloor"
             @add-cctv="setupMode = 'add-cctv'"
-            @edit-cctv="setupMode = 'edit-cctv'"
+            @edit-cctv="openEditCctv"
             @view-map="openCctvParkingMap"
+            @floor-updated="handleCctvFloorUpdated"
+            @back="backFromCctv"
           />
 
           <AddCCTVPanel
-            v-else-if="setupMode === 'add-cctv'"
+            v-else-if="setupMode === 'add-cctv' || setupMode === 'edit-cctv'"
+            :key="setupMode"
+            :mode="setupMode === 'edit-cctv' ? 'edit' : 'add'"
+            :camera="setupMode === 'edit-cctv' ? editingCctv : null"
+            :selected-floor="cctvFloor"
             @save="showCctvSetup"
             @cancel="showCctvSetup"
           />
 
-          <CCTVFormPanel
-            v-else
-            mode="edit"
-            @save="showCctvSetup"
-            @cancel="showCctvSetup"
-          />
+        </div>
+
+        <div v-if="floorToDelete" class="building-delete-backdrop" @click.self="!isDeletingFloor && (floorToDelete = null)">
+          <div class="building-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="floor-delete-title">
+            <h2 id="floor-delete-title">Delete Floor {{ floorToDelete.floor }}?</h2>
+            <p>{{ floorToDelete.building?.building_name }} / {{ floorToDelete.veh_type === 'car' ? 'Cars' : 'Motorcycles' }}: this floor and its parking map file will be deleted.</p>
+            <p v-if="deleteFloorError" class="building-delete-error" role="alert">{{ deleteFloorError }}</p>
+            <div class="building-delete-actions">
+              <button type="button" :disabled="isDeletingFloor" @click="floorToDelete = null">Cancel</button>
+              <button type="button" class="red-button" :disabled="isDeletingFloor" @click="deleteFloor">
+                {{ isDeletingFloor ? 'Deleting...' : 'Delete' }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div v-if="buildingToDelete" class="building-delete-backdrop" @click.self="!isDeletingBuilding && (buildingToDelete = null)">
@@ -199,7 +200,6 @@ import {
   Bike,
   Building2,
   CarFront,
-  CheckCircle2,
   Eye,
   EyeOff,
   Menu,
@@ -208,8 +208,7 @@ import {
   Trash2,
   UserPlus,
   UserRound,
-  VideoOff,
-  X,
+  Video,
 } from 'lucide-vue-next'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAdminStore, type StaffMember } from '@/stores/admin'
@@ -218,15 +217,17 @@ import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
 import BuildingFormPanel from './BuildingFormPanel.vue'
 import CCTVSetupList from './CCTVSetupList.vue'
 import AddCCTVPanel from './AddCCTVPanel.vue'
+import type { CctvFormCamera } from './cctvForm'
 import BuildingCameraSummary from './BuildingCameraSummary.vue'
 import FloorFormPanel from './FloorFormPanel.vue'
 import { buildingService, floorService, type ParkingBuilding, type ParkingFloor, type BuildingCameraSummary as CameraSummary } from '@/services/api'
 import { isAxiosError } from 'axios'
+import { useAuthStore } from '@/stores/auth'
+import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
 
 type AdminSection = 'dashboard' | 'staff' | 'setup'
 type DashboardTab = 'slots' | 'cctv' | 'log'
 type StaffMode = 'list' | 'add' | 'edit'
-type SetupTab = 'parking' | 'cctv'
 type SetupMode =
   | 'parking-list'
   | 'add-building'
@@ -264,7 +265,6 @@ const activeSection = computed<AdminSection>(() => {
 })
 const activeDashboardTab = ref<DashboardTab>('slots')
 const staffMode = ref<StaffMode>('list')
-const setupTab = ref<SetupTab>('parking')
 const setupMode = ref<SetupMode>('parking-list')
 const buildings = ref<ParkingBuilding[]>([])
 const parkingFloors = ref<ParkingFloor[]>([])
@@ -277,6 +277,11 @@ const isLoadingCameras = ref(false)
 const cameraError = ref('')
 const editingBuilding = ref<ParkingBuilding | null>(null)
 const editingFloor = ref<ParkingFloor | null>(null)
+const editingCctv = ref<CctvFormCamera | null>(null)
+const cctvFloor = ref<ParkingFloor | null>(null)
+const floorToDelete = ref<ParkingFloor | null>(null)
+const isDeletingFloor = ref(false)
+const deleteFloorError = ref('')
 const expandBuildingId = ref<string | null>(null)
 const buildingToDelete = ref<ParkingBuilding | null>(null)
 const isDeletingBuilding = ref(false)
@@ -414,6 +419,45 @@ const handleFloorSaved = (buildingId: string) => {
   void loadFloors()
 }
 
+const openDeleteFloor = (floor: ParkingFloor) => {
+  deleteFloorError.value = ''
+  floorToDelete.value = floor
+}
+
+const deleteFloor = async () => {
+  const floor = floorToDelete.value
+  if (!floor || isDeletingFloor.value) return
+  isDeletingFloor.value = true
+  deleteFloorError.value = ''
+  try {
+    await floorService.remove(floor._id)
+    parkingFloors.value = parkingFloors.value.filter((item) => item._id !== floor._id)
+    floorToDelete.value = null
+    void loadCameraSummaries()
+  } catch (cause) {
+    deleteFloorError.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Failed to delete floor.'
+      : 'Failed to delete floor.'
+  } finally {
+    isDeletingFloor.value = false
+  }
+}
+
+const handleCctvFloorUpdated = (floor: ParkingFloor) => {
+  cctvFloor.value = floor
+  parkingFloors.value = parkingFloors.value.map((item) => item._id === floor._id ? floor : item)
+}
+
+const openEditCctv = (camera: CctvFormCamera) => {
+  editingCctv.value = camera
+  setupMode.value = 'edit-cctv'
+}
+
+const openFloorCctv = (floor: ParkingFloor) => {
+  cctvFloor.value = floor
+  setupMode.value = 'cctv-list'
+}
+
 const openDeleteBuilding = (building: ParkingBuilding) => {
   deleteBuildingError.value = ''
   buildingToDelete.value = building
@@ -500,18 +544,25 @@ const saveStaff = () => {
   staffMode.value = 'list'
 }
 
+const backFromCctv = () => {
+  expandBuildingId.value = cctvFloor.value?.building?._id || null
+  showParkingSetup()
+}
+
 const showParkingSetup = () => {
-  setupTab.value = 'parking'
   setupMode.value = 'parking-list'
 }
 
 const openCctvParkingMap = () => {
+  if (cctvFloor.value) {
+    void router.push({ name: 'AdminParkingMap', params: { floorId: cctvFloor.value._id } })
+    return
+  }
   activeDashboardTab.value = 'slots'
   void router.push('/admin/dashboard')
 }
 
 const showCctvSetup = () => {
-  setupTab.value = 'cctv'
   setupMode.value = 'cctv-list'
 }
 
@@ -801,11 +852,25 @@ const ParkingSetupList = defineComponent({
     'delete-building',
     'add-floor',
     'edit-floor',
+    'delete-floor',
+    'view-cctv',
     'reload-buildings',
     'reload-cameras',
   ],
   setup(props, { emit }) {
     const expandedBuildingId = ref<string | null>(props.expandBuildingId)
+    const auth = useAuthStore()
+    const hasParkingMap = (floor: ParkingFloor) => {
+      if (floor.parking_slot_file || floor.parking_slot_files?.length) return true
+      try {
+        const raw = localStorage.getItem(`parking-map-preview:v1:${auth.user?._id || auth.user?.id}:${floor._id}`)
+        if (!raw) return false
+        const draft = restoreMapDraft(raw)
+        return draft.sourceName !== 'E4 sample' && draft.slots.length > 0
+      } catch {
+        return false
+      }
+    }
 
     const renderFloorRow = (floor: ParkingFloor) =>
       h('article', { class: 'floor-row', key: floor._id }, [
@@ -830,21 +895,36 @@ const ParkingSetupList = defineComponent({
             floor.status,
           ),
         ]),
-        h(RouterLink, {
-          class: 'floor-parking-map',
-          to: { name: 'AdminParkingMap', params: { floorId: floor._id } },
-          'aria-label': `Parking Map for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
-        }, () => 'Parking Map'),
-        h(
-          'button',
-          {
-            class: 'edit-floor-button',
+        h('div', { class: 'floor-actions' }, [
+          h(RouterLink, {
+            class: ['floor-parking-map', { 'has-map': hasParkingMap(floor) }],
+            title: hasParkingMap(floor) ? 'Parking map available' : 'No parking map yet',
+            to: { name: 'AdminParkingMap', params: { floorId: floor._id } },
+            'aria-label': `Parking Map for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+          }, () => 'Parking Map'),
+          h('button', {
+            class: 'edit-floor-button floor-cctv-button',
             type: 'button',
-            'aria-label': `Edit floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
-            onClick: () => emit('edit-floor', floor),
-          },
-          [h(SquarePen, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Edit Floor'],
-        ),
+            'aria-label': `CCTV for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+            onClick: () => emit('view-cctv', floor),
+          }, [h(Video, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'CCTV']),
+          h(
+            'button',
+            {
+              class: 'edit-floor-button',
+              type: 'button',
+              'aria-label': `Edit floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              onClick: () => emit('edit-floor', floor),
+            },
+            [h(SquarePen, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Edit Floor'],
+          ),
+          h('button', {
+            class: 'delete-building-button delete-floor-button',
+            type: 'button',
+            'aria-label': `Delete floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+            onClick: () => emit('delete-floor', floor),
+          }, [h(Trash2, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Delete']),
+        ]),
       ])
 
     return () =>
@@ -980,65 +1060,6 @@ const ParkingSetupList = defineComponent({
   },
 })
 
-const CCTVFormPanel = defineComponent({
-  props: {
-    mode: {
-      type: String as () => 'add' | 'edit',
-      required: true,
-    },
-  },
-  emits: ['save', 'cancel'],
-  setup(props, { emit }) {
-    const isAdd = props.mode === 'add'
-    return () =>
-      h('div', { class: 'cctv-form-panel' }, [
-        h('h2', isAdd ? 'Add CCTV' : 'Edit CCTV'),
-        h('div', { class: 'cctv-form-card' }, [
-          h('label', [h('span', 'CCTV File :'), h('select', [h('option', isAdd ? 'cctvinfo2.json' : 'cctv1.json')])]),
-          h('label', { class: 'search-field' }, [
-            h('span', 'Search Cam :'),
-            h('input', { placeholder: 'Camera name' }),
-            h(Search, { class: 'h-4 w-4', strokeWidth: 2.2 }),
-          ]),
-          isAdd
-            ? h('div', { class: 'inline-camera-scene form-scene' }, [
-                h('span', { class: 'timestamp' }, '03-05-2026 Sun 00:38:45'),
-                h('span', { class: 'pillar one' }, 'B03'),
-                h('span', { class: 'pillar two' }, 'C03'),
-                h('span', { class: 'scene-car car-a' }),
-                h('span', { class: 'scene-car car-b' }),
-                h('span', { class: 'scene-car car-c' }),
-                h('span', { class: 'direction-arrow' }),
-              ])
-            : h('div', { class: 'offline-scene' }, [h(VideoOff, { class: 'h-9 w-9', strokeWidth: 2.2 })]),
-          h('div', { class: 'cctv-fields' }, [
-            h('p', ['Create', h('br'), ' CCTV Name : ', h('input', { value: isAdd ? 'Floor4 B6' : 'Floor3 B6' })]),
-            h('p', [
-              'IP Address : ',
-              h('input', { value: isAdd ? '172.28.113.103' : '' }),
-              isAdd ? h(CheckCircle2, { class: 'ok-icon h-4 w-4', strokeWidth: 2.4 }) : h(X, { class: 'bad-icon h-4 w-4', strokeWidth: 3 }),
-            ]),
-            !isAdd ? h('small', 'IP Address doesn’t found') : null,
-            h('p', [
-              'RTSP Link : ',
-              h('input', { value: isAdd ? 'rtsp://mfustream:...' : '' }),
-              isAdd ? h(CheckCircle2, { class: 'ok-icon h-4 w-4', strokeWidth: 2.4 }) : h(X, { class: 'bad-icon h-4 w-4', strokeWidth: 3 }),
-            ]),
-            !isAdd ? h('small', 'RTSP Link doesn’t found') : null,
-            h('p', ['Status : ', h('strong', { class: isAdd ? 'online' : 'offline' }, isAdd ? 'Online' : 'Offline')]),
-          ]),
-          h('div', { class: 'form-actions' }, [
-            h(
-              'button',
-              { class: isAdd ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
-              isAdd ? 'Confirm' : 'Edit',
-            ),
-            h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
-          ]),
-        ]),
-      ])
-  },
-})
 </script>
 
 <style>
@@ -1053,21 +1074,13 @@ const CCTVFormPanel = defineComponent({
   margin-left: 138px;
 }
 
-.tabbar,
-.setup-tabs {
+.tabbar {
   height: 46px;
   background: #fff;
   display: flex;
   align-items: stretch;
   padding-left: 4px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
-}
-
-.setup-tabs {
-  height: 46px;
-  align-items: center;
-  padding-left: 10px;
-  gap: 10px;
 }
 
 .tab-button {
@@ -1079,11 +1092,6 @@ const CCTVFormPanel = defineComponent({
   font-size: 14px;
   font-weight: 700;
   margin-right: 8px;
-}
-
-.setup-tabs .tab-button {
-  width: 110px;
-  height: 35px;
 }
 
 .tab-button.is-active {
@@ -1810,7 +1818,7 @@ const CCTVFormPanel = defineComponent({
 }
 
 .floor-row {
-  grid-template-columns: 58px minmax(0, 1fr) minmax(110px, 0.3fr) minmax(100px, 0.35fr) 116px;
+  grid-template-columns: 46px minmax(140px, 1fr) 90px minmax(0, auto);
   min-height: 100px;
   padding: 12px 20px;
   gap: 18px;
@@ -1857,6 +1865,33 @@ const CCTVFormPanel = defineComponent({
 .floor-row .floor-status .disable {
   color: #686868;
 }
+
+.floor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.floor-actions .delete-floor-button {
+  display: inline-flex;
+  width: auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #cf4647;
+  border-radius: 10px;
+}
+
+.floor-parking-map.has-map {
+  border-color: #219653;
+  background: #e5f5e9;
+  color: #16723b;
+}
+
+.floor-parking-map.has-map:hover { background: #d0edd8; }
 
 .floor-parking-map {
   display: inline-flex;
@@ -2329,7 +2364,7 @@ const CCTVFormPanel = defineComponent({
   }
 
   .floor-row {
-    grid-template-columns: 62px minmax(0, 1fr) 110px 100px 112px;
+    grid-template-columns: 46px minmax(120px, 1fr) 85px minmax(0, auto);
     gap: 16px;
     padding: 12px 16px;
   }
@@ -2389,6 +2424,11 @@ const CCTVFormPanel = defineComponent({
   .floor-row .floor-icon svg {
     width: 44px;
     height: 44px;
+  }
+
+  .floor-row .floor-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 
   .floor-row .floor-status,
