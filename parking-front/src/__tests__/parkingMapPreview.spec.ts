@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { emptyParkingLayout } from '@/components/parking/parkingLayout'
 import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
 
-vi.mock('@/services/api', () => ({ floorService: { list: vi.fn() } }))
+vi.mock('@/services/api', () => ({ floorService: { list: vi.fn(), saveMap: vi.fn() } }))
 const wrappers: VueWrapper[] = []
 const floors = ['floor-one', 'floor-two'].map((_id, index) => ({
   _id,
@@ -67,6 +67,7 @@ async function editor(wrapper: VueWrapper) {
 beforeEach(() => {
   vi.resetAllMocks()
   localStorage.clear()
+  vi.mocked(floorService.saveMap).mockResolvedValue({} as never)
   vi.mocked(floorService.list).mockResolvedValue({ data: { floors } } as never)
 })
 afterEach(() => {
@@ -139,14 +140,25 @@ describe('Parking Map workspace', () => {
     const empty = { version: 2, slots: [], layout: emptyParkingLayout(), sourceName: 'New map' }
     expect(restoreMapDraft(JSON.stringify(empty)).slots).toEqual([])
   })
-  it('reports local storage failures honestly', async () => {
+  it('reports server save failures and keeps changes dirty', async () => {
     const { wrapper } = await createPage()
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('Storage full')
-    })
+    vi.mocked(floorService.saveMap).mockRejectedValue(new Error('offline'))
     await select(wrapper, 1)
     await wrapper.get('.enable-button').trigger('click')
+    await flushPromises()
     expect(wrapper.get('.save-message.failed').text()).toContain('Could not save')
+  })
+  it('blocks layout editing and importing while the floor is Available', async () => {
+    vi.mocked(floorService.list).mockResolvedValue({
+      data: { floors: [{ ...floors[0], status: 'available' }] },
+    } as never)
+    const { wrapper } = await createPage()
+    expect(wrapper.findAll<HTMLButtonElement>('.view-mode button')[1]!.element.disabled).toBe(true)
+    expect(
+      wrapper.get<HTMLInputElement>('[aria-label="Import parking map JSON"]').element.disabled,
+    ).toBe(true)
+    expect(wrapper.find('.editor-intro').exists()).toBe(false)
+    expect(wrapper.findAll('[data-slot]')).toHaveLength(3)
   })
   it('loads errors without showing a misleading map', async () => {
     vi.mocked(floorService.list).mockRejectedValueOnce(new Error('offline'))

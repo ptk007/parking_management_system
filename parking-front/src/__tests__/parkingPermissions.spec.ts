@@ -1,133 +1,203 @@
-import { afterEach, describe, expect, it } from 'vitest'
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import DashboardView from '@/views/staff/DashboardView.vue'
 import { useAuthStore } from '@/stores/auth'
+import { floorService } from '@/services/api'
+import { emptyParkingLayout } from '@/components/parking/parkingLayout'
 import type { UserRole } from '@/types'
-
+vi.mock('@/services/api', () => ({ floorService: { catalog: vi.fn(), setSlotStatuses: vi.fn() } }))
+const map = {
+  version: 2,
+  sourceName: 'saved map',
+  layout: emptyParkingLayout(),
+  slots: [
+    { number: 1, zone: 'default', status: 'available' },
+    { number: 2, zone: 'default', status: 'occupied' },
+  ],
+}
+const floors = [
+  {
+    _id: 'f1',
+    building: { _id: 'b1', building_name: 'E4' },
+    floor: 4,
+    veh_type: 'car',
+    parking_map: map,
+  },
+  {
+    _id: 'f2',
+    building: { _id: 'b2', building_name: 'E5' },
+    floor: 1,
+    veh_type: 'motorcycle',
+    parking_map: null,
+  },
+]
 const wrappers: VueWrapper[] = []
-
-const createDashboard = (role?: UserRole | 'guest') => {
-  const pinia = createPinia()
-  const auth = useAuthStore(pinia)
-
-  if (role === 'guest') {
-    auth.loginGuest()
-  } else if (role) {
-    auth.token = 'parking-permissions-test'
+async function createDashboard(role?: UserRole | 'guest') {
+  const pinia = createPinia(),
+    auth = useAuthStore(pinia)
+  if (role === 'guest') auth.loginGuest()
+  else if (role) {
+    auth.token = 'test'
     auth.user = {
-      _id: 'test-user',
-      id: 'test-user',
-      username: 'test-user',
-      name: 'Test User',
-      fullName: 'Test User',
+      _id: 'test',
+      id: 'test',
+      username: 'test',
+      name: 'Test',
+      fullName: 'Test',
       role,
       status: 'online',
     }
   }
-
   const wrapper = mount(DashboardView, { global: { plugins: [pinia] } })
   wrappers.push(wrapper)
+  await flushPromises()
   return { wrapper, auth }
 }
-
+async function selectLocation(wrapper: VueWrapper, building = 'b1', floor = '4', vehicle = 'car') {
+  const inputs = wrapper.findAll('.filter-overlay select')
+  await inputs[0]!.setValue(building)
+  await inputs[1]!.setValue(floor)
+  await inputs[2]!.setValue(vehicle)
+}
+beforeEach(() => {
+  vi.resetAllMocks()
+  vi.mocked(floorService.catalog).mockResolvedValue({ data: { floors } } as never)
+})
 afterEach(() => {
-  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  wrappers.splice(0).forEach((w) => w.unmount())
   localStorage.clear()
 })
-
-describe('parking permissions', () => {
-  it.each([undefined, 'user', 'guest'] as const)(
-    'keeps the parking map read-only for %s',
-    async (role) => {
-      const { wrapper } = createDashboard(role)
-      const slots = wrapper.findAll<HTMLButtonElement>('.slot-cell')
-
-      expect(wrapper.get('.tabbar').text()).toBe('Slots')
-      expect(wrapper.find('.map-actions').exists()).toBe(false)
-      expect(wrapper.find('.cctv-grid').exists()).toBe(false)
-      expect(wrapper.find('.logs-panel').exists()).toBe(false)
-      expect(wrapper.findAll('.stat-card')).toHaveLength(5)
-      expect(wrapper.findAll('.status-legend span')).toHaveLength(4)
-      expect(slots).toHaveLength(124)
-      expect(slots.every((slot) => slot.element.disabled)).toBe(true)
-
-      // Removing the DOM restriction must not bypass the click handler's role check.
-      const availableSlot = wrapper.get<HTMLButtonElement>('.slot-cell.available')
-      availableSlot.element.disabled = false
-      await availableSlot.trigger('click')
-      expect(wrapper.findAll('.slot-cell.selected')).toHaveLength(0)
+describe('dashboard parking locations and permissions', () => {
+  it.each(['offline', 'empty', 'unmapped'] as const)(
+    'shows the sample parking floor immediately when the catalog is %s',
+    async (state) => {
+      if (state === 'offline')
+        vi.mocked(floorService.catalog).mockRejectedValueOnce(new Error('offline'))
+      else
+        vi.mocked(floorService.catalog).mockResolvedValueOnce({
+          data: { floors: state === 'empty' ? [] : [floors[1]] },
+        } as never)
+      const { wrapper } = await createDashboard('user')
+      expect(wrapper.get('.sample-badge').text()).toBe('Sample map')
+      expect(wrapper.findAll('[data-slot]')).toHaveLength(124)
+      expect(wrapper.get('.stat-card strong').text()).toBe('124')
+      expect(wrapper.get('.location').text()).toBe('E4 (Sample) / Floor 4 / Cars')
+      expect(wrapper.find('.filter-overlay').exists()).toBe(false)
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     },
   )
-
-  it.each(['staff', 'admin'] as const)(
-    'preserves parking controls, CCTV, and logs for %s',
+  it('previews the sample alongside saved locations and changes sample statuses without an API write', async () => {
+    const { wrapper } = await createDashboard('staff')
+    await wrapper
+      .findAll('.map-header button')
+      .find((button) => button.text() === 'View sample map')!
+      .trigger('click')
+    const slot = wrapper.findAll('.canvas-slot.available')[0]!
+    await slot.trigger('keydown', { key: 'Enter' })
+    await wrapper.findAll('.map-actions button')[1]!.trigger('click')
+    expect(slot.classes()).toContain('disabled')
+    expect(floorService.setSlotStatuses).not.toHaveBeenCalled()
+    await wrapper.get('[aria-controls="map-filters"]').trigger('click')
+    await selectLocation(wrapper)
+    expect(wrapper.find('.sample-badge').exists()).toBe(false)
+    expect(wrapper.get('.stat-card strong').text()).toBe('2')
+  })
+  it('shows the default page until all inputs are selected and reads the saved map totals', async () => {
+    const { wrapper } = await createDashboard('user')
+    expect(wrapper.text()).toContain('Select a parking location')
+    expect(wrapper.get('.stat-card strong').text()).toBe('0')
+    await wrapper.findAll('select')[0]!.setValue('b1')
+    expect(wrapper.find('[data-slot]').exists()).toBe(false)
+    await wrapper.findAll('select')[1]!.setValue('4')
+    expect(wrapper.find('[data-slot]').exists()).toBe(false)
+    await wrapper.findAll('select')[2]!.setValue('car')
+    expect(wrapper.findAll('[data-slot]')).toHaveLength(2)
+    expect(wrapper.get('.stat-card strong').text()).toBe('2')
+    await wrapper.get('[aria-controls="map-filters"]').trigger('click')
+    expect(wrapper.find('.filter-overlay').exists()).toBe(false)
+    expect(wrapper.get('.location').text()).toBe('E4 / Floor 4 / Cars')
+  })
+  it('shows zero for an unconfigured map and resets dependent inputs when building changes', async () => {
+    const { wrapper } = await createDashboard('admin')
+    await selectLocation(wrapper)
+    await selectLocation(wrapper, 'b2', '1', 'motorcycle')
+    expect(wrapper.text()).toContain('No parking map yet')
+    expect(wrapper.get('.stat-card strong').text()).toBe('0')
+    await wrapper.findAll('select')[0]!.setValue('b1')
+    expect(wrapper.text()).toContain('Select a parking location')
+    expect(wrapper.find('[data-slot]').exists()).toBe(false)
+  })
+  it.each([undefined, 'user', 'guest'] as const)(
+    'keeps mutation tools hidden for %s',
     async (role) => {
-      const { wrapper } = createDashboard(role)
-      const availableSlot = wrapper.get<HTMLButtonElement>('.slot-cell.available')
-
-      expect(availableSlot.element.disabled).toBe(false)
-      expect(wrapper.get<HTMLButtonElement>('.slot-cell.occupied').element.disabled).toBe(true)
-      await availableSlot.trigger('click')
-      expect(wrapper.get('.map-actions').text()).toContain('Selected: 1')
-      await wrapper.get('.action-button.disable').trigger('click')
-      expect(availableSlot.classes()).toContain('disabled')
-      await availableSlot.trigger('click')
-      await wrapper.get('.action-button.enable').trigger('click')
-      expect(availableSlot.classes()).toContain('available')
-
+      const { wrapper } = await createDashboard(role)
+      await selectLocation(wrapper)
+      expect(wrapper.get('.tabbar').text()).toBe('Slots')
+      expect(wrapper.find('.map-actions').exists()).toBe(false)
+      expect(wrapper.find('.editor-intro').exists()).toBe(false)
+      await wrapper.get('[data-slot="1"]').trigger('keydown', { key: 'Delete' })
+      expect(wrapper.findAll('[data-slot]')).toHaveLength(2)
+      expect(floorService.setSlotStatuses).not.toHaveBeenCalled()
+    },
+  )
+  it.each(['staff', 'admin'] as const)(
+    'retains status controls and updated log columns for %s',
+    async (role) => {
+      const { wrapper } = await createDashboard(role)
+      await selectLocation(wrapper)
+      await wrapper.get('[data-slot="1"]').trigger('keydown', { key: 'Enter' })
+      vi.mocked(floorService.setSlotStatuses).mockResolvedValue({
+        data: {
+          map: {
+            ...map,
+            slots: map.slots.map((s) => ({ ...s, status: s.number === 1 ? 'disabled' : s.status })),
+          },
+        },
+      } as never)
+      await wrapper.findAll('.map-actions button')[1]!.trigger('click')
+      await flushPromises()
+      expect(floorService.setSlotStatuses).toHaveBeenCalledWith('f1', ['["default",1]'], 'disabled')
       await wrapper
         .findAll('.tab-button')
-        .find((button) => button.text() === 'CCTV')!
+        .find((b) => b.text() === 'CCTV')!
         .trigger('click')
       expect(wrapper.find('.cctv-grid').exists()).toBe(true)
       await wrapper
         .findAll('.tab-button')
-        .find((button) => button.text() === 'Log')!
+        .find((b) => b.text() === 'Log')!
         .trigger('click')
-      expect(wrapper.find('.logs-panel').exists()).toBe(true)
+      const text = wrapper.get('.logs-panel').text()
+      for (const label of [
+        'Name',
+        'Brand',
+        'Model',
+        'Color',
+        'License plate',
+        'Province',
+        'Date Enter',
+        'Parking Time',
+        'Date Exited',
+        'Exited Time',
+        'Parking Slot Number',
+        'Parking Status',
+      ])
+        expect(text).toContain(label)
+      expect(text).not.toContain('Face Driver')
     },
   )
-
-  it('clears selections and closes restricted tabs when the role changes to User', async () => {
-    const { wrapper, auth } = createDashboard('staff')
-    await wrapper.get('.slot-cell.available').trigger('click')
-    expect(wrapper.findAll('.slot-cell.selected')).toHaveLength(1)
-
-    auth.user!.role = 'user'
-    await nextTick()
-    expect(wrapper.findAll('.slot-cell.selected')).toHaveLength(0)
-    expect(wrapper.find('.map-actions').exists()).toBe(false)
-
-    for (const tab of ['CCTV', 'Log']) {
-      auth.user!.role = 'staff'
-      await nextTick()
-      await wrapper
-        .findAll('.tab-button')
-        .find((button) => button.text() === tab)!
-        .trigger('click')
-
-      auth.user!.role = 'user'
-      await nextTick()
-      expect(wrapper.get('.tabbar').text()).toBe('Slots')
-      expect(wrapper.find('.scene-board').exists()).toBe(true)
-      expect(wrapper.find('.cctv-grid').exists()).toBe(false)
-      expect(wrapper.find('.logs-panel').exists()).toBe(false)
-    }
-  })
-
-  it('does not grant staff controls to an unauthenticated or disabled account', async () => {
-    const { wrapper, auth } = createDashboard('staff')
-    auth.token = ''
-    await nextTick()
-    expect(wrapper.find('.map-actions').exists()).toBe(false)
-    expect(wrapper.get('.tabbar').text()).toBe('Slots')
-
-    auth.token = 'parking-permissions-test'
+  it('revokes restricted tabs and controls when the account is disabled', async () => {
+    const { wrapper, auth } = await createDashboard('staff')
+    await selectLocation(wrapper)
+    await wrapper
+      .findAll('.tab-button')
+      .find((b) => b.text() === 'Log')!
+      .trigger('click')
     auth.user!.status = 'disable'
     await nextTick()
-    expect(wrapper.find('.map-actions').exists()).toBe(false)
     expect(wrapper.get('.tabbar').text()).toBe('Slots')
+    expect(wrapper.find('.logs-panel').exists()).toBe(false)
+    expect(wrapper.find('.map-actions').exists()).toBe(false)
   })
 })

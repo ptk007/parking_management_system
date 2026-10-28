@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const FLOOR_STATUSES = ["available", "unavailable", "disable"];
+const FLOOR_STATUSES = ["available", "disable"];
 const VEHICLE_TYPES = ["car", "motorcycle"];
 
 const parkingFloorSchema = new mongoose.Schema(
@@ -40,6 +40,11 @@ const parkingFloorSchema = new mongoose.Schema(
       original_name: { type: String, required: true },
       path: { type: String, required: true },
       size: { type: Number, required: true },
+    }],
+    parking_map: { type: mongoose.Schema.Types.Mixed, default: null },
+    camera_presets: [{
+      name: { type: String, required: true }, cameraSelector: String, ipAddress: String, rtspLink: String,
+      cctvFileName: String, parkingSlotFileId: String, parkingSlotData: mongoose.Schema.Types.Mixed,
     }],
     status: {
       type: String,

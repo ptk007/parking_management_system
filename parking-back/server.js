@@ -18,7 +18,7 @@ const MONGODB_URI =
   "mongodb://127.0.0.1:27017/parking_management_system";
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "6mb" }));
 app.use("/images", express.static(path.resolve(__dirname, "../images")));
 
 // API routes backed by MongoDB's user collection.
@@ -52,6 +52,8 @@ app.use((error, req, res, next) => {
 async function startServer() {
   try {
     await mongoose.connect(MONGODB_URI);
+    // Retire the old floor state while preserving the floor and its map.
+    await require("./api/models/parkingFloorModel").updateMany({ status: "unavailable" }, { $set: { status: "disable" } });
     console.log("Connected to MongoDB");
 
     app.listen(PORT, () => {

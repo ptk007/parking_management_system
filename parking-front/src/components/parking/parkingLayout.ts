@@ -113,8 +113,9 @@ export interface ParkingMapState {
 export function nextParkingSlot(
   slots: import('./parkingMapPreview').PreviewSlot[],
 ): import('./parkingMapPreview').PreviewSlot {
-  let number = Math.max(0, ...slots.map((slot) => slot.number)) + 1
+  let number = 1
+  const numbers = new Set(slots.map((slot) => slot.number))
   const names = new Set(slots.map(slotDisplayName))
-  while (names.has(String(number))) number++
+  while (numbers.has(number) || names.has(String(number))) number++
   return { number, name: String(number), zone: 'default', status: 'disabled' }
 }

@@ -4,8 +4,15 @@
       <ArrowLeft :size="18" /> Back to Parking Setup
     </button>
     <header class="cctv-toolbar">
-      <h2 class="cctv-heading">{{ selectedFloor ? `${building} : Floor ${selectedFloor.floor} CCTV` : 'CCTV presets' }}</h2>
-      <button v-if="selectedFloor" class="green-button cctv-add" type="button" @click="$emit('add-cctv')">
+      <h2 class="cctv-heading">
+        {{ selectedFloor ? `${building} : Floor ${selectedFloor.floor} CCTV` : 'CCTV presets' }}
+      </h2>
+      <button
+        v-if="selectedFloor"
+        class="green-button cctv-add"
+        type="button"
+        @click="$emit('add-cctv')"
+      >
         + Add CCTV
       </button>
       <button v-if="selectedFloor" class="cctv-map-button" type="button" @click="$emit('view-map')">
@@ -13,84 +20,96 @@
       </button>
     </header>
 
-    <p v-if="!selectedFloor" class="preset-empty">Open CCTV from a floor in Parking Setup to manage its preset.</p>
-    <section v-else class="slot-files-panel" aria-labelledby="slot-files-title">
+    <p v-if="!selectedFloor" class="preset-empty">
+      Open CCTV from a floor in Parking Setup to manage its preset.
+    </p>
+    <section class="slot-files-panel" aria-labelledby="slot-files-title">
       <div class="slot-files-header">
         <div>
           <h3 id="slot-files-title">Parking slot files</h3>
-          <p>Import .json files for {{ building }} / Floor {{ selectedFloor.floor }}. Up to 5 MB per floor.</p>
+          <p>Shared original CCTV sources for every building and floor. Up to 5 MB per import.</p>
         </div>
-        <button class="slot-import-button" type="button" :disabled="importing" @click="fileInput?.click()">
+        <button
+          class="slot-import-button"
+          type="button"
+          :disabled="importing"
+          @click="fileInput?.click()"
+        >
           <Upload :size="17" /> {{ importing ? 'Importing...' : 'Import parking slot' }}
         </button>
-        <input ref="fileInput" class="slot-file-input" type="file" accept=".json,application/json" multiple
-          aria-label="Import parking slot JSON files" :disabled="importing" @change="importSlotFiles" />
+        <input
+          ref="fileInput"
+          class="slot-file-input"
+          type="file"
+          accept=".json,application/json"
+          multiple
+          aria-label="Import parking slot JSON files"
+          :disabled="importing"
+          @change="importSlotFiles"
+        />
       </div>
       <p v-if="importError" class="slot-import-error" role="alert">{{ importError }}</p>
       <p v-if="importMessage" class="slot-import-success" role="status">{{ importMessage }}</p>
       <ul v-if="slotFiles.length" class="slot-file-list" aria-label="Imported parking slot files">
         <li v-for="file in slotFiles" :key="file._id">
           <FileJson :size="22" aria-hidden="true" />
-          <div class="slot-file-name"><strong>{{ file.original_name }}</strong><span>{{ formatSize(file.size) }}</span></div>
-          <button type="button" :disabled="!!downloading" :aria-label="`Download ${file.original_name}`" @click="downloadFile(file)">
+          <div class="slot-file-name">
+            <strong>{{ file.original_name }}</strong
+            ><span>{{ formatSize(file.size) }}</span>
+          </div>
+          <button
+            type="button"
+            :disabled="!!downloading"
+            :aria-label="`Download ${file.original_name}`"
+            @click="downloadFile(file)"
+          >
             <Download :size="18" /> Download
           </button>
         </li>
       </ul>
-      <p v-else class="slot-files-empty">No parking slot files imported for this floor.</p>
+      <p v-else class="slot-files-empty">No original CCTV source files imported yet.</p>
     </section>
 
-    <article v-if="selectedFloor" class="cctv-camera-card" aria-label="Floor4 B6 camera">
-      <div class="cctv-preview" role="img" aria-label="Parking camera preview illustration">
-        <div class="inline-camera-scene" aria-hidden="true">
-          <span class="timestamp">03-05-2026 Sun 00:38:45</span>
-          <span class="pillar one">B03</span>
-          <span class="pillar two">C03</span>
-          <span class="scene-car car-a" />
-          <span class="scene-car car-b" />
-          <span class="scene-car car-c" />
-          <span class="direction-arrow" />
-          <span class="plate">B-4CB5</span>
-        </div>
-        <Eye class="cctv-preview-eye" :size="32" :stroke-width="2.5" aria-hidden="true" />
+    <p v-if="selectedFloor && !selectedFloor.camera_presets?.length" class="preset-empty">
+      No CCTV presets for this floor. Add CCTV to create one.
+    </p>
+    <article
+      v-for="camera in selectedFloor?.camera_presets || []"
+      :key="camera._id"
+      class="cctv-camera-card"
+    >
+      <div class="cctv-preview">
+        <Video :size="48" /><span>{{ camera.name }}</span>
       </div>
-
       <dl class="cctv-camera-details">
         <div>
           <dt>Parking CCTV Name</dt>
-          <dd>Floor4 B6</dd>
+          <dd>{{ camera.name }}</dd>
         </div>
         <div>
           <dt>Vehicle</dt>
-          <dd>{{ vehicle === 'Cars' ? 'Car' : vehicle }}</dd>
+          <dd>{{ vehicle }}</dd>
         </div>
         <div>
-          <dt>CCTV File</dt>
-          <dd>cctvinfo2.json</dd>
+          <dt>Original CCTV Source</dt>
+          <dd>
+            {{
+              slotFiles.find((file) => file._id === camera.parkingSlotFileId)?.original_name || '-'
+            }}
+          </dd>
+        </div>
+        <div>
+          <dt>Parking Slot File</dt>
+          <dd>{{ camera.cctvFileName || '-' }}</dd>
         </div>
         <div>
           <dt>Camera No/IP</dt>
-          <dd>172.28.113.103</dd>
-        </div>
-        <div>
-          <dt>Parking Slot</dt>
-          <dd class="cctv-unspecified">Not specified</dd>
-        </div>
-        <div class="cctv-stream-detail">
-          <dt>RTSP Link</dt>
-          <dd>rtsp://••••@172.28.109.31/Streaming/Channels/101</dd>
+          <dd>{{ camera.cameraSelector || camera.ipAddress || '-' }}</dd>
         </div>
       </dl>
-
       <div class="cctv-card-actions">
-        <span class="cctv-online-status"><span aria-hidden="true" />Online</span>
-        <button
-          class="cctv-edit"
-          type="button"
-          aria-label="Edit Camera"
-          @click="$emit('edit-cctv', { name: 'Floor4 B6', cameraSelector: '172.28.113.103', ipAddress: '172.28.113.103', rtspLink: '', cctvFileName: 'cctvinfo2.json', parkingSlotFileId: '' })"
-        >
-          <SquarePen :size="29" :stroke-width="2" />
+        <button class="cctv-edit" aria-label="Edit Camera" @click="$emit('edit-cctv', camera)">
+          <SquarePen :size="29" />
         </button>
       </div>
     </article>
@@ -98,31 +117,54 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { CctvFormCamera } from './cctvForm'
-import { ArrowLeft, ArrowRight, Eye, SquarePen, Upload, FileJson, Download } from 'lucide-vue-next'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Video,
+  SquarePen,
+  Upload,
+  FileJson,
+  Download,
+} from 'lucide-vue-next'
 import { isAxiosError } from 'axios'
 import { floorService, type ParkingFloor, type ParkingSlotFile } from '@/services/api'
-import { MAX_IMPORT_BYTES, parseParkingMapJson, validateSlots } from '@/components/parking/parkingMapJson'
+import { MAX_IMPORT_BYTES } from '@/components/parking/parkingMapJson'
 
-const emit = defineEmits<{ 'add-cctv': []; 'edit-cctv': [camera: CctvFormCamera]; 'view-map': []; 'back': []; 'floor-updated': [floor: ParkingFloor] }>()
+defineEmits<{
+  'add-cctv': []
+  'edit-cctv': [camera: CctvFormCamera]
+  'view-map': []
+  back: []
+  'floor-updated': [floor: ParkingFloor]
+}>()
 const props = defineProps<{ selectedFloor?: ParkingFloor | null }>()
 const building = computed(() => props.selectedFloor?.building?.building_name || 'Building')
-const vehicle = computed(() => props.selectedFloor?.veh_type === 'motorcycle' ? 'Motorcycles' : 'Cars')
-const slotFiles = computed(() => props.selectedFloor?.parking_slot_files || [])
+const vehicle = computed(() =>
+  props.selectedFloor?.veh_type === 'motorcycle' ? 'Motorcycles' : 'Cars',
+)
+const slotFiles = ref<ParkingSlotFile[]>([])
+async function loadSourceFiles() {
+  try {
+    slotFiles.value = (await floorService.sourceFiles()).data.files
+  } catch {
+    importError.value = 'Unable to load shared source files. Please try again.'
+  }
+}
+onMounted(loadSourceFiles)
 const fileInput = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
 const downloading = ref('')
 const importError = ref('')
 const importMessage = ref('')
-const formatSize = (size: number) => size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`
+const formatSize = (size: number) => (size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`)
 
 async function importSlotFiles(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
   input.value = ''
-  const floor = props.selectedFloor
-  if (!files.length || !floor || importing.value) return
+  if (!files.length || importing.value) return
   importing.value = true
   importError.value = ''
   importMessage.value = ''
@@ -130,44 +172,51 @@ async function importSlotFiles(event: Event) {
     if (files.length > 20) throw new Error('Choose up to 20 files at a time.')
     if (files.some((file) => !file.name.toLowerCase().endsWith('.json')))
       throw new Error('Please choose .json files only.')
-    if (files.reduce((sum, file) => sum + file.size, 0) + slotFiles.value.reduce((sum, file) => sum + file.size, 0) > MAX_IMPORT_BYTES)
-      throw new Error('The files for a floor must total 5 MB or less.')
+    if (files.reduce((sum, file) => sum + file.size, 0) > MAX_IMPORT_BYTES)
+      throw new Error('Selected files must total 5 MB or less.')
     const names = new Set(slotFiles.value.map((file) => file.original_name))
     for (const file of files) {
       if (names.has(file.name)) throw new Error(`File already imported: ${file.name}`)
       names.add(file.name)
     }
-    const previous = await Promise.all(slotFiles.value.map(async (file) =>
-      parseParkingMapJson((await floorService.downloadSlotFile(floor._id, file._id)).data)))
-    const imported = await Promise.all(files.map(async (file) => {
-      try { return parseParkingMapJson(await file.text()) }
-      catch (cause) { throw new Error(`${file.name}: ${cause instanceof Error ? cause.message : 'Unable to read file.'}`) }
-    }))
-    validateSlots([...previous, ...imported].flat())
-    const response = await floorService.importSlotFiles(floor._id, files)
-    emit('floor-updated', response.data.floor)
+    for (const file of files) {
+      try {
+        JSON.parse((await file.text()).replace(/^\uFEFF/, ''))
+      } catch {
+        throw new Error(`${file.name}: Invalid JSON.`)
+      }
+    }
+    await floorService.importSourceFiles(files)
+    await loadSourceFiles()
     importMessage.value = `Imported ${files.length} file${files.length === 1 ? '' : 's'} successfully.`
   } catch (cause) {
     importError.value = isAxiosError<{ message?: string }>(cause)
       ? cause.response?.data?.message || 'Unable to import parking slot files. Please try again.'
-      : cause instanceof Error ? cause.message : 'Unable to import files.'
-  } finally { importing.value = false }
+      : cause instanceof Error
+        ? cause.message
+        : 'Unable to import files.'
+  } finally {
+    importing.value = false
+  }
 }
 
 async function downloadFile(file: ParkingSlotFile) {
-  if (!props.selectedFloor || downloading.value) return
+  if (downloading.value) return
   downloading.value = file._id
   importError.value = ''
   try {
-    const response = await floorService.downloadSlotFile(props.selectedFloor._id, file._id)
+    const response = await floorService.downloadSourceFile(file)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/json' }))
     const link = document.createElement('a')
     link.href = url
     link.download = file.original_name
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
-  } catch { importError.value = 'Unable to download file. Please try again.' }
-  finally { downloading.value = '' }
+  } catch {
+    importError.value = 'Unable to download file. Please try again.'
+  } finally {
+    downloading.value = ''
+  }
 }
 </script>
 
@@ -185,7 +234,9 @@ async function downloadFile(file: ParkingSlotFile) {
   color: #555;
   font-size: 14px;
 }
-.cctv-back-button:hover { color: #a52f30; }
+.cctv-back-button:hover {
+  color: #a52f30;
+}
 .cctv-toolbar {
   display: flex;
   align-items: center;
@@ -223,22 +274,101 @@ async function downloadFile(file: ParkingSlotFile) {
   font-size: 16px;
   color: #222;
 }
-.slot-files-panel { padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 8px; }
-.slot-files-header { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
-.slot-files-header > div { flex: 1; min-width: 180px; }
-.slot-files-header h3 { margin: 0 0 6px; font-size: 16px; }
-.slot-files-header p, .slot-files-empty, .preset-empty { color: #777; font-size: 13px; }
-.slot-import-button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 6px; background: #20d653; color: #123e1c; }
-.slot-file-input { display: none; }
-.slot-file-list { display: grid; gap: 10px; list-style: none; padding: 0; margin: 18px 0 0; }
-.slot-file-list li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fafafa; }
-.slot-file-name { flex: 1; min-width: 120px; overflow-wrap: anywhere; display: grid; gap: 4px; font-size: 13px; }
-.slot-file-name span { color: #777; font-size: 12px; }
-.slot-file-list button { display: inline-flex; align-items: center; gap: 6px; color: #555; font-size: 13px; }
-.slot-import-error { margin-top: 12px; color: #b42318; font-size: 13px; }
-.slot-import-success { margin-top: 12px; color: #16723b; font-size: 13px; }
-.slot-files-empty { margin: 18px 0 0; padding: 18px; text-align: center; border: 1px dashed #ddd; border-radius: 6px; }
-button:disabled { opacity: 0.6; cursor: wait; }
+.slot-files-panel {
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+.slot-files-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.slot-files-header > div {
+  flex: 1;
+  min-width: 180px;
+}
+.slot-files-header h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.slot-files-header p,
+.slot-files-empty,
+.preset-empty {
+  color: #777;
+  font-size: 13px;
+}
+.slot-import-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: #20d653;
+  color: #123e1c;
+}
+.slot-file-input {
+  display: none;
+}
+.slot-file-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+}
+.slot-file-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fafafa;
+}
+.slot-file-name {
+  flex: 1;
+  min-width: 120px;
+  overflow-wrap: anywhere;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.slot-file-name span {
+  color: #777;
+  font-size: 12px;
+}
+.slot-file-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #555;
+  font-size: 13px;
+}
+.slot-import-error {
+  margin-top: 12px;
+  color: #b42318;
+  font-size: 13px;
+}
+.slot-import-success {
+  margin-top: 12px;
+  color: #16723b;
+  font-size: 13px;
+}
+.slot-files-empty {
+  margin: 18px 0 0;
+  padding: 18px;
+  text-align: center;
+  border: 1px dashed #ddd;
+  border-radius: 6px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .cctv-camera-card {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr) 148px;

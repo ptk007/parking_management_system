@@ -56,7 +56,7 @@ const navItems = computed(() => {
       },
       {
         to: '/my-vehicle',
-        label: 'My Vehicle',
+        label: 'My Vehicles',
         icon: CarFront,
         isActive: (path: string) => path === '/my-vehicle',
       },
@@ -85,7 +85,7 @@ const navItems = computed(() => {
       },
       {
         to: '/my-vehicle',
-        label: 'My Vehicle',
+        label: 'My Vehicles',
         icon: CarFront,
         isActive: (path: string) => path === '/my-vehicle',
       },
@@ -101,7 +101,7 @@ const navItems = computed(() => {
     },
     {
       to: '/my-vehicle',
-      label: 'My Vehicle',
+      label: 'My Vehicles',
       icon: CarFront,
       isActive: (path: string) => path === '/my-vehicle',
     },

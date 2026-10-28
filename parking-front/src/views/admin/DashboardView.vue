@@ -2,61 +2,53 @@
   <div class="admin-dashboard">
     <main class="admin-main">
       <section v-if="activeSection === 'dashboard'" class="section-shell dashboard-section">
-        <div class="tabbar">
-          <button
-            v-for="tab in dashboardTabs"
-            :key="tab.id"
-            :class="['tab-button', activeDashboardTab === tab.id ? 'is-active' : '']"
-            type="button"
-            @click="activeDashboardTab = tab.id"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
-
-        <FilterStats :stats="adminStats" />
-
-        <div class="dashboard-content">
-          <ReferenceParkingMap v-if="activeDashboardTab === 'slots'" @stats-change="updateSlotStats" />
-
-          <div v-else-if="activeDashboardTab === 'cctv'" class="admin-cctv-grid">
-            <CameraPreviewCard
-              v-for="camera in adminDashboardCameras"
-              :key="camera"
-              :title="camera"
-              mode="detection"
-            />
-          </div>
-
-          <ParkingLogList v-else />
-        </div>
+        <SharedDashboard embedded />
       </section>
 
       <section v-else-if="activeSection === 'staff'" class="section-shell staff-manager-section">
         <div v-if="staffMode === 'list'" class="staff-list-panel">
-          <div class="staff-list-header">
+          <header class="staff-list-header">
+            <div class="staff-heading">
+              <span class="staff-heading-icon"><Users :size="24" /></span>
+              <div>
+                <h2>Staff Manager</h2>
+                <p>Manage your parking support team.</p>
+              </div>
+            </div>
             <button class="green-button add-staff-button" type="button" @click="openAddStaff">
-              <UserPlus class="h-5 w-5" :stroke-width="2.7" />
-              Add Staff
+              <UserPlus :size="18" /> Add Staff
             </button>
-            <h2>Staff List</h2>
-            <p>
-              *Edit staff can edit in each person<br />
-              *Can edit staff when only offline or disable
-            </p>
+          </header>
+          <div class="staff-list-toolbar">
+            <h3>
+              Staff List <span class="staff-count">{{ adminStore.staffList.length }}</span>
+            </h3>
+            <p>Staff can be edited when Offline or Disable.</p>
           </div>
-
+          <div v-if="!adminStore.staffList.length" class="staff-empty" role="status">
+            <span class="staff-empty-icon"><Users :size="34" :stroke-width="1.6" /></span>
+            <h3>No staff yet</h3>
+            <p>Add your team members to help manage parking and support users.</p>
+            <button class="green-button add-staff-button" type="button" @click="openAddStaff">
+              <UserPlus :size="18" /> Add your first staff
+            </button>
+          </div>
           <article v-for="staff in adminStore.staffList" :key="staff._id" class="staff-card">
             <div class="profile-icon"><UserRound class="h-14 w-14" :stroke-width="1.8" /></div>
             <div class="staff-copy">
               <p>Staff Name : {{ staff.staffName }}</p>
               <p>Username : {{ staff.username }}</p>
               <p class="password-line">
-                Password : {{ visiblePasswordIds.has(staff._id) ? staff.password : maskPassword(staff.password) }}
+                Password :
+                {{
+                  visiblePasswordIds.has(staff._id) ? staff.password : maskPassword(staff.password)
+                }}
                 <button
                   class="password-eye"
                   type="button"
-                  :aria-label="visiblePasswordIds.has(staff._id) ? 'Hide password' : 'Show password'"
+                  :aria-label="
+                    visiblePasswordIds.has(staff._id) ? 'Hide password' : 'Show password'
+                  "
                   @click="togglePasswordVisibility(staff._id)"
                 >
                   <component
@@ -66,21 +58,31 @@
                   />
                 </button>
               </p>
-              <p>Date added : {{ staff.dateAdded }}</p>
-              <p>Time added : {{ staff.timeAdded }}</p>
-              <p>Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong></p>
+              <p>Date Updated : {{ staff.dateAdded }}</p>
+              <p>Time Updated : {{ staff.timeAdded }}</p>
+              <p>
+                Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong>
+              </p>
             </div>
             <div class="row-actions">
               <button
                 type="button"
                 aria-label="Edit staff"
                 :disabled="!canEditStaff(staff)"
-                :title="canEditStaff(staff) ? 'Edit staff' : 'Cannot edit staff while online or logging in'"
+                :title="
+                  canEditStaff(staff)
+                    ? 'Edit staff'
+                    : 'Cannot edit staff while online or logging in'
+                "
                 @click="openEditStaff(staff)"
               >
                 <SquarePen class="h-6 w-6" :stroke-width="2.4" />
               </button>
-              <button type="button" aria-label="Delete staff" @click="adminStore.deleteStaff(staff._id)">
+              <button
+                type="button"
+                aria-label="Delete staff"
+                @click="adminStore.deleteStaff(staff._id)"
+              >
                 <Trash2 class="h-6 w-6" :stroke-width="2.4" />
               </button>
             </div>
@@ -98,7 +100,16 @@
       </section>
 
       <section v-else class="section-shell setup-section">
-        <div :class="['setup-workspace', { 'parking-list-workspace': setupMode === 'parking-list', 'cctv-list-workspace': setupMode === 'cctv-list', 'cctv-add-workspace': setupMode === 'add-cctv' || setupMode === 'edit-cctv' }]">
+        <div
+          :class="[
+            'setup-workspace',
+            {
+              'parking-list-workspace': setupMode === 'parking-list',
+              'cctv-list-workspace': setupMode === 'cctv-list',
+              'cctv-add-workspace': setupMode === 'add-cctv' || setupMode === 'edit-cctv',
+            },
+          ]"
+        >
           <ParkingSetupList
             v-if="setupMode === 'parking-list'"
             :floors="parkingFloors"
@@ -155,34 +166,74 @@
             :mode="setupMode === 'edit-cctv' ? 'edit' : 'add'"
             :camera="setupMode === 'edit-cctv' ? editingCctv : null"
             :selected-floor="cctvFloor"
+            @saved="handleCctvFloorUpdated"
             @save="showCctvSetup"
             @cancel="showCctvSetup"
           />
-
         </div>
 
-        <div v-if="floorToDelete" class="building-delete-backdrop" @click.self="!isDeletingFloor && (floorToDelete = null)">
-          <div class="building-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="floor-delete-title">
+        <div
+          v-if="floorToDelete"
+          class="building-delete-backdrop"
+          @click.self="!isDeletingFloor && (floorToDelete = null)"
+        >
+          <div
+            class="building-delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="floor-delete-title"
+          >
             <h2 id="floor-delete-title">Delete Floor {{ floorToDelete.floor }}?</h2>
-            <p>{{ floorToDelete.building?.building_name }} / {{ floorToDelete.veh_type === 'car' ? 'Cars' : 'Motorcycles' }}: this floor and its parking map file will be deleted.</p>
-            <p v-if="deleteFloorError" class="building-delete-error" role="alert">{{ deleteFloorError }}</p>
+            <p>
+              {{ floorToDelete.building?.building_name }} /
+              {{ floorToDelete.veh_type === 'car' ? 'Cars' : 'Motorcycles' }}: this floor and its
+              parking map file will be deleted.
+            </p>
+            <p v-if="deleteFloorError" class="building-delete-error" role="alert">
+              {{ deleteFloorError }}
+            </p>
             <div class="building-delete-actions">
-              <button type="button" :disabled="isDeletingFloor" @click="floorToDelete = null">Cancel</button>
-              <button type="button" class="red-button" :disabled="isDeletingFloor" @click="deleteFloor">
+              <button type="button" :disabled="isDeletingFloor" @click="floorToDelete = null">
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="red-button"
+                :disabled="isDeletingFloor"
+                @click="deleteFloor"
+              >
                 {{ isDeletingFloor ? 'Deleting...' : 'Delete' }}
               </button>
             </div>
           </div>
         </div>
 
-        <div v-if="buildingToDelete" class="building-delete-backdrop" @click.self="!isDeletingBuilding && (buildingToDelete = null)">
-          <div class="building-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="building-delete-title">
+        <div
+          v-if="buildingToDelete"
+          class="building-delete-backdrop"
+          @click.self="!isDeletingBuilding && (buildingToDelete = null)"
+        >
+          <div
+            class="building-delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="building-delete-title"
+          >
             <h2 id="building-delete-title">Delete {{ buildingToDelete.building_name }}?</h2>
             <p>The building, its floors, parking map files and image will be deleted.</p>
-            <p v-if="deleteBuildingError" class="building-delete-error" role="alert">{{ deleteBuildingError }}</p>
+            <p v-if="deleteBuildingError" class="building-delete-error" role="alert">
+              {{ deleteBuildingError }}
+            </p>
             <div class="building-delete-actions">
-              <button type="button" :disabled="isDeletingBuilding" @click="buildingToDelete = null">Cancel</button>
-              <button type="button" class="red-button" :disabled="isDeletingBuilding" @click="deleteBuilding">
+              <button type="button" :disabled="isDeletingBuilding" @click="buildingToDelete = null">
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="red-button"
+                :disabled="isDeletingBuilding"
+                @click="deleteBuilding"
+              >
                 {{ isDeletingBuilding ? 'Deleting...' : 'Delete' }}
               </button>
             </div>
@@ -194,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import {
   ArrowLeft,
   Bike,
@@ -203,30 +254,34 @@ import {
   Eye,
   EyeOff,
   Menu,
-  Search,
   SquarePen,
   Trash2,
   UserPlus,
+  Users,
   UserRound,
   Video,
 } from 'lucide-vue-next'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAdminStore, type StaffMember } from '@/stores/admin'
-import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
-import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
+import SharedDashboard from '@/views/staff/DashboardView.vue'
 import BuildingFormPanel from './BuildingFormPanel.vue'
 import CCTVSetupList from './CCTVSetupList.vue'
 import AddCCTVPanel from './AddCCTVPanel.vue'
 import type { CctvFormCamera } from './cctvForm'
 import BuildingCameraSummary from './BuildingCameraSummary.vue'
 import FloorFormPanel from './FloorFormPanel.vue'
-import { buildingService, floorService, type ParkingBuilding, type ParkingFloor, type BuildingCameraSummary as CameraSummary } from '@/services/api'
+import {
+  buildingService,
+  floorService,
+  type ParkingBuilding,
+  type ParkingFloor,
+  type BuildingCameraSummary as CameraSummary,
+} from '@/services/api'
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
 
 type AdminSection = 'dashboard' | 'staff' | 'setup'
-type DashboardTab = 'slots' | 'cctv' | 'log'
 type StaffMode = 'list' | 'add' | 'edit'
 type SetupMode =
   | 'parking-list'
@@ -246,14 +301,6 @@ interface StaffFormState {
   status: StaffMember['status']
 }
 
-interface SlotStats {
-  total: number
-  available: number
-  incoming: number
-  occupied: number
-  disabled: number
-}
-
 const adminStore = useAdminStore()
 const route = useRoute()
 const router = useRouter()
@@ -263,7 +310,6 @@ const activeSection = computed<AdminSection>(() => {
   if (route.path.endsWith('/setup')) return 'setup'
   return 'dashboard'
 })
-const activeDashboardTab = ref<DashboardTab>('slots')
 const staffMode = ref<StaffMode>('list')
 const setupMode = ref<SetupMode>('parking-list')
 const buildings = ref<ParkingBuilding[]>([])
@@ -289,43 +335,10 @@ const deleteBuildingError = ref('')
 const editingStaffId = ref<string | null>(null)
 const visiblePasswordIds = ref(new Set<string>())
 
-const dashboardTabs: { id: DashboardTab; label: string }[] = [
-  { id: 'slots', label: 'Slots' },
-  { id: 'cctv', label: 'CCTV' },
-  { id: 'log', label: 'Log' },
-]
-
-const adminStats = ref([
-  { label: 'Total slots', value: 124, color: '#cf3b30' },
-  { label: 'Available', value: 47, color: '#16a36a' },
-  { label: 'Incoming', value: 6, color: '#f4c233' },
-  { label: 'Occupied', value: 74, color: '#bd7a10' },
-  { label: 'Disabled', value: 3, color: '#777777' },
-  { label: 'Active Staff', value: 6, color: '#5141c9' },
-])
-
-const getSlotStatValue = (label: string, slotStats: SlotStats) => {
-  if (label === 'Total slots') return slotStats.total
-  if (label === 'Available') return slotStats.available
-  if (label === 'Incoming') return slotStats.incoming
-  if (label === 'Occupied') return slotStats.occupied
-  if (label === 'Disabled') return slotStats.disabled
-  return null
-}
-
-const updateSlotStats = (slotStats: SlotStats) => {
-  adminStats.value = adminStats.value.map((stat) => {
-    const value = getSlotStatValue(stat.label, slotStats)
-    return value === null ? stat : { ...stat, value }
-  })
-}
-
-const adminDashboardCameras = ['Entrance', 'Exit', 'Floor4 B6', 'Floor4 A5']
-
 const createStaffForm = (staff?: StaffMember): StaffFormState => ({
-  staffName: staff?.staffName || 'Panuwat Panan',
-  username: staff?.username || 'Panuwat',
-  password: staff?.password || 'password123',
+  staffName: staff?.staffName || '',
+  username: staff?.username || '',
+  password: staff?.password || '',
   confirmPassword: '',
   status: staff?.status || 'Offline',
 })
@@ -445,7 +458,7 @@ const deleteFloor = async () => {
 
 const handleCctvFloorUpdated = (floor: ParkingFloor) => {
   cctvFloor.value = floor
-  parkingFloors.value = parkingFloors.value.map((item) => item._id === floor._id ? floor : item)
+  parkingFloors.value = parkingFloors.value.map((item) => (item._id === floor._id ? floor : item))
 }
 
 const openEditCctv = (camera: CctvFormCamera) => {
@@ -558,7 +571,6 @@ const openCctvParkingMap = () => {
     void router.push({ name: 'AdminParkingMap', params: { floorId: cctvFloor.value._id } })
     return
   }
-  activeDashboardTab.value = 'slots'
   void router.push('/admin/dashboard')
 }
 
@@ -569,155 +581,6 @@ const showCctvSetup = () => {
 const statusClass = (status: StaffMember['status']) => {
   return `status-${status.toLowerCase().replace(/\s+/g, '-')}`
 }
-
-const FilterStats = defineComponent({
-  props: {
-    stats: {
-      type: Array as () => { label: string; value: number; color: string }[],
-      required: true,
-    },
-  },
-  setup(props) {
-    const building = ref('E4')
-    const floor = ref('4')
-    const vehicle = ref('Cars')
-    const filters = [
-      { label: 'Building', model: building, options: ['E4'] },
-      { label: 'Floor', model: floor, options: ['4'] },
-      { label: 'Vehicle', model: vehicle, options: ['Cars', 'Motorcycles'] },
-    ]
-
-    return () =>
-      h('div', { class: 'dashboard-toolbar' }, [
-        h(
-          'div',
-          { class: 'filters' },
-          filters.map((filter) =>
-            h('label', { class: 'filter-control' }, [
-              h('span', `${filter.label} *`),
-              h(
-                'select',
-                {
-                  value: filter.model.value,
-                  onChange: (event: Event) => {
-                    filter.model.value = (event.target as HTMLSelectElement).value
-                  },
-                },
-                filter.options.map((option) => h('option', { value: option }, option)),
-              ),
-            ]),
-          ),
-        ),
-        h(
-          'div',
-          { class: 'stats' },
-          props.stats.map((stat) =>
-            h('div', { class: 'stat-card' }, [
-              h('strong', { style: { color: stat.color } }, stat.value),
-              h('span', stat.label),
-            ]),
-          ),
-        ),
-      ])
-  },
-})
-
-const FacePlaceholder = defineComponent({
-  props: {
-    label: {
-      type: String,
-      required: true,
-    },
-  },
-  setup(props) {
-    return () =>
-      h('figure', { class: 'face-placeholder' }, [
-        h('div', [h(UserRound, { class: 'h-11 w-11', strokeWidth: 1.8 })]),
-        h('figcaption', props.label),
-      ])
-  },
-})
-
-const ParkingLogList = defineComponent({
-  setup() {
-    const logs = [
-      {
-        id: 1,
-        name: 'Mrs. Wilayporn Nonsila',
-        licenseNumber: 'กง 1234',
-        province: 'เชียงราย',
-        vehicleDescription: 'Black Toyota Fortuner',
-        date: '12/08/2569',
-        parkingTime: '12:00:34',
-        exitTime: '-',
-        parkingSlot: '10',
-        status: 'Parking',
-      },
-      {
-        id: 2,
-        name: '*Guest555',
-        licenseNumber: 'กถ 5555',
-        province: 'ลำพูน',
-        vehicleDescription: 'Unknown',
-        date: '12/08/2569',
-        parkingTime: '14:00:34',
-        exitTime: '16:01:21',
-        parkingSlot: '54',
-        status: 'Exited',
-      },
-      {
-        id: 3,
-        name: 'Anutin Charnvirakul',
-        licenseNumber: 'รย 1000',
-        province: 'กรุงเทพมหานคร',
-        vehicleDescription: 'BYD blue pearl',
-        date: '12/08/2569',
-        parkingTime: '-',
-        exitTime: '-',
-        parkingSlot: '-',
-        status: 'Not Parking',
-      },
-    ]
-
-    const logStatusClass = (status: string) => {
-      if (status === 'Parking') return 'status-parking'
-      if (status === 'Exited') return 'status-exited'
-      return 'status-muted'
-    }
-
-    return () =>
-      h('div', { class: 'logs-panel' }, [
-        h('div', { class: 'warning-banner' }, [h('span', 'Exited'), ' car log will reset after 24 hours']),
-        logs.map((log) =>
-          h('article', { class: 'log-card', key: log.id }, [
-            h(CarFront, { class: 'log-car h-9 w-9', strokeWidth: 2.4 }),
-            h('div', { class: 'vehicle-info' }, [
-              h('p', ['Name ', h('span', ':'), ` ${log.name}`]),
-              h('p', ['License Number ', h('span', ':'), ` ${log.licenseNumber}`]),
-              h('p', ['Province ', h('span', ':'), ` ${log.province}`]),
-              h('p', ['Vehicle Description ', h('span', ':'), ` ${log.vehicleDescription}`]),
-            ]),
-            h('div', { class: 'parking-info' }, [
-              h('p', ['Date ', h('span', ':'), ` ${log.date}`]),
-              h('p', ['Parking Time ', h('span', ':'), ` ${log.parkingTime}`]),
-              h('p', ['Exit Time ', h('span', ':'), ` ${log.exitTime}`]),
-              h('p', ['Parking slot number ', h('span', ':'), ` ${log.parkingSlot}`]),
-              h('p', [
-                'Parking Status ',
-                h('span', ':'),
-                ' ',
-                h('strong', { class: logStatusClass(log.status) }, log.status),
-              ]),
-            ]),
-            h('div', { class: 'face-driver' }, [
-              h('p', 'Face Driver'),
-              h('div', [h(FacePlaceholder, { label: 'Entered' }), h(FacePlaceholder, { label: 'Exited' })]),
-            ]),
-          ]),
-        ),
-      ])
-  },
-})
 
 const StaffFormPanel = defineComponent({
   props: {
@@ -748,7 +611,9 @@ const StaffFormPanel = defineComponent({
 
     const renderStaffCard = (form: StaffFormState, index: number) =>
       h('div', { class: 'staff-form-card', key: index }, [
-        h('div', { class: 'profile-icon large' }, [h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })]),
+        h('div', { class: 'profile-icon large' }, [
+          h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 }),
+        ]),
         h('div', { class: 'staff-form-fields' }, [
           h('label', [
             h('span', 'Staff Name :'),
@@ -809,21 +674,40 @@ const StaffFormPanel = defineComponent({
 
     return () =>
       h('div', { class: ['staff-form-panel', props.mode] }, [
-        h('button', { class: 'form-back-button', type: 'button', onClick: () => emit('cancel') }, [
-          h(ArrowLeft, { class: 'h-5 w-5', strokeWidth: 2.4 }),
-        ]),
+        h(
+          'button',
+          {
+            class: 'form-back-button',
+            type: 'button',
+            'aria-label': 'Back to Staff List',
+            onClick: () => emit('cancel'),
+          },
+          [h(ArrowLeft, { class: 'h-5 w-5', strokeWidth: 2.4 })],
+        ),
         h('h2', props.mode === 'add' ? 'Add Staff' : 'Edit Staff'),
         props.forms.map(renderStaffCard),
         props.mode === 'add'
-          ? h('button', { class: 'add-more-row', type: 'button', onClick: () => emit('add-more') }, '+ Add More Staff')
+          ? h(
+              'button',
+              { class: 'add-more-row', type: 'button', onClick: () => emit('add-more') },
+              '+ Add More Staff',
+            )
           : null,
         h('div', { class: 'form-actions' }, [
           h(
             'button',
-            { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
+            {
+              class: props.mode === 'add' ? 'green-button' : 'blue-button',
+              type: 'button',
+              onClick: () => emit('save'),
+            },
             props.mode === 'add' ? 'Add' : 'Edit',
           ),
-          h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
+          h(
+            'button',
+            { class: 'red-button', type: 'button', onClick: () => emit('cancel') },
+            'Cancel',
+          ),
         ]),
       ])
   },
@@ -861,9 +745,18 @@ const ParkingSetupList = defineComponent({
     const expandedBuildingId = ref<string | null>(props.expandBuildingId)
     const auth = useAuthStore()
     const hasParkingMap = (floor: ParkingFloor) => {
+      if (
+        floor.parking_map &&
+        (floor.parking_map.slots.length ||
+          floor.parking_map.layout.shapes.length ||
+          floor.parking_map.layout.background)
+      )
+        return true
       if (floor.parking_slot_file || floor.parking_slot_files?.length) return true
       try {
-        const raw = localStorage.getItem(`parking-map-preview:v1:${auth.user?._id || auth.user?.id}:${floor._id}`)
+        const raw = localStorage.getItem(
+          `parking-map-preview:v1:${auth.user?._id || auth.user?.id}:${floor._id}`,
+        )
         if (!raw) return false
         const draft = restoreMapDraft(raw)
         return draft.sourceName !== 'E4 sample' && draft.slots.length > 0
@@ -884,30 +777,38 @@ const ParkingSetupList = defineComponent({
             'p',
             `Floor : ${floor.floor}      (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
           ),
-          h('p', `Date added : ${floor.date_add}`),
-          h('p', `Time added : ${floor.time_add}`),
+          h('p', `Date Updated : ${floor.date_add}`),
+          h('p', `Time Updated : ${floor.time_add}`),
         ]),
         h('p', { class: 'floor-status' }, [
           'Status : ',
           h(
             'strong',
             { class: floor.status === 'available' ? 'available' : 'disable' },
-            floor.status,
+            floor.status === 'available' ? 'Available' : 'Disable',
           ),
         ]),
         h('div', { class: 'floor-actions' }, [
-          h(RouterLink, {
-            class: ['floor-parking-map', { 'has-map': hasParkingMap(floor) }],
-            title: hasParkingMap(floor) ? 'Parking map available' : 'No parking map yet',
-            to: { name: 'AdminParkingMap', params: { floorId: floor._id } },
-            'aria-label': `Parking Map for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
-          }, () => 'Parking Map'),
-          h('button', {
-            class: 'edit-floor-button floor-cctv-button',
-            type: 'button',
-            'aria-label': `CCTV for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
-            onClick: () => emit('view-cctv', floor),
-          }, [h(Video, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'CCTV']),
+          h(
+            RouterLink,
+            {
+              class: ['floor-parking-map', { 'has-map': hasParkingMap(floor) }],
+              title: hasParkingMap(floor) ? 'Parking map available' : 'No parking map yet',
+              to: { name: 'AdminParkingMap', params: { floorId: floor._id } },
+              'aria-label': `Parking Map for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+            },
+            () => 'Parking Map',
+          ),
+          h(
+            'button',
+            {
+              class: 'edit-floor-button floor-cctv-button',
+              type: 'button',
+              'aria-label': `CCTV for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              onClick: () => emit('view-cctv', floor),
+            },
+            [h(Video, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'CCTV'],
+          ),
           h(
             'button',
             {
@@ -918,12 +819,16 @@ const ParkingSetupList = defineComponent({
             },
             [h(SquarePen, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Edit Floor'],
           ),
-          h('button', {
-            class: 'delete-building-button delete-floor-button',
-            type: 'button',
-            'aria-label': `Delete floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
-            onClick: () => emit('delete-floor', floor),
-          }, [h(Trash2, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Delete']),
+          h(
+            'button',
+            {
+              class: 'delete-building-button delete-floor-button',
+              type: 'button',
+              'aria-label': `Delete floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              onClick: () => emit('delete-floor', floor),
+            },
+            [h(Trash2, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Delete'],
+          ),
         ]),
       ])
 
@@ -983,8 +888,8 @@ const ParkingSetupList = defineComponent({
                     'p',
                     `All Floors : ${new Set(buildingFloors.map((floor) => floor.floor)).size}`,
                   ),
-                  h('p', `Date added : ${building.date_add}`),
-                  h('p', `Time added : ${building.time_add}`),
+                  h('p', `Date Updated : ${building.date_add}`),
+                  h('p', `Time Updated : ${building.time_add}`),
                 ]),
                 h(BuildingCameraSummary, {
                   summary: props.cameraSummaries[building._id],
@@ -1059,7 +964,6 @@ const ParkingSetupList = defineComponent({
       ])
   },
 })
-
 </script>
 
 <style>
@@ -1672,9 +1576,15 @@ const ParkingSetupList = defineComponent({
   margin-top: 0;
 }
 
-.building-row .building-photo { grid-area: photo; }
-.building-row .building-camera-summary { grid-area: cameras; }
-.building-row .view-floor-button { grid-area: toggle; }
+.building-row .building-photo {
+  grid-area: photo;
+}
+.building-row .building-camera-summary {
+  grid-area: cameras;
+}
+.building-row .view-floor-button {
+  grid-area: toggle;
+}
 
 .building-row .setup-copy {
   grid-area: details;
@@ -1891,7 +1801,9 @@ const ParkingSetupList = defineComponent({
   color: #16723b;
 }
 
-.floor-parking-map.has-map:hover { background: #d0edd8; }
+.floor-parking-map.has-map:hover {
+  background: #d0edd8;
+}
 
 .floor-parking-map {
   display: inline-flex;
@@ -2113,8 +2025,7 @@ const ParkingSetupList = defineComponent({
   inset: 44% -10% 0;
   background:
     linear-gradient(95deg, transparent 0 32%, rgba(255, 255, 255, 0.18) 33% 34%, transparent 35%),
-    radial-gradient(ellipse at 50% 0, rgba(255, 255, 255, 0.18), transparent 55%),
-    #676b66;
+    radial-gradient(ellipse at 50% 0, rgba(255, 255, 255, 0.18), transparent 55%), #676b66;
   transform: perspective(220px) rotateX(45deg);
   transform-origin: top;
 }
@@ -2456,6 +2367,309 @@ const ParkingSetupList = defineComponent({
   .setup-workspace.parking-list-workspace {
     width: auto;
     padding: 20px 18px;
+  }
+}
+
+/* Staff management follows the shared white-card layout. */
+.staff-manager-section {
+  padding: 24px 30px 28px;
+}
+.staff-manager-section .staff-list-panel,
+.staff-manager-section .staff-form-panel {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 5px #00000005;
+  overflow: hidden;
+}
+.staff-manager-section .staff-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  padding: 22px 24px;
+  border-bottom: 1px solid #edf0f4;
+}
+.staff-manager-section .staff-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.staff-manager-section .staff-heading-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #fdf0ef;
+  color: #a52f30;
+}
+.staff-manager-section .staff-list-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: left;
+}
+.staff-manager-section .staff-list-header p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+.staff-manager-section .add-staff-button {
+  width: auto;
+  height: 40px;
+  padding: 0 16px;
+  gap: 8px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: #16a36a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+  cursor: pointer;
+}
+.staff-manager-section .add-staff-button:hover {
+  background: #128557;
+}
+.staff-manager-section .staff-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 24px;
+  background: #fafbfc;
+  border-bottom: 1px solid #edf0f4;
+}
+.staff-list-toolbar h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.staff-list-toolbar p {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.staff-count {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 12px;
+  background: #e9edf2;
+  font-size: 12px;
+  color: #475569;
+}
+.staff-manager-section .staff-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 390px;
+  gap: 12px;
+  padding: 40px 24px;
+  text-align: center;
+}
+.staff-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  background: #fdf0ef;
+  color: #b1443d;
+}
+.staff-manager-section .staff-empty h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  color: #334155;
+}
+.staff-manager-section .staff-empty p {
+  max-width: 360px;
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #64748b;
+}
+.staff-manager-section .staff-card {
+  margin: 16px 24px;
+  padding: 20px;
+  gap: 20px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.staff-manager-section .staff-copy {
+  min-width: 0;
+  gap: 7px;
+}
+.staff-manager-section .staff-copy p {
+  color: #475569;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.staff-manager-section .staff-copy p:first-child {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.staff-manager-section .profile-icon {
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+.staff-manager-section .row-actions {
+  gap: 8px;
+}
+.staff-manager-section .row-actions > button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #64748b;
+}
+.staff-manager-section .row-actions > button:hover:not(:disabled) {
+  background: #f8fafc;
+  color: #a52f30;
+}
+.staff-manager-section .staff-form-panel {
+  min-height: 0;
+  padding: 24px;
+}
+.staff-manager-section .staff-form-panel h2 {
+  margin: 4px 0 28px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.staff-manager-section .form-back-button {
+  box-shadow: none;
+  border: 1px solid #e2e8f0;
+}
+.staff-manager-section .staff-form-card,
+.staff-manager-section .staff-form-panel.edit .staff-form-card {
+  min-height: 0;
+  padding: 24px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: none;
+  background: #fafbfc;
+}
+.staff-manager-section .staff-form-fields {
+  width: min(520px, 100%);
+  gap: 16px;
+}
+.staff-manager-section .staff-form-fields label {
+  grid-template-columns: 150px minmax(0, 1fr) 24px;
+  gap: 10px;
+  font-size: 13px;
+  color: #475569;
+}
+.staff-manager-section .staff-form-fields input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  text-align: left;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+}
+.staff-manager-section .staff-form-fields input:focus {
+  border-color: #a52f30;
+  box-shadow: 0 0 0 2px #a52f3015;
+}
+.staff-manager-section .add-more-row {
+  height: 42px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  box-shadow: none;
+  background: #fff;
+  color: #64748b;
+}
+.staff-manager-section .form-actions {
+  position: static;
+  justify-content: flex-end;
+  margin-top: 24px;
+  gap: 10px;
+}
+.staff-manager-section .form-actions button {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.staff-manager-section .form-actions .green-button {
+  background: #16a36a;
+  color: #fff;
+}
+.staff-manager-section .form-actions .red-button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+}
+.staff-manager-section button:focus-visible {
+  outline: 2px solid #a52f30;
+  outline-offset: 3px;
+}
+@media (max-width: 800px) {
+  .staff-manager-section {
+    padding: 16px;
+  }
+  .staff-manager-section .staff-list-header {
+    padding: 18px;
+  }
+  .staff-manager-section .staff-list-toolbar {
+    padding: 14px 18px;
+  }
+  .staff-manager-section .staff-card {
+    margin: 14px;
+    grid-template-columns: 48px minmax(0, 1fr);
+    padding: 16px;
+    gap: 14px;
+  }
+  .staff-manager-section .staff-card .profile-icon {
+    width: 46px;
+    height: 46px;
+  }
+  .staff-manager-section .staff-card .row-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .staff-manager-section .staff-form-panel {
+    padding: 18px;
+  }
+  .staff-manager-section .staff-form-card {
+    padding: 20px 14px;
+  }
+  .staff-manager-section .staff-form-fields label {
+    grid-template-columns: minmax(0, 1fr) 24px;
+    gap: 8px;
+  }
+  .staff-manager-section .staff-form-fields label > span {
+    grid-column: 1 / -1;
   }
 }
 </style>

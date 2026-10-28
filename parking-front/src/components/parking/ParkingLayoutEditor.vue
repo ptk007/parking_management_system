@@ -1,9 +1,16 @@
 <template>
-  <div class="layout-editor" @keydown="keyboard">
+  <div
+    :class="['layout-editor', { 'fit-viewport': fitToViewport }]"
+    tabindex="0"
+    @keydown="keyboard"
+  >
     <header v-if="!readonly" class="editor-intro">
       <div>
         <strong>Layout editor</strong>
-        <p>Draw a parking slot, then drag it into place. Shift-click to select more than one.</p>
+        <p>
+          Draw a parking slot, then drag it into place. Drag an empty area or Shift-click to select
+          multiple elements.
+        </p>
       </div>
       <div class="save-controls">
         <label
@@ -72,10 +79,16 @@
         <label><input type="checkbox" v-model="snap" />Snap to grid</label>
       </div>
       <div class="zoom-tools">
-        <button aria-label="Zoom out" @click="zoom = Math.max(50, zoom - 25)">
+        <button aria-label="Zoom out" @click="zoom = Math.max(25, zoom - 25)">
           <Minus :size="16" />
         </button>
-        <button aria-label="Fit map to width" @click="zoom = 100">{{ zoom }}%</button>
+        <button
+          :aria-label="fitToViewport ? 'Fit map to screen' : 'Fit map to width'"
+          :title="fitToViewport ? 'Fit entire map' : 'Fit map to width'"
+          @click="resetZoom"
+        >
+          {{ zoom }}%
+        </button>
         <button aria-label="Zoom in" @click="zoom = Math.min(250, zoom + 25)">
           <Plus :size="16" />
         </button>
@@ -83,7 +96,7 @@
     </div>
     <div v-if="!readonly" class="editor-help">
       <MousePointer2 :size="15" /><span>{{ toolHint }}</span
-      ><kbd>V Select | P Slot | Space + drag Pan | Delete | Ctrl+Z</kbd>
+      ><kbd>Ctrl+C/X/V | Ctrl+Z/Y | Shift+wheel Pan | Ctrl+wheel Zoom</kbd>
     </div>
     <div v-if="!readonly" class="properties" aria-label="Selected element properties">
       <template v-if="singleBox">
@@ -136,12 +149,18 @@
       />
     </div>
     <p v-if="error" role="alert" class="editor-error">{{ error }}</p>
-    <div ref="scrollArea" class="canvas-scroll" :class="{ panning: spaceHeld || tool === 'pan' }">
+    <div
+      ref="scrollArea"
+      class="canvas-scroll"
+      :class="{ panning: spaceHeld || tool === 'pan' }"
+      @wheel="wheel"
+    >
       <svg
         ref="canvas"
         class="layout-canvas"
-        :style="{ width: `${zoom}%` }"
-        :viewBox="`0 0 1000 ${canvasHeight}`"
+        :style="canvasStyle"
+        :viewBox="canvasViewBox"
+        preserveAspectRatio="xMidYMid meet"
         role="group"
         :aria-label="readonly ? 'Parking Preview' : 'Editable parking floor plan'"
         tabindex="0"
@@ -276,10 +295,18 @@
           pointer-events="none"
         />
         <rect
-          v-if="!readonly && singleBox"
+          v-if="!readonly && selectionBounds"
+          v-bind="selectionBounds"
+          fill="none"
+          stroke="#2563eb"
+          stroke-width="1.5"
+          pointer-events="none"
+        />
+        <rect
+          v-if="!readonly && selectionBounds"
           class="resize-grip"
-          :x="singleBox.x + singleBox.width - 5"
-          :y="singleBox.y + singleBox.height - 5"
+          :x="selectionBounds!.x + selectionBounds!.width - 5"
+          :y="selectionBounds!.y + selectionBounds!.height - 5"
           width="10"
           height="10"
           fill="white"
@@ -320,7 +347,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Copy,
   Hand,
@@ -351,6 +378,7 @@ const props = defineProps<{
   slots: PreviewSlot[]
   modelValue: ParkingLayout
   readonly?: boolean
+  fitToViewport?: boolean
   autosave?: boolean
   dirty?: boolean
   saveMessage: string
@@ -413,11 +441,58 @@ const clone = (value: ParkingMapState): ParkingMapState => JSON.parse(JSON.strin
 const canvasHeight = computed(() =>
   Math.max(
     700,
-    Math.ceil(state.value.slots.length / 12) * 90 + 60,
+    props.fitToViewport ? 0 : Math.ceil(state.value.slots.length / 12) * 90 + 60,
+    ...(props.fitToViewport
+      ? state.value.slots.map((slot, index) => {
+          const box = state.value.layout.positions[slotKey(slot)] || defaultSlotBox(index)
+          return box.y + box.height + 60
+        })
+      : []),
     ...Object.values(state.value.layout.positions).map((box) => box.y + box.height + 60),
     ...state.value.layout.shapes.map((shape) => shape.y + shape.height + 60),
   ),
 )
+const viewportSize = ref({ width: 0, height: 0 })
+let viewportObserver: ResizeObserver | undefined
+const canvasViewBox = computed(() => {
+  if (!props.fitToViewport) return `0 0 1000 ${canvasHeight.value}`
+  const boxes = [
+    ...state.value.slots.map(
+      (slot, index) => state.value.layout.positions[slotKey(slot)] || defaultSlotBox(index),
+    ),
+    ...state.value.layout.shapes,
+    ...(state.value.layout.background ? [{ x: 0, y: 0, width: 1000, height: 700 }] : []),
+  ]
+  const content = bounds(boxes)
+  if (!content) return `0 0 1000 ${canvasHeight.value}`
+  const x = Math.max(0, content.x - 12),
+    y = Math.max(0, content.y - 12)
+  return `${x} ${y} ${Math.max(1, Math.min(1000 - x, content.x + content.width + 12 - x))} ${Math.max(1, content.y + content.height + 12 - y)}`
+})
+const canvasStyle = computed(() => {
+  if (!props.fitToViewport || !viewportSize.value.width || !viewportSize.value.height)
+    return { width: `${zoom.value}%` }
+  return {
+    width: `${(viewportSize.value.width * zoom.value) / 100}px`,
+    height: `${(viewportSize.value.height * zoom.value) / 100}px`,
+  }
+})
+
+function resetZoom() {
+  zoom.value = 100
+  if (scrollArea.value) {
+    scrollArea.value.scrollLeft = 0
+    scrollArea.value.scrollTop = 0
+  }
+}
+onMounted(() => {
+  if (!props.fitToViewport || !scrollArea.value || typeof ResizeObserver === 'undefined') return
+  viewportObserver = new ResizeObserver(([entry]) => {
+    if (entry)
+      viewportSize.value = { width: entry.contentRect.width, height: entry.contentRect.height }
+  })
+  viewportObserver.observe(scrollArea.value)
+})
 const selectedSlot = computed(() =>
   selection.value.size === 1
     ? state.value.slots.find((slot) => selection.value.has(slotKey(slot)))
@@ -437,6 +512,38 @@ function boxFor(key: string): LayoutBox | undefined {
 const singleBox = computed(() =>
   selection.value.size === 1 ? displayedBox([...selection.value][0]!) : undefined,
 )
+function bounds(boxes: LayoutBox[]): LayoutBox | undefined {
+  if (!boxes.length) return undefined
+  const x = Math.min(...boxes.map((b) => b.x)),
+    y = Math.min(...boxes.map((b) => b.y))
+  return {
+    x,
+    y,
+    width: Math.max(...boxes.map((b) => b.x + b.width)) - x,
+    height: Math.max(...boxes.map((b) => b.y + b.height)) - y,
+  }
+}
+const selectionBounds = computed(() => bounds([...selection.value].map(displayedBox)))
+function wheel(event: WheelEvent) {
+  if (event.ctrlKey || event.metaKey) {
+    event.preventDefault()
+    const area = scrollArea.value
+    if (!area) return
+    const rect = area.getBoundingClientRect(),
+      old = zoom.value
+    const x = event.clientX - rect.left,
+      y = event.clientY - rect.top
+    zoom.value = Math.max(25, Math.min(250, zoom.value + (event.deltaY < 0 ? 5 : -5)))
+    const ratio = zoom.value / old
+    nextTick(() => {
+      area.scrollLeft = (area.scrollLeft + x) * ratio - x
+      area.scrollTop = (area.scrollTop + y) * ratio - y
+    })
+  } else if (event.shiftKey && scrollArea.value) {
+    event.preventDefault()
+    scrollArea.value.scrollLeft += event.deltaY || event.deltaX
+  }
+}
 function commit(next: ParkingMapState) {
   if (props.readonly) return
   past.value = [...past.value.slice(-49), clone(state.value)]
@@ -480,7 +587,7 @@ function choose(key: string, multiple: boolean) {
   notifySelection()
 }
 type Gesture = {
-  mode: 'move' | 'resize' | 'draw' | 'pan'
+  mode: 'move' | 'resize' | 'draw' | 'pan' | 'marquee'
   start: { x: number; y: number }
   pointer: number
   clientStart: { x: number; y: number }
@@ -527,9 +634,13 @@ function beginCanvas(event: PointerEvent) {
     start(event, 'pan')
     return
   }
-  selection.value.clear()
+  if (!event.shiftKey) selection.value.clear()
   notifySelection()
-  if (props.readonly || tool.value === 'select') return
+  if (props.readonly) return
+  if (tool.value === 'select') {
+    start(event, 'marquee')
+    return
+  }
   if (tool.value === 'text') {
     const p = point(event)
     const shape: LayoutShape = {
@@ -569,18 +680,33 @@ function beginElement(event: PointerEvent, key: string) {
   if (!props.readonly && selection.value.has(key)) start(event, 'move')
 }
 function beginResize(event: PointerEvent) {
-  if (!props.readonly && selection.value.size === 1) start(event, 'resize')
+  if (!props.readonly && selection.value.size) start(event, 'resize')
 }
 function displayedBox(key: string): LayoutBox {
   const box = boxFor(key) || defaultSlotBox(0)
   if (!gestureState.value?.originals[key] || !gestureState.value.moved) return box
   const original = gestureState.value.originals[key]!
-  if (gestureState.value.mode === 'resize')
+  if (gestureState.value.mode === 'resize') {
+    const group = bounds(Object.values(gestureState.value.originals))!
+    const minWidth =
+      Math.min(...Object.values(gestureState.value.originals).map((b) => b.width)) || 1
+    const minHeight =
+      Math.min(...Object.values(gestureState.value.originals).map((b) => b.height)) || 1
+    const sx = Math.max(
+      20 / minWidth,
+      Math.min((1000 - group.x) / group.width, (group.width + delta.value.x) / group.width),
+    )
+    const sy = Math.max(
+      20 / minHeight,
+      Math.min((40000 - group.y) / group.height, (group.height + delta.value.y) / group.height),
+    )
     return {
-      ...original,
-      width: Math.max(20, Math.min(1000 - original.x, original.width + delta.value.x)),
-      height: Math.max(20, Math.min(40000 - original.y, original.height + delta.value.y)),
+      x: group.x + (original.x - group.x) * sx,
+      y: group.y + (original.y - group.y) * sy,
+      width: original.width * sx,
+      height: original.height * sy,
     }
+  }
   if (gestureState.value.mode === 'move')
     return { ...original, x: original.x + delta.value.x, y: original.y + delta.value.y }
   return box
@@ -634,7 +760,7 @@ function movePointer(event: PointerEvent) {
   delta.value = { x: rounded(dx), y: rounded(dy) }
   gestureState.value.dx = dx
   gestureState.value.dy = dy
-  if (gestureState.value.mode === 'draw') {
+  if (gestureState.value.mode === 'draw' || gestureState.value.mode === 'marquee') {
     const x = Math.min(980, rounded(Math.min(p.x, gestureState.value.start.x)))
     const y = Math.min(39980, rounded(Math.min(p.y, gestureState.value.start.y)))
     drawingBox.value = {
@@ -660,7 +786,26 @@ function applyBoxes(boxes: Record<string, LayoutBox>) {
 function finishPointer(event: PointerEvent) {
   if (!gestureState.value || gestureState.value.pointer !== event.pointerId) return
   movePointer(event)
-  if (gestureState.value.moved && gestureState.value.mode === 'draw' && drawingBox.value) {
+  if (gestureState.value.mode === 'marquee' && drawingBox.value) {
+    const region = drawingBox.value
+    const keys = [
+      ...state.value.slots.map(slotKey),
+      ...state.value.layout.shapes.map((shape) => `shape:${shape.id}`),
+    ]
+    const chosen = event.shiftKey ? new Set(selection.value) : new Set<string>()
+    for (const key of keys) {
+      const box = boxFor(key)!
+      if (
+        box.x <= region.x + region.width &&
+        box.x + box.width >= region.x &&
+        box.y <= region.y + region.height &&
+        box.y + box.height >= region.y
+      )
+        chosen.add(key)
+    }
+    selection.value = chosen
+    notifySelection()
+  } else if (gestureState.value.moved && gestureState.value.mode === 'draw' && drawingBox.value) {
     const box = drawingBox.value
     if (tool.value === 'slot') {
       if (state.value.slots.length >= 5000) {
@@ -739,26 +884,37 @@ function deleteSelection() {
   selection.value.clear()
   notifySelection()
 }
-function duplicate() {
-  if (props.readonly) return
-  const next = clone(state.value)
-  const chosen: string[] = []
-  for (const key of selection.value) {
+const clipboard = ref<{ slot?: PreviewSlot; shape?: LayoutShape; box: LayoutBox }[]>([])
+function copySelection() {
+  clipboard.value = [...selection.value].flatMap((key) => {
     const box = boxFor(key)
-    if (!box) continue
+    if (!box) return []
+    const slot = state.value.slots.find((s) => slotKey(s) === key)
+    const shape = state.value.layout.shapes.find((s) => `shape:${s.id}` === key)
+    return [
+      {
+        box: { ...box },
+        ...(slot ? { slot: { ...slot } } : {}),
+        ...(shape ? { shape: { ...shape } } : {}),
+      },
+    ]
+  })
+}
+function pasteSelection() {
+  if (props.readonly || !clipboard.value.length) return
+  const next = clone(state.value),
+    chosen: string[] = []
+  for (const item of clipboard.value) {
     const moved = {
-      ...box,
-      x: Math.min(1000 - box.width, box.x + 20),
-      y: Math.min(40000 - box.height, box.y + 20),
+      ...item.box,
+      x: Math.min(1000 - item.box.width, item.box.x + 20),
+      y: Math.min(40000 - item.box.height, item.box.y + 20),
     }
-    if (key.startsWith('shape:')) {
-      const shape = next.layout.shapes.find((item) => `shape:${item.id}` === key)
-      if (shape && next.layout.shapes.length < 300) {
-        const copy = { ...shape, ...moved, id: crypto.randomUUID() }
-        next.layout.shapes.push(copy)
-        chosen.push(`shape:${copy.id}`)
-      }
-    } else if (next.slots.length < 5000) {
+    if (item.shape && next.layout.shapes.length < 300) {
+      const shape = { ...item.shape, ...moved, id: crypto.randomUUID() }
+      next.layout.shapes.push(shape)
+      chosen.push(`shape:${shape.id}`)
+    } else if (item.slot && next.slots.length < 5000) {
       const slot = nextParkingSlot(next.slots)
       next.slots.push(slot)
       next.layout.positions[slotKey(slot)] = moved
@@ -768,6 +924,10 @@ function duplicate() {
   commit(next)
   selection.value = new Set(chosen)
   notifySelection()
+}
+function duplicate() {
+  copySelection()
+  pasteSelection()
 }
 function editGeometry(field: keyof LayoutBox, event: Event) {
   const key = [...selection.value][0],
@@ -802,7 +962,7 @@ function keyboard(event: KeyboardEvent) {
     emit('save')
     return
   }
-  if ((event.target as HTMLElement).closest('input, textarea, select, button')) return
+  if ((event.target as HTMLElement).closest('input, textarea, select')) return
   if (event.key === 'Escape') {
     cancelPointer()
     selection.value.clear()
@@ -813,10 +973,16 @@ function keyboard(event: KeyboardEvent) {
   if (props.readonly) return
   if (event.ctrlKey || event.metaKey) {
     const key = event.key.toLowerCase()
-    if (['z', 'y', 'd', 's', 'a'].includes(key)) event.preventDefault()
+    if (['z', 'y', 'd', 's', 'a', 'c', 'v', 'x'].includes(key)) event.preventDefault()
     if (key === 'z') event.shiftKey ? redo() : undo()
     if (key === 'y') redo()
     if (key === 'd') duplicate()
+    if (key === 'c') copySelection()
+    if (key === 'v') pasteSelection()
+    if (key === 'x') {
+      copySelection()
+      deleteSelection()
+    }
     if (key === 's') emit('save')
     if (key === 'a') {
       selection.value = new Set([
@@ -928,6 +1094,7 @@ watch(
   },
 )
 onBeforeUnmount(() => {
+  viewportObserver?.disconnect()
   ++imageVersion
   cancelPointer()
 })
@@ -1068,12 +1235,49 @@ kbd {
   max-height: 70vh;
   min-height: 380px;
   overscroll-behavior: contain;
+  background-color: #fafbfc;
+  background-image:
+    linear-gradient(#e7ebf1 1px, transparent 1px),
+    linear-gradient(90deg, #e7ebf1 1px, transparent 1px);
+  background-size: 10px 10px;
 }
 .layout-canvas {
   display: block;
-  min-width: 500px;
+  min-width: 0;
   touch-action: none;
   user-select: none;
+}
+.fit-viewport {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.fit-viewport .canvas-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  background: #fafbfc;
+}
+.fit-viewport .layout-canvas {
+  margin: 0 auto;
+}
+.fit-viewport .editor-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: #ffffffed;
+}
+.fit-viewport .canvas-caption {
+  display: none;
+}
+.fit-viewport .canvas-caption > span:last-child {
+  display: none;
 }
 .panning svg {
   cursor: grab;

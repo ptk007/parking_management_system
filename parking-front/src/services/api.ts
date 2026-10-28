@@ -73,7 +73,9 @@ export interface ParkingBuilding {
 
 export const buildingService = {
   cameraSummaries: () =>
-    apiClient.get<{ summaries: Record<string, BuildingCameraSummary> }>('/admin/system/buildings/camera-summary'),
+    apiClient.get<{ summaries: Record<string, BuildingCameraSummary> }>(
+      '/admin/system/buildings/camera-summary',
+    ),
   list: () => apiClient.get<{ buildings: ParkingBuilding[] }>('/admin/system/buildings'),
   create: (data: FormData) =>
     apiClient.post<{ building: ParkingBuilding }>('/admin/system/buildings', data, {
@@ -93,6 +95,7 @@ export interface ParkingSlotFile {
   original_name: string
   path: string
   size: number
+  sourceFloorId?: string
 }
 
 export interface ParkingFloor {
@@ -103,7 +106,14 @@ export interface ParkingFloor {
   zone: number
   parking_slot_file: string | null
   parking_slot_files?: ParkingSlotFile[]
-  status: 'available' | 'unavailable' | 'disable'
+  parking_map?: {
+    version: number
+    sourceName: string
+    slots: import('@/components/parking/parkingMapPreview').PreviewSlot[]
+    layout: import('@/components/parking/parkingLayout').ParkingLayout
+  } | null
+  camera_presets?: import('@/views/admin/cctvForm').CctvFormCamera[]
+  status: 'available' | 'disable'
   date_add: string
   time_add: string
 }
@@ -113,6 +123,37 @@ export type ParkingFloorPayload = Pick<ParkingFloor, 'floor' | 'veh_type' | 'sta
 }
 
 export const floorService = {
+  setSlotStatuses: (id: string, keys: string[], status: 'available' | 'disabled') =>
+    apiClient.patch<{ map: NonNullable<ParkingFloor['parking_map']> }>(
+      `/admin/system/floors/catalog/${id}/slot-statuses`,
+      { keys, status },
+    ),
+  catalog: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors/catalog'),
+  saveMap: (id: string, map: unknown) => apiClient.put(`/admin/system/floors/${id}/map`, map),
+  saveCamera: (id: string, camera: import('@/views/admin/cctvForm').CctvFormCamera) =>
+    camera._id
+      ? apiClient.patch<{ floor: ParkingFloor }>(
+          `/admin/system/floors/${id}/cameras/${camera._id}`,
+          camera,
+        )
+      : apiClient.post<{ floor: ParkingFloor }>(`/admin/system/floors/${id}/cameras`, camera),
+  sourceFiles: () =>
+    apiClient.get<{ files: ParkingSlotFile[] }>('/admin/system/floors/source-files'),
+  importSourceFiles: (files: File[]) => {
+    const data = new FormData()
+    files.forEach((file) => data.append('files', file))
+    return apiClient.post('/admin/system/floors/source-files', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  downloadSourceFile: (file: ParkingSlotFile) =>
+    file.sourceFloorId
+      ? apiClient.get<string>(`/admin/system/floors/${file.sourceFloorId}/slot-files/${file._id}`, {
+          responseType: 'text',
+        })
+      : apiClient.get<string>(`/admin/system/floors/source-files/${file._id}`, {
+          responseType: 'text',
+        }),
   importSlotFiles: (id: string, files: File[]) => {
     const data = new FormData()
     files.forEach((file) => data.append('files', file))
@@ -121,7 +162,9 @@ export const floorService = {
     })
   },
   downloadSlotFile: (id: string, fileId: string) =>
-    apiClient.get<string>(`/admin/system/floors/${id}/slot-files/${fileId}`, { responseType: 'text' }),
+    apiClient.get<string>(`/admin/system/floors/${id}/slot-files/${fileId}`, {
+      responseType: 'text',
+    }),
   list: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors'),
   create: (data: ParkingFloorPayload) =>
     apiClient.post<{ floor: ParkingFloor }>('/admin/system/floors', data),

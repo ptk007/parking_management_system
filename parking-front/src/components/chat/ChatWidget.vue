@@ -6,7 +6,9 @@
     aria-label="เปิดแชต Support"
     @click="chat.openChat"
   >
-    <Headphones :size="23" /><span>{{ isSupport ? 'Support Inbox' : 'ติดต่อ Support' }}</span>
+    <Headphones :size="21" /><span class="launcher-label">{{
+      isSupport ? 'Support Inbox' : 'ติดต่อ Support'
+    }}</span>
     <span v-if="chat.unreadCount" class="launcher-count">{{
       chat.unreadCount > 99 ? '99+' : chat.unreadCount
     }}</span>
@@ -643,23 +645,33 @@ onUnmounted(() => {
 <style scoped>
 .support-launcher {
   position: fixed;
-  right: 26px;
-  bottom: 24px;
+  left: 47px;
+  bottom: 78px;
   z-index: 60;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 56px;
-  padding: 0 21px;
-  border-radius: 28px;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid #ffffff66;
+  border-radius: 50%;
   color: #fff;
   background: #be3b35;
-  box-shadow: 0 7px 24px #9e2d2540;
+  box-shadow: 0 3px 10px #9e2d2540;
   font-size: 14px;
   font-weight: 600;
   transition:
     transform 0.18s,
     background 0.18s;
+}
+.launcher-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .support-launcher:hover {
   background: #a92f2a;
@@ -669,8 +681,8 @@ onUnmounted(() => {
   position: absolute;
   top: -5px;
   right: -3px;
-  min-width: 24px;
-  height: 24px;
+  min-width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
   border: 3px solid #fff;
@@ -1575,10 +1587,10 @@ onUnmounted(() => {
     display: grid;
   }
   .support-launcher {
-    right: 17px;
-    bottom: 18px;
-    height: 52px;
-    padding: 0 17px;
+    left: 47px;
+    bottom: 78px;
+    height: 44px;
+    padding: 0;
   }
   .thread-heading {
     gap: 7px;

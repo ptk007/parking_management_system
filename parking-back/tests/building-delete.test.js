@@ -2,10 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs/promises");
 const ParkingBuilding = require("../api/models/parkingBuildingModel");
+const SourceFile = require("../api/models/parkingSourceFileModel");
 const ParkingFloor = require("../api/models/parkingFloorModel");
 const controller = require("../api/controllers/parkingBuildingController");
 
 test("deleting a building removes its floors and stored files", async (t) => {
+  t.mock.method(SourceFile, "exists", async () => false);
   const id = "507f1f77bcf86cd799439011";
   const removedFiles = [];
   const building = {

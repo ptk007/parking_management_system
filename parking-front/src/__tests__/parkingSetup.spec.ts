@@ -7,31 +7,53 @@ import { buildingService, floorService } from '@/services/api'
 
 vi.mock('@/services/api', () => ({
   buildingService: { list: vi.fn(), cameraSummaries: vi.fn(), imageUrl: () => '', remove: vi.fn() },
-  floorService: { list: vi.fn(), remove: vi.fn() },
+  floorService: {
+    list: vi.fn(),
+    remove: vi.fn(),
+    sourceFiles: vi.fn().mockResolvedValue({ data: { files: [] } }),
+  },
 }))
 
 let wrapper: VueWrapper
-const building = { _id: 'b1', building_name: 'B6', building_image: null, date_add: '', time_add: '' }
+const building = {
+  _id: 'b1',
+  building_name: 'B6',
+  building_image: null,
+  date_add: '',
+  time_add: '',
+}
 const floors = [1, 2].map((floor) => ({
-  _id: `f${floor}`, building, floor, veh_type: 'car' as const, zone: floor,
+  _id: `f${floor}`,
+  building,
+  floor,
+  veh_type: 'car' as const,
+  zone: floor,
   parking_slot_file: floor === 2 ? 'map.json' : null,
-  status: 'available' as const, date_add: '', time_add: '',
+  status: 'available' as const,
+  date_add: '',
+  time_add: '',
 }))
 async function openSetup() {
   localStorage.clear()
   vi.mocked(buildingService.list).mockResolvedValue({ data: { buildings: [building] } } as never)
   vi.mocked(buildingService.cameraSummaries).mockResolvedValue({ data: { summaries: {} } } as never)
   vi.mocked(floorService.list).mockResolvedValue({ data: { floors } } as never)
-  const router = createRouter({ history: createMemoryHistory(), routes: [
-    { path: '/admin/setup', component: DashboardView },
-    { path: '/admin/maps/:floorId', name: 'AdminParkingMap', component: { template: '<div />' } },
-  ] })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/admin/setup', component: DashboardView },
+      { path: '/admin/maps/:floorId', name: 'AdminParkingMap', component: { template: '<div />' } },
+    ],
+  })
   await router.push('/admin/setup')
   wrapper = mount(DashboardView, { global: { plugins: [createPinia(), router] } })
   await flushPromises()
   await wrapper.get('[aria-label="View floors for B6"]').trigger('click')
 }
-afterEach(() => { wrapper?.unmount(); vi.clearAllMocks() })
+afterEach(() => {
+  wrapper?.unmount()
+  vi.clearAllMocks()
+})
 
 describe('admin parking setup floor actions', () => {
   it('marks only floors with maps green and opens CCTV with the selected location', async () => {
@@ -42,7 +64,9 @@ describe('admin parking setup floor actions', () => {
     await wrapper.get('[aria-label="CCTV for floor 2 (Cars)"]').trigger('click')
     expect(wrapper.get('.cctv-heading').text()).toBe('B6 : Floor 2 CCTV')
     expect(wrapper.find('.cctv-location-filters').exists()).toBe(false)
-    expect(wrapper.get('.slot-files-panel').text()).toContain('No parking slot files imported')
+    expect(wrapper.get('.slot-files-panel').text()).toContain(
+      'No original CCTV source files imported',
+    )
     await wrapper.get('.cctv-map-button').trigger('click')
     await flushPromises()
     expect(wrapper.vm.$route.params.floorId).toBe('f2')

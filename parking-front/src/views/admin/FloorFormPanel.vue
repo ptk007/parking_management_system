@@ -1,6 +1,12 @@
 <template>
   <form class="overlay-card floor-form" @submit.prevent="saveFloor">
-    <button class="close-x" type="button" aria-label="Close floor form" :disabled="isSaving" @click="$emit('cancel')">
+    <button
+      class="close-x"
+      type="button"
+      aria-label="Close floor form"
+      :disabled="isSaving"
+      @click="$emit('cancel')"
+    >
       <X class="h-7 w-7" :stroke-width="3" />
     </button>
     <h2>{{ mode === 'add' ? 'Add Floor' : 'Edit Floor' }}</h2>
@@ -29,28 +35,48 @@
       <span>Status</span>
       <select v-model="status" :disabled="isSaving">
         <option value="available">Available</option>
-        <option value="unavailable">Unavailable</option>
         <option value="disable">Disable</option>
       </select>
     </label>
     <p v-if="error" class="floor-error" role="alert">{{ error }}</p>
     <div class="floor-actions">
-      <button :class="mode === 'add' ? 'green-button' : 'blue-button'" type="submit" :disabled="isSaving || !buildings.length">
+      <button
+        :class="mode === 'add' ? 'green-button' : 'blue-button'"
+        type="submit"
+        :disabled="isSaving || !buildings.length"
+      >
         {{ isSaving ? 'Saving...' : 'Confirm' }}
       </button>
-      <button v-if="mode === 'edit'" class="red-button" type="button" :disabled="isSaving" @click="openDeleteConfirmation">
+      <button
+        v-if="mode === 'edit'"
+        class="red-button"
+        type="button"
+        :disabled="isSaving"
+        @click="openDeleteConfirmation"
+      >
         Delete
       </button>
     </div>
   </form>
 
-  <div v-if="showDeleteConfirmation" class="floor-delete-backdrop" @click.self="!isSaving && (showDeleteConfirmation = false)">
-    <div class="floor-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="floor-delete-title">
+  <div
+    v-if="showDeleteConfirmation"
+    class="floor-delete-backdrop"
+    @click.self="!isSaving && (showDeleteConfirmation = false)"
+  >
+    <div
+      class="floor-delete-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="floor-delete-title"
+    >
       <h2 id="floor-delete-title">Delete Floor {{ floor?.floor }}?</h2>
       <p>This floor will be removed from {{ floor?.building?.building_name }}.</p>
       <p v-if="deleteError" class="floor-error" role="alert">{{ deleteError }}</p>
       <div class="floor-delete-actions">
-        <button type="button" :disabled="isSaving" @click="showDeleteConfirmation = false">Cancel</button>
+        <button type="button" :disabled="isSaving" @click="showDeleteConfirmation = false">
+          Cancel
+        </button>
         <button class="red-button" type="button" :disabled="isSaving" @click="deleteFloor">
           {{ isSaving ? 'Deleting...' : 'Delete' }}
         </button>
@@ -70,12 +96,18 @@ const props = defineProps<{
   buildings: ParkingBuilding[]
   floor?: ParkingFloor | null
 }>()
-const emit = defineEmits<{ saved: [buildingId: string]; deleted: [buildingId: string]; cancel: [] }>()
+const emit = defineEmits<{
+  saved: [buildingId: string]
+  deleted: [buildingId: string]
+  cancel: []
+}>()
 
 const buildingId = ref(props.floor?.building?._id ?? props.buildings[0]?._id ?? '')
 const floorNumber = ref(props.floor?.floor ?? 1)
 const vehicleType = ref<ParkingFloor['veh_type']>(props.floor?.veh_type ?? 'car')
-const status = ref<ParkingFloor['status']>(props.floor?.status ?? 'disable')
+const status = ref<ParkingFloor['status']>(
+  props.floor?.status === 'available' ? 'available' : 'disable',
+)
 const isSaving = ref(false)
 const error = ref('')
 const showDeleteConfirmation = ref(false)

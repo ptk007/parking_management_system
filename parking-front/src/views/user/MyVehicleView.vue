@@ -64,14 +64,7 @@
     </section>
 
     <section v-else class="history-panel">
-      <article v-for="entry in parkingHistory" :key="entry.id" class="history-card">
-        <Clock3 class="history-icon" :stroke-width="2.4" />
-        <div>
-          <strong>{{ entry.vehicle }}</strong>
-          <p>{{ entry.slot }} - {{ entry.time }}</p>
-        </div>
-        <span>{{ entry.status }}</span>
-      </article>
+      <ParkingLogCard v-for="entry in parkingHistory" :key="entry.id" :log="entry" hide-name />
     </section>
 
     <div
@@ -120,8 +113,6 @@
             <span>Motor</span>
           </button>
         </div>
-
-        <button class="confirm-type" type="button" @click="confirmVehicleType">Confirm</button>
       </section>
     </div>
 
@@ -180,9 +171,9 @@
           </label>
 
           <label>
-            <span>จังหวัด</span>
+            <span>Province</span>
             <select v-model="vehicleForm.province" required>
-              <option disabled value="">เลือกจังหวัด</option>
+              <option disabled value="">Select Province</option>
               <option v-if="hasCustomProvince" :value="vehicleForm.province">
                 {{ vehicleForm.province }}
               </option>
@@ -272,8 +263,9 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { isAxiosError } from 'axios'
-import { Bike, CarFront, Clock3, PencilLine, Plus, Trash2, X } from 'lucide-vue-next'
+import { Bike, CarFront, PencilLine, Plus, Trash2, X } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
+import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/ParkingLogCard.vue'
 import { vehicleService } from '@/services/api'
 import { thaiProvinces } from '@/data/thaiProvinces'
 
@@ -288,14 +280,6 @@ interface UserVehicle {
   color: string
   licenseNumber: string
   province: string
-}
-
-interface ParkingHistoryEntry {
-  id: number
-  vehicle: string
-  slot: string
-  time: string
-  status: string
 }
 
 interface ApiVehicle {
@@ -342,12 +326,17 @@ const formError = ref('')
 
 const vehicles = ref<UserVehicle[]>([])
 
-const parkingHistory = ref<ParkingHistoryEntry[]>([
+const parkingHistory = ref<ParkingLogDisplay[]>([
   {
     id: 1,
-    vehicle: 'Toyota Fortuner',
-    slot: 'Parking slot B10',
-    time: '12/08/2569 12:00',
+    brand: 'Toyota',
+    model: 'Fortuner',
+    color: 'Black',
+    licenseNumber: '-',
+    province: '-',
+    parkingSlot: 'B10',
+    date: '12/08/2569',
+    parkingTime: '12:00',
     status: 'Parking',
   },
 ])
@@ -439,6 +428,7 @@ const closeTypePicker = () => {
 
 const selectVehicleType = (type: VehicleType) => {
   selectedVehicleType.value = type
+  confirmVehicleType()
 }
 
 const openAddForm = (type: VehicleType) => {

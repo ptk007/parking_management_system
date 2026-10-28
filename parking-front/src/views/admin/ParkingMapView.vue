@@ -13,7 +13,7 @@
         </p>
       </div>
       <span class="local-badge"
-        ><HardDrive :size="15" /> {{ dirty ? 'Unsaved changes' : 'Local map' }}</span
+        ><HardDrive :size="15" /> {{ dirty ? 'Unsaved changes' : 'Saved map' }}</span
       >
     </header>
     <div v-if="loading" class="page-state" role="status">Loading floor...</div>
@@ -36,7 +36,7 @@
             <Download :size="16" /> Export map</button
           ><button
             class="primary"
-            :disabled="importing || !auth.isAdmin"
+            :disabled="importing || !canEditLayout"
             @click="fileInput?.click()"
           >
             <Upload :size="16" />{{ importing ? 'Importing...' : 'Import map' }}
@@ -49,7 +49,7 @@
           accept=".json,application/json"
           multiple
           aria-label="Import parking map JSON"
-          :disabled="importing || !auth.isAdmin"
+          :disabled="importing || !canEditLayout"
           @change="importJson"
         />
         <p v-if="importError" class="import-error" role="alert">{{ importError }}</p>
@@ -89,6 +89,10 @@
                 <LayoutGrid :size="16" />Parking Preview</button
               ><button
                 v-if="auth.isAdmin"
+                :disabled="!canEditLayout"
+                :title="
+                  canEditLayout ? 'Edit layout' : 'Disable this floor before editing its layout'
+                "
                 :class="{ active: viewMode === 'layout' }"
                 :aria-pressed="viewMode === 'layout'"
                 @click="viewMode = 'layout'"
@@ -110,6 +114,9 @@
               </option>
             </select>
           </div>
+          <p v-if="floor.status === 'available'" class="locked-note">
+            Disable this floor in Parking Setup to use Layout editor.
+          </p>
           <p v-if="slots.length && !visibleKeys.size" class="empty-results">
             No matching slots. <button @click="clearFilters">Clear filters</button>
           </p>
@@ -117,7 +124,7 @@
             :key="`${floor._id}:${editorRevision}`"
             :slots="slots"
             :model-value="layout"
-            :readonly="viewMode !== 'layout' || !auth.isAdmin"
+            :readonly="viewMode !== 'layout' || !canEditLayout"
             :autosave="autosave"
             :dirty="dirty"
             :save-message="saveMessage"
@@ -142,7 +149,7 @@
             </div>
             <div class="detail-body">
               <form
-                v-if="viewMode === 'layout' && auth.isAdmin"
+                v-if="viewMode === 'layout' && canEditLayout"
                 class="rename-slot"
                 @submit.prevent="renameSlot"
               >
@@ -222,7 +229,7 @@
         aria-labelledby="unsaved-title"
       >
         <h2 id="unsaved-title">Save your changes?</h2>
-        <p>This floor has changes that have not been saved on this device.</p>
+        <p>This floor has changes that have not been saved to the server.</p>
         <div>
           <button @click="leaveTarget = null">Keep editing</button
           ><button @click="discardAndLeave">Discard changes</button
@@ -289,6 +296,7 @@ const floor = ref<ParkingFloor | null>(null),
   error = ref('')
 const slots = ref<PreviewSlot[]>([]),
   layout = ref<ParkingLayout>(emptyParkingLayout())
+const canEditLayout = computed(() => auth.isAdmin && floor.value?.status !== 'available')
 const editorRevision = ref(0)
 const sourceName = ref('New map'),
   viewMode = ref<'preview' | 'layout'>('preview')
@@ -408,7 +416,13 @@ async function loadFloor() {
       storageError.value = true
       saveMessage.value = 'Device storage is unavailable. Export your map to keep a copy.'
     }
-    if (raw) {
+    if (floor.value.parking_map) {
+      const saved = restoreMapDraft(JSON.stringify(floor.value.parking_map))
+      slots.value = saved.slots
+      layout.value = saved.layout
+      sourceName.value = saved.sourceName
+      saveMessage.value = 'Saved map loaded'
+    } else if (raw) {
       try {
         const saved = restoreMapDraft(raw)
         slots.value = saved.slots
@@ -445,33 +459,57 @@ function changed() {
   else saveMessage.value = 'Unsaved changes. Save now or export your map.'
 }
 function updateMap(next: ParkingMapState) {
-  if (!auth.isAdmin || loading.value || importing.value) return
+  if (!canEditLayout.value || loading.value || importing.value) return
   slots.value = next.slots
   layout.value = next.layout
   changed()
 }
-function persistDraft(): boolean {
+let saveQueue: Promise<unknown> = Promise.resolve()
+let saveRevision = 0
+async function persistDraft(): Promise<boolean> {
   if (!auth.isAdmin || !floor.value || loading.value || importing.value) return false
+  const floorId = floor.value._id,
+    key = draftKey.value,
+    revision = ++saveRevision
+  const content = JSON.parse(
+    JSON.stringify({
+      version: 2,
+      sourceName: sourceName.value,
+      slots: slots.value,
+      layout: layout.value,
+    }),
+  )
   try {
-    localStorage.setItem(
-      draftKey.value,
-      JSON.stringify({
-        version: 2,
-        sourceName: sourceName.value,
-        slots: slots.value,
-        layout: layout.value,
-      }),
-    )
-    dirty.value = false
-    storageError.value = false
-    saveMessage.value = 'Map saved on this device'
+    localStorage.setItem(key, JSON.stringify(content))
+  } catch {
+    /* Server save remains available. */
+  }
+  saveMessage.value = 'Saving map...'
+  const save = saveQueue.catch(() => {}).then(() => floorService.saveMap(floorId, content))
+  saveQueue = save
+  try {
+    await save
+    if (
+      key === draftKey.value &&
+      revision === saveRevision &&
+      JSON.stringify(content.slots) === JSON.stringify(slots.value) &&
+      JSON.stringify(content.layout) === JSON.stringify(layout.value)
+    ) {
+      dirty.value = false
+      storageError.value = false
+      saveMessage.value = 'Map saved and shared with dashboards'
+    }
     return true
   } catch {
-    storageError.value = true
-    saveMessage.value = 'Could not save on this device. Export your map to keep a copy.'
+    if (key === draftKey.value && revision === saveRevision) {
+      dirty.value = true
+      storageError.value = true
+      saveMessage.value = 'Could not save to server. Retry Save now or export your map.'
+    }
     return false
   }
 }
+
 function setAutosave(enabled: boolean) {
   if (!auth.isAdmin) return
   autosave.value = enabled
@@ -497,7 +535,7 @@ function setStatus(status: 'available' | 'disabled') {
 function renameSlot() {
   const slot = inspectedSlot.value,
     name = slotName.value.trim()
-  if (!auth.isAdmin || viewMode.value !== 'layout' || !slot || !name) return
+  if (!canEditLayout.value || viewMode.value !== 'layout' || !slot || !name) return
   if (
     slots.value.some((other) => slotKey(other) !== slotKey(slot) && slotDisplayName(other) === name)
   ) {
@@ -514,7 +552,8 @@ async function importJson(event: Event) {
   const input = event.target as HTMLInputElement,
     files = Array.from(input.files || [])
   input.value = ''
-  if (!files.length || !auth.isAdmin || !floor.value || loading.value || importing.value) return
+  if (!files.length || !canEditLayout.value || !floor.value || loading.value || importing.value)
+    return
   const version = ++importVersion,
     targetKey = draftKey.value
   importing.value = true
@@ -534,7 +573,7 @@ async function importJson(event: Event) {
       if (parsed && typeof parsed === 'object' && 'layout' in parsed)
         nextLayout = restoreParkingLayout(parsed.layout)
     }
-    if (version !== importVersion || targetKey !== draftKey.value || !auth.isAdmin) return
+    if (version !== importVersion || targetKey !== draftKey.value || !canEditLayout.value) return
     slots.value = nextSlots
     layout.value = withPositions(nextSlots, nextLayout)
     sourceName.value = files.map((file) => file.name).join(', ')
@@ -592,9 +631,12 @@ function discardAndLeave() {
     void router.push(target)
   }
 }
-function saveAndLeave() {
-  if (persistDraft()) discardAndLeave()
+async function saveAndLeave() {
+  if (await persistDraft()) discardAndLeave()
 }
+watch(canEditLayout, (allowed) => {
+  if (!allowed) viewMode.value = 'preview'
+})
 watch(() => route.params.floorId, loadFloor, { immediate: true })
 watch(inspectedSlot, (slot) => {
   if (slot) slotName.value = slotDisplayName(slot)

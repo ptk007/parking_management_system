@@ -265,7 +265,10 @@ exports.deleteBuilding = async (req, res) => {
     const fileResults = await Promise.allSettled([
       deleteImage(building.building_image),
       ...floors.flatMap((floor) => [floor.parking_slot_file, ...(floor.parking_slot_files || []).map((file) => file.path)]
-        .map(deleteFloorFile)),
+        .map(async filePath => {
+          if (!filePath || !(await require("../models/parkingSourceFileModel").exists({ path: filePath })))
+            await deleteFloorFile(filePath);
+        })),
     ]);
     for (const result of fileResults) {
       if (result.status === "rejected") console.error(result.reason);
