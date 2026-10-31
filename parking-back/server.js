@@ -9,6 +9,7 @@ const authRoutes = require("./api/routes/authRoutes");
 const vehicleRoutes = require("./api/routes/vehicleRoutes");
 const parkingBuildingRoutes = require("./api/routes/parkingBuildingRoutes");
 const parkingFloorRoutes = require("./api/routes/parkingFloorRoutes");
+const supportRoutes = require("./api/routes/supportRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,7 +18,7 @@ const MONGODB_URI =
   "mongodb://127.0.0.1:27017/parking_management_system";
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "6mb" }));
 app.use("/images", express.static(path.resolve(__dirname, "../images")));
 
 // API routes backed by MongoDB's user collection.
@@ -26,6 +27,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/admin/system/buildings", parkingBuildingRoutes);
 app.use("/api/admin/system/floors", parkingFloorRoutes);
+app.use("/api/support", supportRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "Parking management API is running" });
@@ -50,6 +52,8 @@ app.use((error, req, res, next) => {
 async function startServer() {
   try {
     await mongoose.connect(MONGODB_URI);
+    // Retire the old floor state while preserving the floor and its map.
+    await require("./api/models/parkingFloorModel").updateMany({ status: "unavailable" }, { $set: { status: "disable" } });
     console.log("Connected to MongoDB");
 
     app.listen(PORT, () => {
@@ -61,4 +65,6 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) startServer();
+
+module.exports = app;

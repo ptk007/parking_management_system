@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
+import type { ChatTicket, NewSupportTicket } from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '')
@@ -47,6 +48,131 @@ export const parkingService = {
     }),
 }
 
+export const vehicleService = {
+  getByUser: (userId: string) => apiClient.get(`/vehicles/user/${userId}`),
+  create: (data: any) => apiClient.post('/vehicles', data),
+  update: (vehicleId: string, data: any) => apiClient.put(`/vehicles/${vehicleId}`, data),
+  remove: (vehicleId: string) => apiClient.delete(`/vehicles/${vehicleId}`),
+}
+
+export interface BuildingCameraSummary {
+  total: number
+  online: number
+  offline: number
+  disabled: number
+  unknown: number
+}
+
+export interface ParkingBuilding {
+  _id: string
+  building_name: string
+  building_image: string | null
+  date_add: string
+  time_add: string
+}
+
+export const buildingService = {
+  cameraSummaries: () =>
+    apiClient.get<{ summaries: Record<string, BuildingCameraSummary> }>(
+      '/admin/system/buildings/camera-summary',
+    ),
+  list: () => apiClient.get<{ buildings: ParkingBuilding[] }>('/admin/system/buildings'),
+  create: (data: FormData) =>
+    apiClient.post<{ building: ParkingBuilding }>('/admin/system/buildings', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  update: (id: string, data: FormData) =>
+    apiClient.patch<{ building: ParkingBuilding }>(`/admin/system/buildings/${id}`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  remove: (id: string) => apiClient.delete(`/admin/system/buildings/${id}`),
+  imageUrl: (path: string | null) =>
+    path ? new URL(path.replace(/^\/+/, ''), `${API_ORIGIN}/`).toString() : '',
+}
+
+export interface ParkingSlotFile {
+  _id: string
+  original_name: string
+  path: string
+  size: number
+  sourceFloorId?: string
+}
+
+export interface ParkingFloor {
+  _id: string
+  building: ParkingBuilding | null
+  floor: number
+  veh_type: 'car' | 'motorcycle'
+  zone: number
+  parking_slot_file: string | null
+  parking_slot_files?: ParkingSlotFile[]
+  parking_map?: {
+    version: number
+    sourceName: string
+    slots: import('@/components/parking/parkingMapPreview').PreviewSlot[]
+    layout: import('@/components/parking/parkingLayout').ParkingLayout
+  } | null
+  camera_presets?: import('@/views/admin/cctvForm').CctvFormCamera[]
+  status: 'available' | 'disable'
+  date_add: string
+  time_add: string
+}
+
+export type ParkingFloorPayload = Pick<ParkingFloor, 'floor' | 'veh_type' | 'status'> & {
+  building: string
+}
+
+export const floorService = {
+  setSlotStatuses: (id: string, keys: string[], status: 'available' | 'disabled') =>
+    apiClient.patch<{ map: NonNullable<ParkingFloor['parking_map']> }>(
+      `/admin/system/floors/catalog/${id}/slot-statuses`,
+      { keys, status },
+    ),
+  catalog: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors/catalog'),
+  saveMap: (id: string, map: unknown) => apiClient.put(`/admin/system/floors/${id}/map`, map),
+  saveCamera: (id: string, camera: import('@/views/admin/cctvForm').CctvFormCamera) =>
+    camera._id
+      ? apiClient.patch<{ floor: ParkingFloor }>(
+          `/admin/system/floors/${id}/cameras/${camera._id}`,
+          camera,
+        )
+      : apiClient.post<{ floor: ParkingFloor }>(`/admin/system/floors/${id}/cameras`, camera),
+  sourceFiles: () =>
+    apiClient.get<{ files: ParkingSlotFile[] }>('/admin/system/floors/source-files'),
+  importSourceFiles: (files: File[]) => {
+    const data = new FormData()
+    files.forEach((file) => data.append('files', file))
+    return apiClient.post('/admin/system/floors/source-files', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  downloadSourceFile: (file: ParkingSlotFile) =>
+    file.sourceFloorId
+      ? apiClient.get<string>(`/admin/system/floors/${file.sourceFloorId}/slot-files/${file._id}`, {
+          responseType: 'text',
+        })
+      : apiClient.get<string>(`/admin/system/floors/source-files/${file._id}`, {
+          responseType: 'text',
+        }),
+  importSlotFiles: (id: string, files: File[]) => {
+    const data = new FormData()
+    files.forEach((file) => data.append('files', file))
+    return apiClient.post<{ floor: ParkingFloor }>(`/admin/system/floors/${id}/slot-files`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  downloadSlotFile: (id: string, fileId: string) =>
+    apiClient.get<string>(`/admin/system/floors/${id}/slot-files/${fileId}`, {
+      responseType: 'text',
+    }),
+  list: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors'),
+  create: (data: ParkingFloorPayload) =>
+    apiClient.post<{ floor: ParkingFloor }>('/admin/system/floors', data),
+  update: (id: string, data: ParkingFloorPayload) =>
+    apiClient.patch<{ floor: ParkingFloor }>(`/admin/system/floors/${id}`, data),
+  remove: (id: string) => apiClient.delete(`/admin/system/floors/${id}`),
+}
+
 export const cctvService = {
   getCameras: (buildingId: string, floorId: string) =>
     apiClient.get('/staff/cctv/cameras', {
@@ -63,14 +189,19 @@ export const cctvService = {
 }
 
 export const chatService = {
-  getTickets: () => apiClient.get('/staff/chat/tickets'),
-  getTicket: (ticketId: string) => apiClient.get(`/staff/chat/tickets/${ticketId}`),
-  createTicket: (subject: string, message: string) =>
-    apiClient.post('/staff/chat/tickets', { subject, message }),
+  getTickets: () => apiClient.get<{ tickets: ChatTicket[] }>('/support/tickets'),
+  getTicket: (ticketId: string) =>
+    apiClient.get<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}`),
+  createTicket: (data: NewSupportTicket) =>
+    apiClient.post<{ ticket: ChatTicket }>('/support/tickets', data),
   sendMessage: (ticketId: string, message: string) =>
-    apiClient.post(`/staff/chat/messages/${ticketId}`, { message }),
-  updateTicketStatus: (ticketId: string, status: string) =>
-    apiClient.put(`/staff/chat/tickets/${ticketId}`, { status }),
+    apiClient.post<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}/messages`, { message }),
+  claimTicket: (ticketId: string) =>
+    apiClient.post<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}/claim`),
+  updateTicketStatus: (ticketId: string, status: 'open' | 'done') =>
+    apiClient.patch<{ ticket: ChatTicket }>(`/support/tickets/${ticketId}/status`, { status }),
+  markRead: (ticketId: string, messageId: string) =>
+    apiClient.post(`/support/tickets/${ticketId}/read`, { messageId }),
 }
 
 export const historyService = {

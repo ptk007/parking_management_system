@@ -4,6 +4,8 @@ const multer = require("multer");
 const userController = require("../controllers/userController");
 const buildingController = require("../controllers/parkingBuildingController");
 
+const { listCameraSummaries } = require("../controllers/parkingCameraSummaryController");
+
 const router = express.Router();
 const imageDirectory = path.resolve(
   __dirname,
@@ -46,6 +48,7 @@ router.get(
   "/check-duplicate",
   buildingController.checkDuplicateBuilding,
 );
+router.get("/camera-summary", listCameraSummaries);
 router.get("/:id", buildingController.getBuilding);
 router.patch(
   "/:id",

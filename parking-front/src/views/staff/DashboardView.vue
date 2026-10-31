@@ -1,41 +1,26 @@
 <template>
-  <div class="staff-dashboard">
+  <div :class="['staff-dashboard', { embedded }]">
     <div class="tabbar">
       <button
-        v-for="tab in tabs"
+        v-for="tab in visibleTabs"
         :key="tab.id"
         :class="['tab-button', activeTab === tab.id ? 'is-active' : '']"
         type="button"
-        @click="activeTab = tab.id"
+        @click="selectTab(tab.id)"
       >
         {{ tab.label }}
       </button>
     </div>
 
-    <div class="dashboard-toolbar">
-      <div class="filters">
-        <label v-for="filter in filters" :key="filter.label" class="filter-control">
-          <span>{{ filter.label }} *</span>
-          <select v-model="filter.model.value">
-            <option v-for="option in filter.options" :key="option" :value="option">
-              {{ option }}
-            </option>
-          </select>
-        </label>
-      </div>
+    <section
+      :class="[
+        'dashboard-content',
+        { 'slots-content': activeTab === 'slots' || !authStore.canManageParking },
+      ]"
+    >
+      <DashboardMap v-show="activeTab === 'slots' || !authStore.canManageParking" />
 
-      <div class="stats">
-        <div v-for="stat in stats" :key="stat.label" class="stat-card">
-          <strong :style="{ color: stat.color }">{{ stat.value }}</strong>
-          <span>{{ stat.label }}</span>
-        </div>
-      </div>
-    </div>
-
-    <section class="dashboard-content">
-      <ReferenceParkingMap v-if="activeTab === 'slots'" @stats-change="updateSlotStats" />
-
-      <div v-else-if="activeTab === 'cctv'" class="cctv-grid">
+      <div v-if="activeTab === 'cctv' && authStore.canManageParking" class="cctv-grid">
         <CameraPreviewCard
           v-for="camera in staffCameras"
           :key="camera.title"
@@ -44,79 +29,28 @@
         />
       </div>
 
-      <div v-else class="logs-panel">
+      <div v-else-if="activeTab === 'log' && authStore.canManageParking" class="logs-panel">
         <div class="warning-banner"><span>Exited</span> car log will reset after 24 hours</div>
 
-        <article v-for="log in parkingLogs" :key="log.id" class="log-card">
-          <CarFront class="log-car h-9 w-9" :stroke-width="2.4" />
-
-          <div class="vehicle-info">
-            <p>Name <span>:</span> {{ log.name }}</p>
-            <p>License Number <span>:</span> {{ log.licenseNumber }}</p>
-            <p>Province <span>:</span> {{ log.province }}</p>
-            <p>Vehicle Description <span>:</span> {{ log.vehicleDescription }}</p>
-          </div>
-
-          <div class="parking-info">
-            <p>Date <span>:</span> {{ log.date }}</p>
-            <p>Parking Time <span>:</span> {{ log.parkingTime }}</p>
-            <p>Exit Time <span>:</span> {{ log.exitTime }}</p>
-            <p>Parking slot number <span>:</span> {{ log.parkingSlot }}</p>
-            <p>
-              Parking Status <span>:</span>
-              <strong :class="statusClass(log.status)">{{ log.status }}</strong>
-            </p>
-          </div>
-
-          <div class="face-driver">
-            <p>Face Driver</p>
-            <div>
-              <FacePlaceholder label="Entered" />
-              <FacePlaceholder label="Exited" />
-            </div>
-          </div>
-        </article>
+        <ParkingLogCard v-for="log in parkingLogs" :key="log.id" :log="log" />
       </div>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { defineComponent, h, ref } from 'vue'
-import { CarFront, UserRound } from 'lucide-vue-next'
-import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
+import { computed, ref, watch } from 'vue'
+import ParkingLogCard from '@/components/parking/ParkingLogCard.vue'
+import DashboardMap from '@/components/parking/DashboardMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
+import { useAuthStore } from '@/stores/auth'
+
+defineProps<{ embedded?: boolean }>()
 
 type ActiveTab = 'slots' | 'cctv' | 'log'
 
-interface SlotStats {
-  total: number
-  available: number
-  incoming: number
-  occupied: number
-  disabled: number
-}
-
-const FacePlaceholder = defineComponent({
-  props: {
-    label: {
-      type: String,
-      required: true,
-    },
-  },
-  setup(props) {
-    return () =>
-      h('figure', { class: 'face-placeholder' }, [
-        h('div', [h(UserRound, { class: 'h-11 w-11', strokeWidth: 1.8 })]),
-        h('figcaption', props.label),
-      ])
-  },
-})
-
 const activeTab = ref<ActiveTab>('slots')
-const selectedBuilding = ref('E4')
-const selectedFloor = ref('4')
-const selectedVehicle = ref('Cars')
+const authStore = useAuthStore()
 
 const tabs: { id: ActiveTab; label: string }[] = [
   { id: 'slots', label: 'Slots' },
@@ -124,35 +58,21 @@ const tabs: { id: ActiveTab; label: string }[] = [
   { id: 'log', label: 'Log' },
 ]
 
-const filters = [
-  { label: 'Building', model: selectedBuilding, options: ['E4'] },
-  { label: 'Floor', model: selectedFloor, options: ['4'] },
-  { label: 'Vehicle', model: selectedVehicle, options: ['Cars', 'Motorcycles'] },
-]
+const visibleTabs = computed(() =>
+  tabs.filter((tab) => tab.id === 'slots' || authStore.canManageParking),
+)
 
-const stats = ref([
-  { label: 'Total slots', value: 124, color: '#cf3b30' },
-  { label: 'Available', value: 47, color: '#16a36a' },
-  { label: 'Incoming', value: 6, color: '#f4c233' },
-  { label: 'Occupied', value: 74, color: '#bd7a10' },
-  { label: 'Disable', value: 3, color: '#777777' },
-])
-
-const getSlotStatValue = (label: string, slotStats: SlotStats) => {
-  if (label === 'Total slots') return slotStats.total
-  if (label === 'Available') return slotStats.available
-  if (label === 'Incoming') return slotStats.incoming
-  if (label === 'Occupied') return slotStats.occupied
-  if (label === 'Disable') return slotStats.disabled
-  return null
+const selectTab = (tab: ActiveTab) => {
+  if (tab !== 'slots' && !authStore.canManageParking) return
+  activeTab.value = tab
 }
 
-const updateSlotStats = (slotStats: SlotStats) => {
-  stats.value = stats.value.map((stat) => {
-    const value = getSlotStatValue(stat.label, slotStats)
-    return value === null ? stat : { ...stat, value }
-  })
-}
+watch(
+  () => authStore.canManageParking,
+  (canManage) => {
+    if (!canManage) activeTab.value = 'slots'
+  },
+)
 
 const staffCameras = [
   { title: 'Entrance', plateSuffix: '7' },
@@ -167,7 +87,9 @@ const parkingLogs = [
     name: 'Mrs. Wilayporn Nonsila',
     licenseNumber: 'กง 1234',
     province: 'เชียงราย',
-    vehicleDescription: 'Black Toyota Fortuner',
+    brand: 'Toyota',
+    model: 'Fortuner',
+    color: 'Black',
     date: '12/08/2569',
     parkingTime: '12:00:34',
     exitTime: '-',
@@ -179,9 +101,12 @@ const parkingLogs = [
     name: '*Guest555',
     licenseNumber: 'กถ 5555',
     province: 'ลำพูน',
-    vehicleDescription: 'Unknown',
+    brand: 'Unknown',
+    model: 'Unknown',
+    color: 'Unknown',
     date: '12/08/2569',
     parkingTime: '14:00:34',
+    exitDate: '12/08/2569',
     exitTime: '16:01:21',
     parkingSlot: '54',
     status: 'Exited',
@@ -191,7 +116,9 @@ const parkingLogs = [
     name: 'Anutin Charnvirakul',
     licenseNumber: 'รย 1000',
     province: 'กรุงเทพมหานคร',
-    vehicleDescription: 'BYD blue pearl',
+    brand: 'BYD',
+    model: '-',
+    color: 'Blue pearl',
     date: '12/08/2569',
     parkingTime: '-',
     exitTime: '-',
@@ -199,15 +126,12 @@ const parkingLogs = [
     status: 'Not Parking',
   },
 ]
-
-const statusClass = (status: string) => {
-  if (status === 'Parking') return 'status-parking'
-  if (status === 'Exited') return 'status-exited'
-  return 'status-muted'
-}
 </script>
 
 <style scoped>
+.staff-dashboard.embedded {
+  margin-left: 0;
+}
 .staff-dashboard {
   min-height: calc(100vh - 78px);
   margin-left: 138px;
@@ -320,6 +244,10 @@ const statusClass = (status: string) => {
   padding: 16px 31px 32px;
 }
 
+.dashboard-content.slots-content {
+  padding-bottom: 16px;
+}
+
 .cctv-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(320px, 393px));
@@ -328,6 +256,9 @@ const statusClass = (status: string) => {
 }
 
 .logs-panel {
+  display: grid;
+  gap: 16px;
+  align-content: start;
   background: #e3e3e3;
   border-radius: 5px;
   min-height: 670px;
@@ -447,6 +378,10 @@ const statusClass = (status: string) => {
 
   .stats {
     padding-top: 0;
+  }
+
+  .dashboard-content.slots-content {
+    padding-bottom: 16px;
   }
 
   .cctv-grid {

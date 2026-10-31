@@ -10,7 +10,7 @@
         <router-view />
       </main>
 
-      <ChatWidget />
+      <ChatWidget v-if="authStore.isAuthenticated && !authStore.isGuest && authStore.user?.role !== 'admin'" />
     </div>
   </div>
 </template>

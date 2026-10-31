@@ -2,61 +2,53 @@
   <div class="admin-dashboard">
     <main class="admin-main">
       <section v-if="activeSection === 'dashboard'" class="section-shell dashboard-section">
-        <div class="tabbar">
-          <button
-            v-for="tab in dashboardTabs"
-            :key="tab.id"
-            :class="['tab-button', activeDashboardTab === tab.id ? 'is-active' : '']"
-            type="button"
-            @click="activeDashboardTab = tab.id"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
-
-        <FilterStats :stats="adminStats" />
-
-        <div class="dashboard-content">
-          <ReferenceParkingMap v-if="activeDashboardTab === 'slots'" @stats-change="updateSlotStats" />
-
-          <div v-else-if="activeDashboardTab === 'cctv'" class="admin-cctv-grid">
-            <CameraPreviewCard
-              v-for="camera in adminDashboardCameras"
-              :key="camera"
-              :title="camera"
-              mode="detection"
-            />
-          </div>
-
-          <ParkingLogList v-else />
-        </div>
+        <SharedDashboard embedded />
       </section>
 
       <section v-else-if="activeSection === 'staff'" class="section-shell staff-manager-section">
         <div v-if="staffMode === 'list'" class="staff-list-panel">
-          <div class="staff-list-header">
+          <header class="staff-list-header">
+            <div class="staff-heading">
+              <span class="staff-heading-icon"><Users :size="24" /></span>
+              <div>
+                <h2>Staff Manager</h2>
+                <p>Manage your parking support team.</p>
+              </div>
+            </div>
             <button class="green-button add-staff-button" type="button" @click="openAddStaff">
-              <UserPlus class="h-5 w-5" :stroke-width="2.7" />
-              Add Staff
+              <UserPlus :size="18" /> Add Staff
             </button>
-            <h2>Staff List</h2>
-            <p>
-              *Edit staff can edit in each person<br />
-              *Can edit staff when only offline or disable
-            </p>
+          </header>
+          <div class="staff-list-toolbar">
+            <h3>
+              Staff List <span class="staff-count">{{ adminStore.staffList.length }}</span>
+            </h3>
+            <p>Staff can be edited when Offline or Disable.</p>
           </div>
-
+          <div v-if="!adminStore.staffList.length" class="staff-empty" role="status">
+            <span class="staff-empty-icon"><Users :size="34" :stroke-width="1.6" /></span>
+            <h3>No staff yet</h3>
+            <p>Add your team members to help manage parking and support users.</p>
+            <button class="green-button add-staff-button" type="button" @click="openAddStaff">
+              <UserPlus :size="18" /> Add your first staff
+            </button>
+          </div>
           <article v-for="staff in adminStore.staffList" :key="staff._id" class="staff-card">
             <div class="profile-icon"><UserRound class="h-14 w-14" :stroke-width="1.8" /></div>
             <div class="staff-copy">
               <p>Staff Name : {{ staff.staffName }}</p>
               <p>Username : {{ staff.username }}</p>
               <p class="password-line">
-                Password : {{ visiblePasswordIds.has(staff._id) ? staff.password : maskPassword(staff.password) }}
+                Password :
+                {{
+                  visiblePasswordIds.has(staff._id) ? staff.password : maskPassword(staff.password)
+                }}
                 <button
                   class="password-eye"
                   type="button"
-                  :aria-label="visiblePasswordIds.has(staff._id) ? 'Hide password' : 'Show password'"
+                  :aria-label="
+                    visiblePasswordIds.has(staff._id) ? 'Hide password' : 'Show password'
+                  "
                   @click="togglePasswordVisibility(staff._id)"
                 >
                   <component
@@ -66,21 +58,31 @@
                   />
                 </button>
               </p>
-              <p>Date added : {{ staff.dateAdded }}</p>
-              <p>Time added : {{ staff.timeAdded }}</p>
-              <p>Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong></p>
+              <p>Date Updated : {{ staff.dateAdded }}</p>
+              <p>Time Updated : {{ staff.timeAdded }}</p>
+              <p>
+                Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong>
+              </p>
             </div>
             <div class="row-actions">
               <button
                 type="button"
                 aria-label="Edit staff"
                 :disabled="!canEditStaff(staff)"
-                :title="canEditStaff(staff) ? 'Edit staff' : 'Cannot edit staff while online or logging in'"
+                :title="
+                  canEditStaff(staff)
+                    ? 'Edit staff'
+                    : 'Cannot edit staff while online or logging in'
+                "
                 @click="openEditStaff(staff)"
               >
                 <SquarePen class="h-6 w-6" :stroke-width="2.4" />
               </button>
-              <button type="button" aria-label="Delete staff" @click="adminStore.deleteStaff(staff._id)">
+              <button
+                type="button"
+                aria-label="Delete staff"
+                @click="adminStore.deleteStaff(staff._id)"
+              >
                 <Trash2 class="h-6 w-6" :stroke-width="2.4" />
               </button>
             </div>
@@ -98,72 +100,144 @@
       </section>
 
       <section v-else class="section-shell setup-section">
-        <div class="setup-tabs">
-          <button
-            :class="['tab-button', setupTab === 'parking' ? 'is-active' : '']"
-            type="button"
-            @click="showParkingSetup"
-          >
-            Parking
-          </button>
-          <button
-            :class="['tab-button', setupTab === 'cctv' ? 'is-active' : '']"
-            type="button"
-            @click="showCctvSetup"
-          >
-            CCTV
-          </button>
-        </div>
-
-        <div class="setup-workspace">
+        <div
+          :class="[
+            'setup-workspace',
+            {
+              'parking-list-workspace': setupMode === 'parking-list',
+              'cctv-list-workspace': setupMode === 'cctv-list',
+              'cctv-add-workspace': setupMode === 'add-cctv' || setupMode === 'edit-cctv',
+            },
+          ]"
+        >
           <ParkingSetupList
             v-if="setupMode === 'parking-list'"
-            :floors="adminStore.floors"
-            @add-building="setupMode = 'add-building'"
-            @add-floor="setupMode = 'add-floor'"
-            @edit-floor="setupMode = 'edit-floor'"
+            :floors="parkingFloors"
+            :buildings="buildings"
+            :is-loading="isLoadingBuildings || isLoadingFloors"
+            :error="buildingError || floorError"
+            :expand-building-id="expandBuildingId"
+            :camera-summaries="cameraSummaries"
+            :is-loading-cameras="isLoadingCameras"
+            :camera-error="cameraError"
+            @reload-cameras="loadCameraSummaries"
+            @add-building="openAddBuilding"
+            @edit-building="openEditBuilding"
+            @delete-building="openDeleteBuilding"
+            @reload-buildings="loadParkingSetup"
+            @add-floor="openAddFloor"
+            @edit-floor="openEditFloor"
+            @delete-floor="openDeleteFloor"
+            @view-cctv="openFloorCctv"
           />
 
           <BuildingFormPanel
-            v-else-if="setupMode === 'add-building'"
-            mode="add"
-            @save="showParkingSetup"
+            v-else-if="setupMode === 'add-building' || setupMode === 'edit-building'"
+            :mode="setupMode === 'add-building' ? 'add' : 'edit'"
+            :building="editingBuilding"
+            @saved="handleBuildingSaved"
             @cancel="showParkingSetup"
           />
 
           <FloorFormPanel
-            v-else-if="setupMode === 'add-floor'"
-            mode="add"
-            @save="showParkingSetup"
-            @cancel="showParkingSetup"
-          />
-
-          <FloorFormPanel
-            v-else-if="setupMode === 'edit-floor'"
-            mode="edit"
-            @save="showParkingSetup"
+            v-else-if="setupMode === 'add-floor' || setupMode === 'edit-floor'"
+            :mode="setupMode === 'add-floor' ? 'add' : 'edit'"
+            :buildings="buildings"
+            :floor="editingFloor"
+            @saved="handleFloorSaved"
+            @deleted="handleFloorSaved"
             @cancel="showParkingSetup"
           />
 
           <CCTVSetupList
             v-else-if="setupMode === 'cctv-list'"
+            :key="cctvFloor?._id || 'all'"
+            :selected-floor="cctvFloor"
             @add-cctv="setupMode = 'add-cctv'"
-            @edit-cctv="setupMode = 'edit-cctv'"
+            @edit-cctv="openEditCctv"
+            @view-map="openCctvParkingMap"
+            @floor-updated="handleCctvFloorUpdated"
+            @back="backFromCctv"
           />
 
-          <CCTVFormPanel
-            v-else-if="setupMode === 'add-cctv'"
-            mode="add"
+          <AddCCTVPanel
+            v-else-if="setupMode === 'add-cctv' || setupMode === 'edit-cctv'"
+            :key="setupMode"
+            :mode="setupMode === 'edit-cctv' ? 'edit' : 'add'"
+            :camera="setupMode === 'edit-cctv' ? editingCctv : null"
+            :selected-floor="cctvFloor"
+            @saved="handleCctvFloorUpdated"
             @save="showCctvSetup"
             @cancel="showCctvSetup"
           />
+        </div>
 
-          <CCTVFormPanel
-            v-else
-            mode="edit"
-            @save="showCctvSetup"
-            @cancel="showCctvSetup"
-          />
+        <div
+          v-if="floorToDelete"
+          class="building-delete-backdrop"
+          @click.self="!isDeletingFloor && (floorToDelete = null)"
+        >
+          <div
+            class="building-delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="floor-delete-title"
+          >
+            <h2 id="floor-delete-title">Delete Floor {{ floorToDelete.floor }}?</h2>
+            <p>
+              {{ floorToDelete.building?.building_name }} /
+              {{ floorToDelete.veh_type === 'car' ? 'Cars' : 'Motorcycles' }}: this floor and its
+              parking map file will be deleted.
+            </p>
+            <p v-if="deleteFloorError" class="building-delete-error" role="alert">
+              {{ deleteFloorError }}
+            </p>
+            <div class="building-delete-actions">
+              <button type="button" :disabled="isDeletingFloor" @click="floorToDelete = null">
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="red-button"
+                :disabled="isDeletingFloor"
+                @click="deleteFloor"
+              >
+                {{ isDeletingFloor ? 'Deleting...' : 'Delete' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-if="buildingToDelete"
+          class="building-delete-backdrop"
+          @click.self="!isDeletingBuilding && (buildingToDelete = null)"
+        >
+          <div
+            class="building-delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="building-delete-title"
+          >
+            <h2 id="building-delete-title">Delete {{ buildingToDelete.building_name }}?</h2>
+            <p>The building, its floors, parking map files and image will be deleted.</p>
+            <p v-if="deleteBuildingError" class="building-delete-error" role="alert">
+              {{ deleteBuildingError }}
+            </p>
+            <div class="building-delete-actions">
+              <button type="button" :disabled="isDeletingBuilding" @click="buildingToDelete = null">
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="red-button"
+                :disabled="isDeletingBuilding"
+                @click="deleteBuilding"
+              >
+                {{ isDeletingBuilding ? 'Deleting...' : 'Delete' }}
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -171,36 +245,48 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import {
   ArrowLeft,
   Bike,
+  Building2,
   CarFront,
-  CheckCircle2,
-  CircleArrowUp,
   Eye,
   EyeOff,
-  Map,
-  Search,
+  Menu,
   SquarePen,
   Trash2,
   UserPlus,
+  Users,
   UserRound,
-  VideoOff,
-  X,
+  Video,
 } from 'lucide-vue-next'
-import { useRoute } from 'vue-router'
-import { useAdminStore, type StaffMember, type Floor } from '@/stores/admin'
-import ReferenceParkingMap from '@/components/parking/ReferenceParkingMap.vue'
-import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useAdminStore, type StaffMember } from '@/stores/admin'
+import SharedDashboard from '@/views/staff/DashboardView.vue'
+import BuildingFormPanel from './BuildingFormPanel.vue'
+import CCTVSetupList from './CCTVSetupList.vue'
+import AddCCTVPanel from './AddCCTVPanel.vue'
+import type { CctvFormCamera } from './cctvForm'
+import BuildingCameraSummary from './BuildingCameraSummary.vue'
+import FloorFormPanel from './FloorFormPanel.vue'
+import {
+  buildingService,
+  floorService,
+  type ParkingBuilding,
+  type ParkingFloor,
+  type BuildingCameraSummary as CameraSummary,
+} from '@/services/api'
+import { isAxiosError } from 'axios'
+import { useAuthStore } from '@/stores/auth'
+import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
 
 type AdminSection = 'dashboard' | 'staff' | 'setup'
-type DashboardTab = 'slots' | 'cctv' | 'log'
 type StaffMode = 'list' | 'add' | 'edit'
-type SetupTab = 'parking' | 'cctv'
 type SetupMode =
   | 'parking-list'
   | 'add-building'
+  | 'edit-building'
   | 'add-floor'
   | 'edit-floor'
   | 'cctv-list'
@@ -215,66 +301,44 @@ interface StaffFormState {
   status: StaffMember['status']
 }
 
-interface SlotStats {
-  total: number
-  available: number
-  incoming: number
-  occupied: number
-  disabled: number
-}
-
 const adminStore = useAdminStore()
 const route = useRoute()
+const router = useRouter()
 
 const activeSection = computed<AdminSection>(() => {
   if (route.path.endsWith('/staff')) return 'staff'
   if (route.path.endsWith('/setup')) return 'setup'
   return 'dashboard'
 })
-const activeDashboardTab = ref<DashboardTab>('slots')
 const staffMode = ref<StaffMode>('list')
-const setupTab = ref<SetupTab>('parking')
 const setupMode = ref<SetupMode>('parking-list')
+const buildings = ref<ParkingBuilding[]>([])
+const parkingFloors = ref<ParkingFloor[]>([])
+const isLoadingBuildings = ref(false)
+const isLoadingFloors = ref(false)
+const buildingError = ref('')
+const floorError = ref('')
+const cameraSummaries = ref<Record<string, CameraSummary>>({})
+const isLoadingCameras = ref(false)
+const cameraError = ref('')
+const editingBuilding = ref<ParkingBuilding | null>(null)
+const editingFloor = ref<ParkingFloor | null>(null)
+const editingCctv = ref<CctvFormCamera | null>(null)
+const cctvFloor = ref<ParkingFloor | null>(null)
+const floorToDelete = ref<ParkingFloor | null>(null)
+const isDeletingFloor = ref(false)
+const deleteFloorError = ref('')
+const expandBuildingId = ref<string | null>(null)
+const buildingToDelete = ref<ParkingBuilding | null>(null)
+const isDeletingBuilding = ref(false)
+const deleteBuildingError = ref('')
 const editingStaffId = ref<string | null>(null)
 const visiblePasswordIds = ref(new Set<string>())
 
-const dashboardTabs: { id: DashboardTab; label: string }[] = [
-  { id: 'slots', label: 'Slots' },
-  { id: 'cctv', label: 'CCTV' },
-  { id: 'log', label: 'Log' },
-]
-
-const adminStats = ref([
-  { label: 'Total slots', value: 124, color: '#cf3b30' },
-  { label: 'Available', value: 47, color: '#16a36a' },
-  { label: 'Incoming', value: 6, color: '#f4c233' },
-  { label: 'Occupied', value: 74, color: '#bd7a10' },
-  { label: 'Disable', value: 3, color: '#777777' },
-  { label: 'Active Staff', value: 6, color: '#5141c9' },
-])
-
-const getSlotStatValue = (label: string, slotStats: SlotStats) => {
-  if (label === 'Total slots') return slotStats.total
-  if (label === 'Available') return slotStats.available
-  if (label === 'Incoming') return slotStats.incoming
-  if (label === 'Occupied') return slotStats.occupied
-  if (label === 'Disable') return slotStats.disabled
-  return null
-}
-
-const updateSlotStats = (slotStats: SlotStats) => {
-  adminStats.value = adminStats.value.map((stat) => {
-    const value = getSlotStatValue(stat.label, slotStats)
-    return value === null ? stat : { ...stat, value }
-  })
-}
-
-const adminDashboardCameras = ['Entrance', 'Exit', 'Floor4 B6', 'Floor4 A5']
-
 const createStaffForm = (staff?: StaffMember): StaffFormState => ({
-  staffName: staff?.staffName || 'Panuwat Panan',
-  username: staff?.username || 'Panuwat',
-  password: staff?.password || 'password123',
+  staffName: staff?.staffName || '',
+  username: staff?.username || '',
+  password: staff?.password || '',
   confirmPassword: '',
   status: staff?.status || 'Offline',
 })
@@ -284,8 +348,153 @@ const staffForms = ref<StaffFormState[]>([createStaffForm()])
 watch(activeSection, (section, previousSection) => {
   if (section === previousSection) return
   if (section === 'staff') staffMode.value = 'list'
-  if (section === 'setup') showParkingSetup()
+  if (section === 'setup') {
+    showParkingSetup()
+    void loadParkingSetup()
+  }
 })
+
+onMounted(() => {
+  if (activeSection.value === 'setup') void loadParkingSetup()
+})
+
+async function loadParkingSetup() {
+  await Promise.all([loadBuildings(), loadFloors(), loadCameraSummaries()])
+}
+
+async function loadCameraSummaries() {
+  isLoadingCameras.value = true
+  cameraError.value = ''
+  try {
+    const response = await buildingService.cameraSummaries()
+    cameraSummaries.value = response.data.summaries
+  } catch {
+    cameraError.value = 'Failed to load camera summaries.'
+  } finally {
+    isLoadingCameras.value = false
+  }
+}
+
+async function loadBuildings() {
+  isLoadingBuildings.value = true
+  buildingError.value = ''
+  try {
+    const response = await buildingService.list()
+    buildings.value = response.data.buildings
+  } catch {
+    buildingError.value = 'Failed to load buildings.'
+  } finally {
+    isLoadingBuildings.value = false
+  }
+}
+
+async function loadFloors() {
+  isLoadingFloors.value = true
+  floorError.value = ''
+  try {
+    const response = await floorService.list()
+    parkingFloors.value = response.data.floors
+  } catch {
+    floorError.value = 'Failed to load floors.'
+  } finally {
+    isLoadingFloors.value = false
+  }
+}
+
+const openAddBuilding = () => {
+  editingBuilding.value = null
+  setupMode.value = 'add-building'
+}
+
+const openEditBuilding = (building: ParkingBuilding) => {
+  editingBuilding.value = building
+  setupMode.value = 'edit-building'
+}
+
+const handleBuildingSaved = () => {
+  showParkingSetup()
+  void loadParkingSetup()
+}
+
+const openAddFloor = () => {
+  editingFloor.value = null
+  setupMode.value = 'add-floor'
+}
+
+const openEditFloor = (floor: ParkingFloor) => {
+  editingFloor.value = floor
+  setupMode.value = 'edit-floor'
+}
+
+const handleFloorSaved = (buildingId: string) => {
+  expandBuildingId.value = buildingId
+  showParkingSetup()
+  void loadFloors()
+}
+
+const openDeleteFloor = (floor: ParkingFloor) => {
+  deleteFloorError.value = ''
+  floorToDelete.value = floor
+}
+
+const deleteFloor = async () => {
+  const floor = floorToDelete.value
+  if (!floor || isDeletingFloor.value) return
+  isDeletingFloor.value = true
+  deleteFloorError.value = ''
+  try {
+    await floorService.remove(floor._id)
+    parkingFloors.value = parkingFloors.value.filter((item) => item._id !== floor._id)
+    floorToDelete.value = null
+    void loadCameraSummaries()
+  } catch (cause) {
+    deleteFloorError.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Failed to delete floor.'
+      : 'Failed to delete floor.'
+  } finally {
+    isDeletingFloor.value = false
+  }
+}
+
+const handleCctvFloorUpdated = (floor: ParkingFloor) => {
+  cctvFloor.value = floor
+  parkingFloors.value = parkingFloors.value.map((item) => (item._id === floor._id ? floor : item))
+}
+
+const openEditCctv = (camera: CctvFormCamera) => {
+  editingCctv.value = camera
+  setupMode.value = 'edit-cctv'
+}
+
+const openFloorCctv = (floor: ParkingFloor) => {
+  cctvFloor.value = floor
+  setupMode.value = 'cctv-list'
+}
+
+const openDeleteBuilding = (building: ParkingBuilding) => {
+  deleteBuildingError.value = ''
+  buildingToDelete.value = building
+}
+
+const deleteBuilding = async () => {
+  const building = buildingToDelete.value
+  if (!building || isDeletingBuilding.value) return
+
+  isDeletingBuilding.value = true
+  deleteBuildingError.value = ''
+  try {
+    await buildingService.remove(building._id)
+    buildingToDelete.value = null
+    expandBuildingId.value = null
+    await loadParkingSetup()
+  } catch (cause) {
+    deleteBuildingError.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Failed to delete building.'
+      : 'Failed to delete building.'
+  } finally {
+    isDeletingBuilding.value = false
+  }
+}
 
 const maskPassword = (password: string) => {
   return '*'.repeat(Math.max(password.length, 8))
@@ -348,168 +557,30 @@ const saveStaff = () => {
   staffMode.value = 'list'
 }
 
+const backFromCctv = () => {
+  expandBuildingId.value = cctvFloor.value?.building?._id || null
+  showParkingSetup()
+}
+
 const showParkingSetup = () => {
-  setupTab.value = 'parking'
   setupMode.value = 'parking-list'
 }
 
+const openCctvParkingMap = () => {
+  if (cctvFloor.value) {
+    void router.push({ name: 'AdminParkingMap', params: { floorId: cctvFloor.value._id } })
+    return
+  }
+  void router.push('/admin/dashboard')
+}
+
 const showCctvSetup = () => {
-  setupTab.value = 'cctv'
   setupMode.value = 'cctv-list'
 }
 
 const statusClass = (status: StaffMember['status']) => {
   return `status-${status.toLowerCase().replace(/\s+/g, '-')}`
 }
-
-const FilterStats = defineComponent({
-  props: {
-    stats: {
-      type: Array as () => { label: string; value: number; color: string }[],
-      required: true,
-    },
-  },
-  setup(props) {
-    const building = ref('E4')
-    const floor = ref('4')
-    const vehicle = ref('Cars')
-    const filters = [
-      { label: 'Building', model: building, options: ['E4'] },
-      { label: 'Floor', model: floor, options: ['4'] },
-      { label: 'Vehicle', model: vehicle, options: ['Cars', 'Motorcycles'] },
-    ]
-
-    return () =>
-      h('div', { class: 'dashboard-toolbar' }, [
-        h(
-          'div',
-          { class: 'filters' },
-          filters.map((filter) =>
-            h('label', { class: 'filter-control' }, [
-              h('span', `${filter.label} *`),
-              h(
-                'select',
-                {
-                  value: filter.model.value,
-                  onChange: (event: Event) => {
-                    filter.model.value = (event.target as HTMLSelectElement).value
-                  },
-                },
-                filter.options.map((option) => h('option', { value: option }, option)),
-              ),
-            ]),
-          ),
-        ),
-        h(
-          'div',
-          { class: 'stats' },
-          props.stats.map((stat) =>
-            h('div', { class: 'stat-card' }, [
-              h('strong', { style: { color: stat.color } }, stat.value),
-              h('span', stat.label),
-            ]),
-          ),
-        ),
-      ])
-  },
-})
-
-const FacePlaceholder = defineComponent({
-  props: {
-    label: {
-      type: String,
-      required: true,
-    },
-  },
-  setup(props) {
-    return () =>
-      h('figure', { class: 'face-placeholder' }, [
-        h('div', [h(UserRound, { class: 'h-11 w-11', strokeWidth: 1.8 })]),
-        h('figcaption', props.label),
-      ])
-  },
-})
-
-const ParkingLogList = defineComponent({
-  setup() {
-    const logs = [
-      {
-        id: 1,
-        name: 'Mrs. Wilayporn Nonsila',
-        licenseNumber: 'กง 1234',
-        province: 'เชียงราย',
-        vehicleDescription: 'Black Toyota Fortuner',
-        date: '12/08/2569',
-        parkingTime: '12:00:34',
-        exitTime: '-',
-        parkingSlot: '10',
-        status: 'Parking',
-      },
-      {
-        id: 2,
-        name: '*Guest555',
-        licenseNumber: 'กถ 5555',
-        province: 'ลำพูน',
-        vehicleDescription: 'Unknown',
-        date: '12/08/2569',
-        parkingTime: '14:00:34',
-        exitTime: '16:01:21',
-        parkingSlot: '54',
-        status: 'Exited',
-      },
-      {
-        id: 3,
-        name: 'Anutin Charnvirakul',
-        licenseNumber: 'รย 1000',
-        province: 'กรุงเทพมหานคร',
-        vehicleDescription: 'BYD blue pearl',
-        date: '12/08/2569',
-        parkingTime: '-',
-        exitTime: '-',
-        parkingSlot: '-',
-        status: 'Not Parking',
-      },
-    ]
-
-    const logStatusClass = (status: string) => {
-      if (status === 'Parking') return 'status-parking'
-      if (status === 'Exited') return 'status-exited'
-      return 'status-muted'
-    }
-
-    return () =>
-      h('div', { class: 'logs-panel' }, [
-        h('div', { class: 'warning-banner' }, [h('span', 'Exited'), ' car log will reset after 24 hours']),
-        logs.map((log) =>
-          h('article', { class: 'log-card', key: log.id }, [
-            h(CarFront, { class: 'log-car h-9 w-9', strokeWidth: 2.4 }),
-            h('div', { class: 'vehicle-info' }, [
-              h('p', ['Name ', h('span', ':'), ` ${log.name}`]),
-              h('p', ['License Number ', h('span', ':'), ` ${log.licenseNumber}`]),
-              h('p', ['Province ', h('span', ':'), ` ${log.province}`]),
-              h('p', ['Vehicle Description ', h('span', ':'), ` ${log.vehicleDescription}`]),
-            ]),
-            h('div', { class: 'parking-info' }, [
-              h('p', ['Date ', h('span', ':'), ` ${log.date}`]),
-              h('p', ['Parking Time ', h('span', ':'), ` ${log.parkingTime}`]),
-              h('p', ['Exit Time ', h('span', ':'), ` ${log.exitTime}`]),
-              h('p', ['Parking slot number ', h('span', ':'), ` ${log.parkingSlot}`]),
-              h('p', [
-                'Parking Status ',
-                h('span', ':'),
-                ' ',
-                h('strong', { class: logStatusClass(log.status) }, log.status),
-              ]),
-            ]),
-            h('div', { class: 'face-driver' }, [
-              h('p', 'Face Driver'),
-              h('div', [h(FacePlaceholder, { label: 'Entered' }), h(FacePlaceholder, { label: 'Exited' })]),
-            ]),
-          ]),
-        ),
-      ])
-  },
-})
 
 const StaffFormPanel = defineComponent({
   props: {
@@ -540,7 +611,9 @@ const StaffFormPanel = defineComponent({
 
     const renderStaffCard = (form: StaffFormState, index: number) =>
       h('div', { class: 'staff-form-card', key: index }, [
-        h('div', { class: 'profile-icon large' }, [h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })]),
+        h('div', { class: 'profile-icon large' }, [
+          h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 }),
+        ]),
         h('div', { class: 'staff-form-fields' }, [
           h('label', [
             h('span', 'Staff Name :'),
@@ -601,21 +674,40 @@ const StaffFormPanel = defineComponent({
 
     return () =>
       h('div', { class: ['staff-form-panel', props.mode] }, [
-        h('button', { class: 'form-back-button', type: 'button', onClick: () => emit('cancel') }, [
-          h(ArrowLeft, { class: 'h-5 w-5', strokeWidth: 2.4 }),
-        ]),
+        h(
+          'button',
+          {
+            class: 'form-back-button',
+            type: 'button',
+            'aria-label': 'Back to Staff List',
+            onClick: () => emit('cancel'),
+          },
+          [h(ArrowLeft, { class: 'h-5 w-5', strokeWidth: 2.4 })],
+        ),
         h('h2', props.mode === 'add' ? 'Add Staff' : 'Edit Staff'),
         props.forms.map(renderStaffCard),
         props.mode === 'add'
-          ? h('button', { class: 'add-more-row', type: 'button', onClick: () => emit('add-more') }, '+ Add More Staff')
+          ? h(
+              'button',
+              { class: 'add-more-row', type: 'button', onClick: () => emit('add-more') },
+              '+ Add More Staff',
+            )
           : null,
         h('div', { class: 'form-actions' }, [
           h(
             'button',
-            { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
+            {
+              class: props.mode === 'add' ? 'green-button' : 'blue-button',
+              type: 'button',
+              onClick: () => emit('save'),
+            },
             props.mode === 'add' ? 'Add' : 'Edit',
           ),
-          h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
+          h(
+            'button',
+            { class: 'red-button', type: 'button', onClick: () => emit('cancel') },
+            'Cancel',
+          ),
         ]),
       ])
   },
@@ -623,223 +715,252 @@ const StaffFormPanel = defineComponent({
 
 const ParkingSetupList = defineComponent({
   props: {
-    floors: {
-      type: Array as () => Floor[],
+    buildings: {
+      type: Array as () => ParkingBuilding[],
       required: true,
     },
+    floors: {
+      type: Array as () => ParkingFloor[],
+      required: true,
+    },
+    isLoading: { type: Boolean, required: true },
+    error: { type: String, required: true },
+    expandBuildingId: { type: String as () => string | null, default: null },
+    cameraSummaries: { type: Object as () => Record<string, CameraSummary>, required: true },
+    isLoadingCameras: { type: Boolean, required: true },
+    cameraError: { type: String, required: true },
   },
-  emits: ['add-building', 'add-floor', 'edit-floor'],
+  emits: [
+    'add-building',
+    'edit-building',
+    'delete-building',
+    'add-floor',
+    'edit-floor',
+    'delete-floor',
+    'view-cctv',
+    'reload-buildings',
+    'reload-cameras',
+  ],
   setup(props, { emit }) {
-    const isFloorExpanded = ref(false)
+    const expandedBuildingId = ref<string | null>(props.expandBuildingId)
+    const auth = useAuthStore()
+    const hasParkingMap = (floor: ParkingFloor) => {
+      if (
+        floor.parking_map &&
+        (floor.parking_map.slots.length ||
+          floor.parking_map.layout.shapes.length ||
+          floor.parking_map.layout.background)
+      )
+        return true
+      if (floor.parking_slot_file || floor.parking_slot_files?.length) return true
+      try {
+        const raw = localStorage.getItem(
+          `parking-map-preview:v1:${auth.user?._id || auth.user?.id}:${floor._id}`,
+        )
+        if (!raw) return false
+        const draft = restoreMapDraft(raw)
+        return draft.sourceName !== 'E4 sample' && draft.slots.length > 0
+      } catch {
+        return false
+      }
+    }
 
-    const renderFloorRow = (floor: Floor) =>
+    const renderFloorRow = (floor: ParkingFloor) =>
       h('article', { class: 'floor-row', key: floor._id }, [
         h('div', { class: 'floor-icon' }, [
-          floor.vehicleType === 'Motorcycle'
+          floor.veh_type === 'motorcycle'
             ? h(Bike, { class: 'h-11 w-11', strokeWidth: 2.5 })
             : h(CarFront, { class: 'h-11 w-11', strokeWidth: 2.5 }),
         ]),
         h('div', { class: 'setup-copy' }, [
-          h('p', `Floor : ${floor.floorNumber}      (${floor.vehicleType})`),
-          h('p', 'Date added : 19/3/2569'),
-          h('p', `Time added : ${floor.floorNumber === 3 ? '11:00:00' : '12:00:00'}`),
+          h(
+            'p',
+            `Floor : ${floor.floor}      (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+          ),
+          h('p', `Date Updated : ${floor.date_add}`),
+          h('p', `Time Updated : ${floor.time_add}`),
         ]),
         h('p', { class: 'floor-status' }, [
           'Status : ',
-          h('strong', { class: floor.status === 'Available' ? 'available' : 'disable' }, floor.status),
+          h(
+            'strong',
+            { class: floor.status === 'available' ? 'available' : 'disable' },
+            floor.status === 'available' ? 'Available' : 'Disable',
+          ),
         ]),
-        h('button', { class: 'map-link', type: 'button' }, [
-          h(Map, { class: 'h-10 w-10', strokeWidth: 2.5 }),
-          h('span', 'Parking Map'),
+        h('div', { class: 'floor-actions' }, [
+          h(
+            RouterLink,
+            {
+              class: ['floor-parking-map', { 'has-map': hasParkingMap(floor) }],
+              title: hasParkingMap(floor) ? 'Parking map available' : 'No parking map yet',
+              to: { name: 'AdminParkingMap', params: { floorId: floor._id } },
+              'aria-label': `Parking Map for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+            },
+            () => 'Parking Map',
+          ),
+          h(
+            'button',
+            {
+              class: 'edit-floor-button floor-cctv-button',
+              type: 'button',
+              'aria-label': `CCTV for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              onClick: () => emit('view-cctv', floor),
+            },
+            [h(Video, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'CCTV'],
+          ),
+          h(
+            'button',
+            {
+              class: 'edit-floor-button',
+              type: 'button',
+              'aria-label': `Edit floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              onClick: () => emit('edit-floor', floor),
+            },
+            [h(SquarePen, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Edit Floor'],
+          ),
+          h(
+            'button',
+            {
+              class: 'delete-building-button delete-floor-button',
+              type: 'button',
+              'aria-label': `Delete floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              onClick: () => emit('delete-floor', floor),
+            },
+            [h(Trash2, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Delete'],
+          ),
         ]),
-        h('button', { class: 'blue-button', type: 'button', onClick: () => emit('edit-floor') }, 'Edit'),
       ])
 
     return () =>
       h('div', { class: 'parking-setup-list' }, [
         h('div', { class: 'setup-actions' }, [
-          h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-building') }, '+ Add Building'),
-          h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-floor') }, '+ Add Floor'),
+          h(
+            'button',
+            { class: 'green-button', type: 'button', onClick: () => emit('add-building') },
+            '+ Add Building',
+          ),
+          h(
+            'button',
+            { class: 'green-button', type: 'button', onClick: () => emit('add-floor') },
+            '+ Add Floor',
+          ),
         ]),
-        h('article', { class: ['building-row', isFloorExpanded.value ? 'is-expanded' : ''] }, [
-          h('div', { class: 'building-photo' }),
-          h('div', { class: 'setup-copy' }, [
-            h('p', 'Building : E4'),
-            h('p', 'All Floor : 4'),
-            h('p', 'Last Date added : 19/3/2569'),
-            h('p', 'Last Time added : 12:00:00'),
-          ]),
-          h('button', { class: 'map-link view-floor-button', type: 'button', onClick: () => (isFloorExpanded.value = !isFloorExpanded.value) }, [
-            h(CircleArrowUp, { class: 'h-10 w-10', strokeWidth: 2.4 }),
-            h('span', isFloorExpanded.value ? 'Hide Floor' : 'View Floor'),
-          ]),
-          h('button', { class: 'blue-button', type: 'button', onClick: () => emit('add-building') }, 'Edit'),
-        ]),
-        isFloorExpanded.value
-          ? h('section', { class: 'floor-expansion-panel' }, [
-              h('div', { class: 'floor-expansion-header' }, [
-                h('strong', 'E4 Parking Floors'),
-                h('span', `${props.floors.length} floor configurations`),
-              ]),
-              props.floors.map(renderFloorRow),
+        props.isLoading ? h('p', 'Loading parking setup...') : null,
+        props.error
+          ? h('p', { class: 'building-list-error', role: 'alert' }, [
+              props.error,
+              h('button', { type: 'button', onClick: () => emit('reload-buildings') }, 'Retry'),
             ])
-          : h('p', { class: 'floor-collapsed-hint' }, 'Click View Floor to expand parking floors for building E4.'),
-      ])
-  },
-})
-
-const BuildingFormPanel = defineComponent({
-  props: {
-    mode: {
-      type: String as () => 'add' | 'edit',
-      required: true,
-    },
-  },
-  emits: ['save', 'cancel'],
-  setup(props, { emit }) {
-    return () =>
-      h('div', { class: 'overlay-card building-form' }, [
-        h('button', { class: 'close-x', type: 'button', onClick: () => emit('cancel') }, [
-          h(X, { class: 'h-7 w-7', strokeWidth: 3 }),
-        ]),
-        h('div', { class: 'building-photo large' }),
-        h('label', [h('span', 'Building Name'), h('input', { value: 'E4' })]),
-        h(
-          'button',
-          { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
-          'Confirm',
-        ),
-      ])
-  },
-})
-
-const FloorFormPanel = defineComponent({
-  props: {
-    mode: {
-      type: String as () => 'add' | 'edit',
-      required: true,
-    },
-  },
-  emits: ['save', 'cancel'],
-  setup(props, { emit }) {
-    return () =>
-      h('div', { class: 'overlay-card floor-form' }, [
-        h('button', { class: 'close-x', type: 'button', onClick: () => emit('cancel') }, [
-          h(X, { class: 'h-7 w-7', strokeWidth: 3 }),
-        ]),
-        props.mode === 'edit' ? h('h2', 'Floor : 3') : null,
-        props.mode === 'add'
-          ? h('label', [h('span', 'Building *'), h('select', [h('option', 'E4')])])
           : null,
-        props.mode === 'add' ? h('label', [h('span', 'Floor'), h('input', { value: '4' })]) : null,
-        props.mode === 'add'
-          ? h('label', [h('span', 'Vehicle*'), h('select', [h('option', 'Cars'), h('option', 'Motorcycle')])])
-          : h('label', [h('span', 'Status'), h('select', [h('option', 'Disable'), h('option', 'Available')])]),
-        h('p', { class: 'import-row' }, [h('button', { type: 'button' }, 'Import'), ' parking map']),
-        h(
-          'button',
-          { class: props.mode === 'add' ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
-          'Confirm',
-        ),
-      ])
-  },
-})
-
-const CCTVSetupList = defineComponent({
-  emits: ['add-cctv', 'edit-cctv'],
-  setup(_, { emit }) {
-    return () =>
-      h('div', { class: 'cctv-setup-list' }, [
-        h('div', { class: 'cctv-filter-row' }, [
-          h('button', { class: 'green-button', type: 'button', onClick: () => emit('add-cctv') }, '+ Add CCTV'),
-          h('label', [h('span', 'Building'), h('select', [h('option', 'E4')])]),
-          h('label', [h('span', 'Floor'), h('select', [h('option', '4')])]),
-          h('label', [h('span', 'Vehicle *'), h('select', [h('option', 'Cars')])]),
-        ]),
-        h('article', { class: 'cctv-row-card' }, [
-          h('div', { class: 'inline-camera-scene' }, [
-            h('span', { class: 'timestamp' }, '03-05-2026 Sun 00:38:45'),
-            h('span', { class: 'pillar one' }, 'B03'),
-            h('span', { class: 'pillar two' }, 'C03'),
-            h('span', { class: 'scene-car car-a' }),
-            h('span', { class: 'scene-car car-b' }),
-            h('span', { class: 'scene-car car-c' }),
-            h('span', { class: 'direction-arrow' }),
-            h('span', { class: 'plate' }, 'B-4CB5'),
-          ]),
-          h('div', { class: 'cctv-row-copy' }, [
-            h('p', 'CCTV Name :       Floor4 B6'),
-            h('p', 'IP Address : 172.28.113.103'),
-            h('p', 'RTSP Link :   rtsp://mfustream:mediamfu2025@172.28.109.31/Streaming/Channels/101'),
-            h('p', ['Status : ', h('strong', 'Online')]),
-            h('p', 'CCTV File :   cctvinfo2.json'),
-          ]),
-          h('button', { class: 'blue-button edit-camera', type: 'button', onClick: () => emit('edit-cctv') }, [
-            'Edit',
-            h('br'),
-            'Camera',
-          ]),
-        ]),
-      ])
-  },
-})
-
-const CCTVFormPanel = defineComponent({
-  props: {
-    mode: {
-      type: String as () => 'add' | 'edit',
-      required: true,
-    },
-  },
-  emits: ['save', 'cancel'],
-  setup(props, { emit }) {
-    const isAdd = props.mode === 'add'
-    return () =>
-      h('div', { class: 'cctv-form-panel' }, [
-        h('h2', isAdd ? 'Add CCTV' : 'Edit CCTV'),
-        h('div', { class: 'cctv-form-card' }, [
-          h('label', [h('span', 'CCTV File :'), h('select', [h('option', isAdd ? 'cctvinfo2.json' : 'cctv1.json')])]),
-          h('label', { class: 'search-field' }, [
-            h('span', 'Search Cam :'),
-            h('input', { placeholder: 'Camera name' }),
-            h(Search, { class: 'h-4 w-4', strokeWidth: 2.2 }),
-          ]),
-          isAdd
-            ? h('div', { class: 'inline-camera-scene form-scene' }, [
-                h('span', { class: 'timestamp' }, '03-05-2026 Sun 00:38:45'),
-                h('span', { class: 'pillar one' }, 'B03'),
-                h('span', { class: 'pillar two' }, 'C03'),
-                h('span', { class: 'scene-car car-a' }),
-                h('span', { class: 'scene-car car-b' }),
-                h('span', { class: 'scene-car car-c' }),
-                h('span', { class: 'direction-arrow' }),
-              ])
-            : h('div', { class: 'offline-scene' }, [h(VideoOff, { class: 'h-9 w-9', strokeWidth: 2.2 })]),
-          h('div', { class: 'cctv-fields' }, [
-            h('p', ['Create', h('br'), ' CCTV Name : ', h('input', { value: isAdd ? 'Floor4 B6' : 'Floor3 B6' })]),
-            h('p', [
-              'IP Address : ',
-              h('input', { value: isAdd ? '172.28.113.103' : '' }),
-              isAdd ? h(CheckCircle2, { class: 'ok-icon h-4 w-4', strokeWidth: 2.4 }) : h(X, { class: 'bad-icon h-4 w-4', strokeWidth: 3 }),
-            ]),
-            !isAdd ? h('small', 'IP Address doesn’t found') : null,
-            h('p', [
-              'RTSP Link : ',
-              h('input', { value: isAdd ? 'rtsp://mfustream:...' : '' }),
-              isAdd ? h(CheckCircle2, { class: 'ok-icon h-4 w-4', strokeWidth: 2.4 }) : h(X, { class: 'bad-icon h-4 w-4', strokeWidth: 3 }),
-            ]),
-            !isAdd ? h('small', 'RTSP Link doesn’t found') : null,
-            h('p', ['Status : ', h('strong', { class: isAdd ? 'online' : 'offline' }, isAdd ? 'Online' : 'Offline')]),
-          ]),
-          h('div', { class: 'form-actions' }, [
+        !props.isLoading && !props.error && !props.buildings.length
+          ? h('p', 'No buildings found. Add a building to get started.')
+          : null,
+        ...props.buildings.flatMap((building) => {
+          const buildingFloors = props.floors.filter(
+            (floor) => floor.building?._id === building._id,
+          )
+          const isExpanded = expandedBuildingId.value === building._id
+          return [
             h(
-              'button',
-              { class: isAdd ? 'green-button' : 'blue-button', type: 'button', onClick: () => emit('save') },
-              isAdd ? 'Confirm' : 'Edit',
+              'article',
+              { class: ['building-row', isExpanded ? 'is-expanded' : ''], key: building._id },
+              [
+                h(
+                  'div',
+                  { class: ['building-photo', !building.building_image ? 'is-placeholder' : ''] },
+                  building.building_image
+                    ? [
+                        h('img', {
+                          src: buildingService.imageUrl(building.building_image),
+                          alt: `${building.building_name} building`,
+                          loading: 'lazy',
+                        }),
+                      ]
+                    : [
+                        h(Building2, { 'aria-hidden': 'true', strokeWidth: 1.3 }),
+                        h('span', 'No building image'),
+                      ],
+                ),
+                h('div', { class: 'setup-copy' }, [
+                  h('p', `Building Name : ${building.building_name}`),
+                  h(
+                    'p',
+                    `All Floors : ${new Set(buildingFloors.map((floor) => floor.floor)).size}`,
+                  ),
+                  h('p', `Date Updated : ${building.date_add}`),
+                  h('p', `Time Updated : ${building.time_add}`),
+                ]),
+                h(BuildingCameraSummary, {
+                  summary: props.cameraSummaries[building._id],
+                  loading: props.isLoadingCameras,
+                  error: props.cameraError,
+                  onRetry: () => emit('reload-cameras'),
+                }),
+                h(
+                  'button',
+                  {
+                    class: 'map-link view-floor-button',
+                    type: 'button',
+                    'aria-label': `${isExpanded ? 'Hide' : 'View'} floors for ${building.building_name}`,
+                    'aria-expanded': isExpanded,
+                    'aria-controls': `building-floors-${building._id}`,
+                    onClick: () => {
+                      expandedBuildingId.value = isExpanded ? null : building._id
+                    },
+                  },
+                  [
+                    h(Menu, { class: 'h-10 w-10', strokeWidth: 1.8, 'aria-hidden': 'true' }),
+                    h('span', isExpanded ? 'Hide Floor' : 'View Floor'),
+                  ],
+                ),
+                h('div', { class: 'building-card-actions' }, [
+                  h(
+                    'button',
+                    {
+                      class: 'edit-building-button',
+                      type: 'button',
+                      'aria-label': `Edit ${building.building_name} building`,
+                      onClick: () => emit('edit-building', building),
+                    },
+                    [h(SquarePen, { class: 'h-4 w-4', 'aria-hidden': 'true' }), 'Edit'],
+                  ),
+                  h(
+                    'button',
+                    {
+                      class: 'delete-building-button',
+                      type: 'button',
+                      'aria-label': `Delete ${building.building_name} building`,
+                      onClick: () => emit('delete-building', building),
+                    },
+                    [h(Trash2, { class: 'h-5 w-5', strokeWidth: 2.2 })],
+                  ),
+                ]),
+              ],
             ),
-            h('button', { class: 'red-button', type: 'button', onClick: () => emit('cancel') }, 'Cancel'),
-          ]),
-        ]),
+            isExpanded
+              ? h(
+                  'section',
+                  {
+                    class: 'floor-expansion-panel',
+                    id: `building-floors-${building._id}`,
+                    'aria-label': `${building.building_name} Parking Floors`,
+                    key: `${building._id}-floors`,
+                  },
+                  [
+                    !buildingFloors.length
+                      ? h(
+                          'p',
+                          { class: 'empty-floor-message' },
+                          'No floors configured. Use + Add Floor to get started.',
+                        )
+                      : null,
+                    ...buildingFloors.map(renderFloorRow),
+                  ],
+                )
+              : null,
+          ]
+        }),
       ])
   },
 })
@@ -857,21 +978,13 @@ const CCTVFormPanel = defineComponent({
   margin-left: 138px;
 }
 
-.tabbar,
-.setup-tabs {
+.tabbar {
   height: 46px;
   background: #fff;
   display: flex;
   align-items: stretch;
   padding-left: 4px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
-}
-
-.setup-tabs {
-  height: 46px;
-  align-items: center;
-  padding-left: 10px;
-  gap: 10px;
 }
 
 .tab-button {
@@ -883,11 +996,6 @@ const CCTVFormPanel = defineComponent({
   font-size: 14px;
   font-weight: 700;
   margin-right: 8px;
-}
-
-.setup-tabs .tab-button {
-  width: 110px;
-  height: 35px;
 }
 
 .tab-button.is-active {
@@ -1414,83 +1522,361 @@ const CCTVFormPanel = defineComponent({
   gap: 14px;
 }
 
+.setup-workspace.cctv-list-workspace,
+.setup-workspace.cctv-add-workspace {
+  width: calc(100% - 48px);
+  max-width: 1192px;
+  min-height: calc(100vh - 174px);
+  margin: 24px auto 0;
+  padding: 16px;
+  border-radius: 6px;
+}
+
+.setup-workspace.parking-list-workspace {
+  width: 100%;
+  max-width: 1240px;
+  min-height: 585px;
+  margin: 0 auto;
+  padding: 22px 24px;
+  background: transparent;
+}
+
+.parking-setup-list .setup-actions {
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.parking-setup-list .setup-actions .green-button {
+  width: 136px;
+  height: 38px;
+  border-radius: 6px;
+  background: #20d653;
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.parking-setup-list .setup-actions .green-button + .green-button {
+  background: #fff;
+  border: 1px solid #ababab;
+}
+
 .building-row {
-  grid-template-columns: 80px 1fr 92px 90px;
-  min-height: 101px;
-  padding: 12px 10px 12px 15px;
+  position: relative;
+  grid-template-columns: 190px minmax(210px, 1fr) minmax(220px, 0.9fr) 100px;
+  grid-template-areas: 'photo details cameras toggle';
+  min-height: 170px;
+  padding: 16px 20px;
+  gap: 22px;
+  border: 2px solid #2828ff;
+  border-radius: 10px;
+  margin-top: 12px;
+}
+
+.setup-actions + .building-row {
+  margin-top: 0;
+}
+
+.building-row .building-photo {
+  grid-area: photo;
+}
+.building-row .building-camera-summary {
+  grid-area: cameras;
+}
+.building-row .view-floor-button {
+  grid-area: toggle;
+}
+
+.building-row .setup-copy {
+  grid-area: details;
+  gap: 7px;
+}
+
+.building-row .setup-copy p {
+  font-size: 16px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.building-card-actions {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.edit-building-button,
+.delete-building-button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #555;
+  font-size: 13px;
+}
+
+.delete-building-button {
+  width: 34px;
+  color: #b42318;
+}
+
+.delete-building-button:hover {
+  background: #feeceb;
+}
+
+.edit-building-button:hover {
+  background: #f0f0f0;
+}
+
+.parking-setup-list button:focus-visible {
+  outline: 3px solid #2356d8;
+  outline-offset: 3px;
+}
+
+.building-delete-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.building-delete-dialog {
+  width: min(420px, 100%);
+  border-radius: 8px;
+  background: #fff;
+  padding: 24px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
+}
+
+.building-delete-dialog h2 {
+  margin-bottom: 10px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.building-delete-dialog p {
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.building-delete-error {
+  color: #b42318;
+}
+
+.building-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.building-delete-actions button {
+  min-width: 84px;
+  min-height: 36px;
+  border-radius: 5px;
 }
 
 .building-row.is-expanded {
-  border: 2px solid rgba(20, 156, 240, 0.35);
-  box-shadow: 0 4px 12px rgba(20, 156, 240, 0.2);
+  border-color: #1919ff;
 }
 
 .view-floor-button {
-  border-radius: 6px;
-  padding: 4px;
-}
-
-.view-floor-button:hover {
-  background: #edf7ff;
+  justify-self: center;
+  align-self: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
 }
 
 .view-floor-button svg {
-  transition: transform 0.18s ease;
+  width: 44px;
+  height: 34px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: #999;
+  background: #dedede;
 }
 
-.building-row.is-expanded .view-floor-button svg {
-  transform: rotate(180deg);
-}
-
-.floor-expansion-panel {
-  margin-top: 10px;
-  border-radius: 8px;
-  background: #f6f6f6;
-  border: 1px solid #d7d7d7;
-  padding: 12px;
-}
-
-.floor-expansion-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  min-height: 34px;
-  margin-bottom: 10px;
-  padding: 0 8px;
-}
-
-.floor-expansion-header strong {
-  color: #111;
-  font-size: 15px;
-}
-
-.floor-expansion-header span,
-.floor-collapsed-hint {
-  color: #777;
+.view-floor-button span {
+  color: #666;
   font-size: 12px;
 }
 
-.floor-collapsed-hint {
-  margin-top: 10px;
-  border-radius: 6px;
-  background: #f8f8f8;
-  border: 1px dashed #c9c9c9;
-  padding: 12px 14px;
+.view-floor-button:hover,
+.view-floor-button[aria-expanded='true']:hover {
+  background: #f0f0ff;
+}
+
+.floor-expansion-panel {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.empty-floor-message {
+  padding: 24px;
+  border-radius: 10px;
+  background: #fff;
+  color: #666;
+  font-size: 14px;
 }
 
 .floor-row {
-  grid-template-columns: 72px 1fr 170px 96px 90px;
-  min-height: 86px;
-  padding: 10px 10px 10px 22px;
+  grid-template-columns: 46px minmax(140px, 1fr) 90px minmax(0, auto);
+  min-height: 100px;
+  padding: 12px 20px;
+  gap: 18px;
+  border: 1px solid #ddd;
+  border-radius: 11px;
+}
+
+.floor-row .setup-copy {
+  gap: 4px;
+}
+
+.floor-row .setup-copy p,
+.floor-row .floor-status {
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.floor-row .floor-icon svg {
+  width: 46px;
+  height: 46px;
+  stroke-width: 2;
+  color: #909090;
+}
+
+.floor-row .floor-status {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+}
+
+.floor-row .floor-status strong {
+  padding: 4px 15px;
+  border-radius: 20px;
+  background: #ededed;
+  font-size: 14px;
+}
+
+.floor-row .floor-status .available {
+  color: #16723b;
+  background: #e5f5e9;
+}
+
+.floor-row .floor-status .disable {
+  color: #686868;
+}
+
+.floor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.floor-actions .delete-floor-button {
+  display: inline-flex;
+  width: auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #cf4647;
+  border-radius: 10px;
+}
+
+.floor-parking-map.has-map {
+  border-color: #219653;
+  background: #e5f5e9;
+  color: #16723b;
+}
+
+.floor-parking-map.has-map:hover {
+  background: #d0edd8;
+}
+
+.floor-parking-map {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #cf4647;
+  border-radius: 10px;
+  background: #fff1f1;
+  color: #a52f30;
+  text-align: center;
+  font-size: 14px;
+}
+
+.floor-parking-map:hover {
+  background: #ffe1e1;
+}
+
+.edit-floor-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #333;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.edit-floor-button:hover {
+  background: #f3f3f3;
 }
 
 .building-photo {
-  width: 80px;
-  height: 59px;
-  border-radius: 3px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent 42%),
-    linear-gradient(90deg, #6b4b3d 0 22%, #b9886a 23% 43%, #78412f 44% 70%, #c2c7be 71% 100%);
+  width: 100%;
+  height: 136px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #efefef;
+}
+
+.building-photo.is-placeholder {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  border: 1px solid #dedede;
+  color: #888;
+  font-size: 13px;
+}
+
+.building-photo.is-placeholder svg {
+  width: 44px;
+  height: 44px;
+}
+
+.building-photo img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.building-list-error {
+  color: #b42318;
+}
+
+.building-list-error button {
+  margin-left: 10px;
+  text-decoration: underline;
 }
 
 .building-photo.large {
@@ -1639,8 +2025,7 @@ const CCTVFormPanel = defineComponent({
   inset: 44% -10% 0;
   background:
     linear-gradient(95deg, transparent 0 32%, rgba(255, 255, 255, 0.18) 33% 34%, transparent 35%),
-    radial-gradient(ellipse at 50% 0, rgba(255, 255, 255, 0.18), transparent 55%),
-    #676b66;
+    radial-gradient(ellipse at 50% 0, rgba(255, 255, 255, 0.18), transparent 55%), #676b66;
   transform: perspective(220px) rotateX(45deg);
   transform-origin: top;
 }
@@ -1866,8 +2251,6 @@ const CCTVFormPanel = defineComponent({
 
   .staff-list-header,
   .staff-card,
-  .building-row,
-  .floor-row,
   .cctv-row-card,
   .log-card {
     grid-template-columns: 1fr;
@@ -1877,6 +2260,416 @@ const CCTVFormPanel = defineComponent({
   .setup-workspace,
   .staff-form-panel {
     width: calc(100vw - 150px);
+  }
+}
+@media (max-width: 1100px) {
+  .building-row {
+    grid-template-columns: 160px minmax(0, 1fr) 90px;
+    grid-template-areas: 'photo details toggle' 'photo cameras toggle';
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .building-row .setup-copy p {
+    font-size: 16px;
+  }
+
+  .floor-row {
+    grid-template-columns: 46px minmax(120px, 1fr) 85px minmax(0, auto);
+    gap: 16px;
+    padding: 12px 16px;
+  }
+
+  .floor-row .setup-copy p,
+  .floor-row .floor-status {
+    font-size: 14px;
+  }
+
+  .edit-floor-button {
+    padding: 8px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 760px) {
+  .setup-workspace.cctv-list-workspace,
+  .setup-workspace.cctv-add-workspace {
+    width: calc(100% - 24px);
+    margin-top: 16px;
+    padding: 12px;
+  }
+
+  .setup-workspace.parking-list-workspace {
+    width: auto;
+    padding: 18px 14px;
+  }
+
+  .building-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'photo' 'details' 'cameras' 'toggle';
+    padding: 16px 16px 58px;
+    gap: 12px 10px;
+  }
+
+  .building-row .view-floor-button {
+    justify-self: start;
+    display: flex;
+  }
+
+  .building-row .building-photo {
+    grid-column: 1 / -1;
+    height: 136px;
+    max-width: 240px;
+  }
+
+  .building-row .setup-copy p {
+    font-size: 16px;
+  }
+
+  .floor-row {
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .floor-row .floor-icon svg {
+    width: 44px;
+    height: 44px;
+  }
+
+  .floor-row .floor-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .floor-row .floor-status,
+  .floor-row .floor-parking-map,
+  .floor-row .edit-floor-button {
+    grid-column: 2;
+  }
+
+  .floor-row .floor-status {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .floor-row .edit-floor-button {
+    justify-self: start;
+  }
+
+  .parking-setup-list .setup-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 980px) {
+  .setup-workspace.parking-list-workspace {
+    width: auto;
+    padding: 20px 18px;
+  }
+}
+
+/* Staff management follows the shared white-card layout. */
+.staff-manager-section {
+  padding: 24px 30px 28px;
+}
+.staff-manager-section .staff-list-panel,
+.staff-manager-section .staff-form-panel {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 5px #00000005;
+  overflow: hidden;
+}
+.staff-manager-section .staff-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  padding: 22px 24px;
+  border-bottom: 1px solid #edf0f4;
+}
+.staff-manager-section .staff-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.staff-manager-section .staff-heading-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #fdf0ef;
+  color: #a52f30;
+}
+.staff-manager-section .staff-list-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: left;
+}
+.staff-manager-section .staff-list-header p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+.staff-manager-section .add-staff-button {
+  width: auto;
+  height: 40px;
+  padding: 0 16px;
+  gap: 8px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: #16a36a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+  cursor: pointer;
+}
+.staff-manager-section .add-staff-button:hover {
+  background: #128557;
+}
+.staff-manager-section .staff-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 24px;
+  background: #fafbfc;
+  border-bottom: 1px solid #edf0f4;
+}
+.staff-list-toolbar h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.staff-list-toolbar p {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.staff-count {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 12px;
+  background: #e9edf2;
+  font-size: 12px;
+  color: #475569;
+}
+.staff-manager-section .staff-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 390px;
+  gap: 12px;
+  padding: 40px 24px;
+  text-align: center;
+}
+.staff-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  background: #fdf0ef;
+  color: #b1443d;
+}
+.staff-manager-section .staff-empty h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  color: #334155;
+}
+.staff-manager-section .staff-empty p {
+  max-width: 360px;
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #64748b;
+}
+.staff-manager-section .staff-card {
+  margin: 16px 24px;
+  padding: 20px;
+  gap: 20px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.staff-manager-section .staff-copy {
+  min-width: 0;
+  gap: 7px;
+}
+.staff-manager-section .staff-copy p {
+  color: #475569;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.staff-manager-section .staff-copy p:first-child {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.staff-manager-section .profile-icon {
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+.staff-manager-section .row-actions {
+  gap: 8px;
+}
+.staff-manager-section .row-actions > button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #64748b;
+}
+.staff-manager-section .row-actions > button:hover:not(:disabled) {
+  background: #f8fafc;
+  color: #a52f30;
+}
+.staff-manager-section .staff-form-panel {
+  min-height: 0;
+  padding: 24px;
+}
+.staff-manager-section .staff-form-panel h2 {
+  margin: 4px 0 28px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.staff-manager-section .form-back-button {
+  box-shadow: none;
+  border: 1px solid #e2e8f0;
+}
+.staff-manager-section .staff-form-card,
+.staff-manager-section .staff-form-panel.edit .staff-form-card {
+  min-height: 0;
+  padding: 24px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: none;
+  background: #fafbfc;
+}
+.staff-manager-section .staff-form-fields {
+  width: min(520px, 100%);
+  gap: 16px;
+}
+.staff-manager-section .staff-form-fields label {
+  grid-template-columns: 150px minmax(0, 1fr) 24px;
+  gap: 10px;
+  font-size: 13px;
+  color: #475569;
+}
+.staff-manager-section .staff-form-fields input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  text-align: left;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+}
+.staff-manager-section .staff-form-fields input:focus {
+  border-color: #a52f30;
+  box-shadow: 0 0 0 2px #a52f3015;
+}
+.staff-manager-section .add-more-row {
+  height: 42px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  box-shadow: none;
+  background: #fff;
+  color: #64748b;
+}
+.staff-manager-section .form-actions {
+  position: static;
+  justify-content: flex-end;
+  margin-top: 24px;
+  gap: 10px;
+}
+.staff-manager-section .form-actions button {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.staff-manager-section .form-actions .green-button {
+  background: #16a36a;
+  color: #fff;
+}
+.staff-manager-section .form-actions .red-button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+}
+.staff-manager-section button:focus-visible {
+  outline: 2px solid #a52f30;
+  outline-offset: 3px;
+}
+@media (max-width: 800px) {
+  .staff-manager-section {
+    padding: 16px;
+  }
+  .staff-manager-section .staff-list-header {
+    padding: 18px;
+  }
+  .staff-manager-section .staff-list-toolbar {
+    padding: 14px 18px;
+  }
+  .staff-manager-section .staff-card {
+    margin: 14px;
+    grid-template-columns: 48px minmax(0, 1fr);
+    padding: 16px;
+    gap: 14px;
+  }
+  .staff-manager-section .staff-card .profile-icon {
+    width: 46px;
+    height: 46px;
+  }
+  .staff-manager-section .staff-card .row-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .staff-manager-section .staff-form-panel {
+    padding: 18px;
+  }
+  .staff-manager-section .staff-form-card {
+    padding: 20px 14px;
+  }
+  .staff-manager-section .staff-form-fields label {
+    grid-template-columns: minmax(0, 1fr) 24px;
+    gap: 8px;
+  }
+  .staff-manager-section .staff-form-fields label > span {
+    grid-column: 1 / -1;
   }
 }
 </style>
