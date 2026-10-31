@@ -1,3 +1,5 @@
 python/.venv/
 python/__pycache__/
 *.py[cod]
+python.rar
+*.rar

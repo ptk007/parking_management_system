@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+logs/*
+results/*
+!logs/.gitkeep
+!results/.gitkeep
+cctv/parking-cam/selection.json
+cctv/parking-cam/active.json

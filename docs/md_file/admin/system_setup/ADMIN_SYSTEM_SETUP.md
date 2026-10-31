@@ -155,20 +155,18 @@ Base path: `/api/admin/system`
 
 ## Database Schema
 
-### `parking_zones` Collection
+### `parking_building` Collection
 Stores parking zone metadata and map references.
 
 **Example document:**
 ```json
 {
-  "_id": 1,
+  "_id":
   "building": "E4",
-  "floor": "1",
-  "veh_type": "car",
+  "parking_status": "Active",
+  "building_image": "images/parking_building/E4.jpg"
   "date_add": "2026-06-29",
   "time_add": "11:00:00",
-  "parking_status": "Active",
-  "park_map": "storage/maps/e4_floor1_map.png"
 }
 ```
 
@@ -194,7 +192,7 @@ Stores camera configuration for admin setup.
 ```
 
 ### Recommended validation and indexes
-- `parking_zones`: index on `building`, `floor`, `veh_type`
+- `parking_building`: index on `building`, `floor`, `veh_type`
 - `parking_cctv`: index on `status`, `building`, `floor`
 - ensure `park_map` references valid file paths or URLs
 
@@ -213,7 +211,7 @@ Stores camera configuration for admin setup.
 - Start local server with `npm run dev`
 
 ### Database
-- Use MongoDB collections for `parking_zones` and `parking_cctv`
+- Use MongoDB collections for `parking_building` and `parking_cctv`
 - Seed example documents using the provided JSON
 
 ---

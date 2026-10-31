@@ -8,7 +8,7 @@ export interface StaffMember {
   password: string
   dateAdded: string
   timeAdded: string
-  status: 'Online' | 'Offline' | 'Disable'
+  status: 'Online' | 'Offline' | 'Disable' | 'Logging in'
 }
 
 export interface Building {
@@ -47,35 +47,7 @@ export const useAdminStore = defineStore('admin', () => {
   const activeTab = ref('slots')
 
   // Staff Management
-  const staffList = ref<StaffMember[]>([
-    {
-      _id: '1',
-      staffName: 'Thanathip Pitaksin',
-      username: 'Thanathip',
-      password: '••••••••••',
-      dateAdded: '11/3/2569',
-      timeAdded: '14:00:00',
-      status: 'Online',
-    },
-    {
-      _id: '2',
-      staffName: 'Atithan Sarapol',
-      username: 'Atithan',
-      password: '••••••••••',
-      dateAdded: '18/3/2569',
-      timeAdded: '12:00:00',
-      status: 'Offline',
-    },
-    {
-      _id: '3',
-      staffName: 'Panuwat Panan',
-      username: 'Atithan',
-      password: '••••••••••',
-      dateAdded: '19/3/2569',
-      timeAdded: '12:00:00',
-      status: 'Disable',
-    },
-  ])
+  const staffList = ref<StaffMember[]>([])
 
   // Buildings
   const buildings = ref<Building[]>([
