@@ -769,7 +769,8 @@ watch(
   min-height: 82px;
   border-radius: 8px;
   background: #fff;
-  box-shadow: 0 4px 9px rgba(0, 0, 0, 0.16);
+  border: 1px solid #111;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
   display: grid;
   grid-template-columns: 44px 1fr auto;
   align-items: center;

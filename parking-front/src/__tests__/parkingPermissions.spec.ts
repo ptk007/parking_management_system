@@ -56,10 +56,11 @@ async function createDashboard(role?: UserRole | 'guest') {
   return { wrapper, auth }
 }
 async function selectLocation(wrapper: VueWrapper, building = 'b1', floor = '4', vehicle = 'car') {
-  const inputs = wrapper.findAll('.filter-overlay select')
-  await inputs[0]!.setValue(building)
-  await inputs[1]!.setValue(floor)
-  await inputs[2]!.setValue(vehicle)
+  if (!wrapper.find('.filter-overlay').exists())
+    await wrapper.get('[aria-controls="map-filters"]').trigger('click')
+  await wrapper.findAll('.filter-overlay select')[0]!.setValue(building)
+  await wrapper.findAll('.filter-overlay select')[1]!.setValue(floor)
+  await wrapper.findAll('.filter-overlay select')[2]!.setValue(vehicle)
 }
 beforeEach(() => {
   vi.resetAllMocks()
@@ -106,18 +107,63 @@ describe('dashboard parking locations and permissions', () => {
   })
   it('shows the default page until all inputs are selected and reads the saved map totals', async () => {
     const { wrapper } = await createDashboard('user')
+    expect(wrapper.find('.filter-overlay').exists()).toBe(false)
     expect(wrapper.text()).toContain('Select a parking location')
+    expect(wrapper.text()).not.toContain('Select Building, Floor and Vehicle to view the parking map.')
     expect(wrapper.get('.stat-card strong').text()).toBe('0')
-    await wrapper.findAll('select')[0]!.setValue('b1')
+    await wrapper.get('[aria-controls="map-filters"]').trigger('click')
+    expect(wrapper.findAll('.filter-overlay select')).toHaveLength(1)
+    await wrapper.findAll('.filter-overlay select')[0]!.setValue('b1')
+    expect(wrapper.findAll('.filter-overlay select')).toHaveLength(2)
     expect(wrapper.find('[data-slot]').exists()).toBe(false)
-    await wrapper.findAll('select')[1]!.setValue('4')
+    await wrapper.findAll('.filter-overlay select')[1]!.setValue('4')
+    expect(wrapper.findAll('.filter-overlay select')).toHaveLength(3)
     expect(wrapper.find('[data-slot]').exists()).toBe(false)
-    await wrapper.findAll('select')[2]!.setValue('car')
+    await wrapper.findAll('.filter-overlay select')[2]!.setValue('car')
     expect(wrapper.findAll('[data-slot]')).toHaveLength(2)
     expect(wrapper.get('.stat-card strong').text()).toBe('2')
     await wrapper.get('[aria-controls="map-filters"]').trigger('click')
     expect(wrapper.find('.filter-overlay').exists()).toBe(false)
     expect(wrapper.get('.location').text()).toBe('E4 / Floor 4 / Cars')
+  })
+  it('keeps the location selector available above the CCTV and Log tabs', async () => {
+    const { wrapper } = await createDashboard('staff')
+    await wrapper.findAll('.tab-button').find((button) => button.text() === 'CCTV')!.trigger('click')
+    expect(wrapper.get('.dashboard-map').classes()).toContain('header-only')
+    await wrapper.get('[aria-controls="map-filters"]').trigger('click')
+    expect(wrapper.find('.filter-overlay.inline').exists()).toBe(true)
+    await wrapper.findAll('.filter-overlay select')[0]!.setValue('b1')
+    await wrapper.findAll('.filter-overlay select')[1]!.setValue('4')
+    await wrapper.findAll('.filter-overlay select')[2]!.setValue('car')
+    expect(wrapper.get('.location').text()).toBe('E4 / Floor 4 / Cars')
+    await wrapper.findAll('.tab-button').find((button) => button.text() === 'Log')!.trigger('click')
+    expect(wrapper.get('.dashboard-map').classes()).toContain('header-only')
+    expect(wrapper.find('.filter-overlay.inline').exists()).toBe(true)
+  })
+  it('shows the persisted editor zoom in the dashboard and blocks viewer zoom controls', async () => {
+    const zoomFloor = {
+      ...floors[0],
+      parking_map: { ...map, layout: { ...emptyParkingLayout(), zoom: 175 } },
+    }
+    vi.mocked(floorService.catalog).mockResolvedValueOnce({
+      data: { floors: [zoomFloor] },
+    } as never)
+    const { wrapper } = await createDashboard('user')
+    await selectLocation(wrapper)
+    expect(wrapper.get('.zoom-tools').text()).toContain('175%')
+    expect(wrapper.get<HTMLButtonElement>('[aria-label="Zoom in"]').element.disabled).toBe(true)
+  })
+  it('shows the unavailable message for a disabled floor', async () => {
+    vi.mocked(floorService.catalog).mockResolvedValueOnce({
+      data: { floors: [{ ...floors[0], status: 'disable' }] },
+    } as never)
+    const { wrapper } = await createDashboard('user')
+    await selectLocation(wrapper)
+    expect(wrapper.get('.map-empty').text()).toContain('Parking is not available for now!')
+    expect(wrapper.find('[data-slot]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(
+      'Select Building, Floor and Vehicle to view the parking map.',
+    )
   })
   it('shows zero for an unconfigured map and resets dependent inputs when building changes', async () => {
     const { wrapper } = await createDashboard('admin')

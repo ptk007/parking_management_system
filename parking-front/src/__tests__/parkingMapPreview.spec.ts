@@ -8,13 +8,16 @@ import { useAuthStore } from '@/stores/auth'
 import { emptyParkingLayout } from '@/components/parking/parkingLayout'
 import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
 
-vi.mock('@/services/api', () => ({ floorService: { list: vi.fn(), saveMap: vi.fn() } }))
+vi.mock('@/services/api', () => ({
+  floorService: { list: vi.fn(), saveMap: vi.fn(), update: vi.fn() },
+}))
 const wrappers: VueWrapper[] = []
 const floors = ['floor-one', 'floor-two'].map((_id, index) => ({
   _id,
   floor: index,
   veh_type: 'car',
-  building: { building_name: `Building ${index}` },
+  building: { _id: `building-${index}`, building_name: `Building ${index}` },
+  status: 'disable',
 }))
 const mapSlots = [
   { number: 1, name: 'camera_slot_01', zone: 'default', status: 'disabled' },
@@ -49,7 +52,11 @@ async function createPage(seed = true) {
     history: createMemoryHistory(),
     routes: [
       { path: '/floor/:floorId', component: ParkingMapView },
-      { path: '/admin/setup', component: { template: '<div>Setup</div>' } },
+      {
+        path: '/admin/setup',
+        name: 'AdminSetup',
+        component: { template: '<div>Setup</div>' },
+      },
     ],
   })
   await router.push('/floor/floor-one')
@@ -68,6 +75,9 @@ beforeEach(() => {
   vi.resetAllMocks()
   localStorage.clear()
   vi.mocked(floorService.saveMap).mockResolvedValue({} as never)
+  vi.mocked(floorService.update).mockImplementation(async (_id, data) => ({
+    data: { floor: { ...floors[0], ...data } },
+  }) as never)
   vi.mocked(floorService.list).mockResolvedValue({ data: { floors } } as never)
 })
 afterEach(() => {
@@ -82,6 +92,12 @@ describe('Parking Map workspace', () => {
     expect(wrapper.get('.floor-context').text()).toContain('Building 0 / Floor 0 / Cars')
     expect(wrapper.find('.zone-tabs').exists()).toBe(false)
     expect(wrapper.text()).toContain('Parking Preview')
+    expect(wrapper.find('.details-panel').exists()).toBe(false)
+    await select(wrapper, 1)
+    expect(wrapper.find('.details-panel').exists()).toBe(true)
+    await wrapper.get('[data-slot="1"]').trigger('keydown', { key: 'Enter', shiftKey: true })
+    expect(wrapper.find('.details-panel').exists()).toBe(false)
+    await select(wrapper, 1)
     const positions = wrapper
       .findAll('[data-layout-slot]')
       .map((item) => item.attributes('transform'))
@@ -93,6 +109,29 @@ describe('Parking Map workspace', () => {
     await wrapper.get('input[type="search"]').setValue('camera_slot_02')
     expect(wrapper.get('[data-slot="2"]').attributes('opacity')).toBe('1')
     expect(wrapper.get('[data-slot="1"]').attributes('opacity')).toBe('0.18')
+  })
+  it('updates floor status from the controls beside the Parking Map title', async () => {
+    const { wrapper } = await createPage()
+    const available = wrapper.get<HTMLButtonElement>('.floor-status-button.available')
+    const disable = wrapper.get<HTMLButtonElement>('.floor-status-button.disable')
+
+    expect(available.text()).toBe('Available')
+    expect(disable.text()).toBe('Disable')
+    expect(disable.attributes('aria-pressed')).toBe('true')
+    await available.trigger('click')
+    await flushPromises()
+
+    expect(floorService.update).toHaveBeenCalledWith(
+      'floor-one',
+      expect.objectContaining({
+        building: 'building-0',
+        floor: 0,
+        veh_type: 'car',
+        status: 'available',
+      }),
+    )
+    expect(available.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll<HTMLButtonElement>('.view-mode button')[1]!.element.disabled).toBe(true)
   })
   it('keeps occupied slots read-only and renames editable map labels without changing identity or position', async () => {
     const { wrapper } = await createPage()
@@ -133,6 +172,26 @@ describe('Parking Map workspace', () => {
     await editor(wrapper)
     expect(wrapper.get<HTMLInputElement>('input[role="switch"]').element.checked).toBe(false)
     expect(wrapper.get('[data-slot="1"]').classes()).toContain('available')
+  })
+  it('saves the chosen zoom manually when autosave is off', async () => {
+    const { wrapper } = await createPage()
+    await editor(wrapper)
+    await wrapper.get('input[role="switch"]').setValue(false)
+    await wrapper.get('[aria-label="Zoom in"]').trigger('click')
+    expect(wrapper.get('.zoom-tools').text()).toContain('125%')
+    expect(floorService.saveMap).not.toHaveBeenCalled()
+    const saveButton = wrapper.get<HTMLButtonElement>('.save-controls button')
+    expect(saveButton.element.disabled).toBe(false)
+    await saveButton.trigger('click')
+    await flushPromises()
+    expect(JSON.parse(localStorage.getItem(key())!).layout.zoom).toBe(125)
+    expect(floorService.saveMap).toHaveBeenCalledWith(
+      'floor-one',
+      expect.objectContaining({
+        layout: expect.objectContaining({ zoom: 125 }),
+      }),
+    )
+    expect(wrapper.get('.save-controls [role="status"]').text()).toContain('Map saved')
   })
   it('restores a map after deleting every slot and does not invent a sample for a new floor', async () => {
     const { wrapper } = await createPage(false)

@@ -6,12 +6,49 @@
       /></RouterLink>
       <div>
         <p class="eyebrow">PARKING SETUP</p>
-        <h1>Parking Map</h1>
+        <div class="title-row">
+          <h1>Parking Map</h1>
+          <div
+            v-if="auth.isAdmin && floor"
+            class="floor-status-control"
+            role="group"
+            aria-label="Floor status"
+          >
+            <button
+              type="button"
+              :class="['floor-status-button', 'available', { active: floor.status === 'available' }]"
+              :aria-pressed="floor.status === 'available'"
+              :disabled="updatingFloorStatus"
+              @click="setFloorStatus('available')"
+            >
+              Available
+            </button>
+            <button
+              type="button"
+              :class="['floor-status-button', 'disable', { active: floor.status === 'disable' }]"
+              :aria-pressed="floor.status === 'disable'"
+              :disabled="updatingFloorStatus"
+              @click="setFloorStatus('disable')"
+            >
+              Disable
+            </button>
+          </div>
+        </div>
+        <p v-if="floorStatusError" class="floor-status-error" role="alert">
+          {{ floorStatusError }}
+        </p>
         <p v-if="floor" class="floor-context">
           {{ floor.building?.building_name || 'Building' }} / Floor {{ floor.floor }} /
           {{ floor.veh_type === 'car' ? 'Cars' : 'Motorcycles' }}
         </p>
       </div>
+      <RouterLink
+        v-if="floor"
+        class="cctv-link"
+        :to="{ name: 'AdminSetup', query: { cctvFloorId: floor._id } }"
+      >
+        <Video :size="17" /> Go to CCTV <ArrowRight :size="17" />
+      </RouterLink>
       <span class="local-badge"
         ><HardDrive :size="15" /> {{ dirty ? 'Unsaved changes' : 'Saved map' }}</span
       >
@@ -126,7 +163,7 @@
             :model-value="layout"
             :readonly="viewMode !== 'layout' || !canEditLayout"
             :autosave="autosave"
-            :dirty="dirty"
+            :saving="saving"
             :save-message="saveMessage"
             :save-failed="storageError"
             :visible-keys="visibleKeys"
@@ -137,7 +174,11 @@
             @save="persistDraft"
           />
         </section>
-        <aside class="details-panel" aria-label="Slot details and actions">
+        <aside
+          v-if="selectedSlots.length > 0"
+          class="details-panel"
+          aria-label="Slot details and actions"
+        >
           <div class="details-heading">
             <h2>Slot details</h2>
             <span>{{ selectedSlots.length }} selected</span>
@@ -193,10 +234,6 @@
               </p>
             </div>
           </template>
-          <div v-else class="inspector-empty">
-            <MousePointer2 :size="32" /><strong>Select a parking slot</strong>
-            <p>Open Layout editor to create slots, move them or change their names.</p>
-          </div>
           <div class="detail-body selection-section">
             <h3>{{ selectedSlots.length }} parking slots selected</h3>
             <p>Shift-click slots to select more than one.</p>
@@ -251,6 +288,7 @@ import {
 } from 'vue-router'
 import {
   ArrowLeft,
+  ArrowRight,
   Ban,
   CheckCircle2,
   Download,
@@ -258,13 +296,14 @@ import {
   HardDrive,
   LayoutGrid,
   LockKeyhole,
-  MousePointer2,
   ParkingSquare,
   PencilRuler,
   Search,
   Upload,
+  Video,
 } from 'lucide-vue-next'
-import { floorService, type ParkingFloor } from '@/services/api'
+import { isAxiosError } from 'axios'
+import { floorService, type ParkingFloor, type ParkingFloorPayload } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import ParkingLayoutEditor from '@/components/parking/ParkingLayoutEditor.vue'
 import {
@@ -306,6 +345,9 @@ const selected = ref(new Set<string>()),
   renameError = ref('')
 const autosave = ref(true),
   dirty = ref(false),
+  saving = ref(false),
+  updatingFloorStatus = ref(false),
+  floorStatusError = ref(''),
   saveMessage = ref('No unsaved changes'),
   storageError = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null),
@@ -465,7 +507,8 @@ function updateMap(next: ParkingMapState) {
   changed()
 }
 let saveQueue: Promise<unknown> = Promise.resolve()
-let saveRevision = 0
+let saveRevision = 0,
+  activeSaves = 0
 async function persistDraft(): Promise<boolean> {
   if (!auth.isAdmin || !floor.value || loading.value || importing.value) return false
   const floorId = floor.value._id,
@@ -485,6 +528,8 @@ async function persistDraft(): Promise<boolean> {
     /* Server save remains available. */
   }
   saveMessage.value = 'Saving map...'
+  activeSaves += 1
+  saving.value = true
   const save = saveQueue.catch(() => {}).then(() => floorService.saveMap(floorId, content))
   saveQueue = save
   try {
@@ -507,6 +552,9 @@ async function persistDraft(): Promise<boolean> {
       saveMessage.value = 'Could not save to server. Retry Save now or export your map.'
     }
     return false
+  } finally {
+    activeSaves -= 1
+    saving.value = activeSaves > 0
   }
 }
 
@@ -531,6 +579,35 @@ function setStatus(status: 'available' | 'disabled') {
     selected.value.has(slotKey(slot)) && isEditableSlot(slot) ? { ...slot, status } : slot,
   )
   changed()
+}
+async function setFloorStatus(status: ParkingFloor['status']) {
+  const currentFloor = floor.value
+  if (!auth.isAdmin || !currentFloor || updatingFloorStatus.value || currentFloor.status === status)
+    return
+
+  updatingFloorStatus.value = true
+  floorStatusError.value = ''
+  try {
+    if (status === 'available' && dirty.value && !(await persistDraft()))
+      throw new Error('Save map changes before making this floor available.')
+
+    const data: ParkingFloorPayload = {
+      building: currentFloor.building?._id || '',
+      floor: currentFloor.floor,
+      veh_type: currentFloor.veh_type,
+      status,
+    }
+    const response = await floorService.update(currentFloor._id, data)
+    floor.value = response.data.floor || { ...currentFloor, status }
+  } catch (cause) {
+    floorStatusError.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Unable to update floor status.'
+      : cause instanceof Error
+        ? cause.message
+        : 'Unable to update floor status.'
+  } finally {
+    updatingFloorStatus.value = false
+  }
 }
 function renameSlot() {
   const slot = inspectedSlot.value,
@@ -688,7 +765,7 @@ button:disabled {
 }
 .primary {
   background: #29374d;
-  border-color: #29374d;
+  border-color: #000;
   color: white;
 }
 .primary:hover {
@@ -698,7 +775,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 a:focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid #000;
   outline-offset: 2px;
 }
 .page-heading {
@@ -707,11 +784,65 @@ a:focus-visible {
   gap: 14px;
   margin-bottom: 24px;
 }
+.title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.title-row h1 {
+  margin: 4px 0;
+}
+.floor-status-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #f1f3f5;
+}
+.floor-status-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-weight: 600;
+}
+.floor-status-button.available {
+  color: #fff;
+  background: #35b54a;
+}
+.floor-status-button.disable {
+  color: #374151;
+  background: #d1d5db;
+}
+.floor-status-button.active {
+  box-shadow: inset 0 0 0 2px #000;
+}
+.floor-status-error {
+  color: #b42318;
+  font-size: 12px;
+  margin-top: 6px;
+}
 .back-button {
   background: white;
   border: 1px solid #e2e8f0;
   padding: 10px;
   border-radius: 8px;
+}
+.cctv-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  padding: 9px 12px;
+  border: 1px solid #000;
+  border-radius: 7px;
+  background: #2563eb;
+  color: white;
+  font-size: 12px;
+}
+.cctv-link:hover {
+  background: #1d4ed8;
 }
 .eyebrow {
   color: #94a3b8;
@@ -732,7 +863,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-left: auto;
+  margin-left: 0;
   color: #64748b;
   font-size: 11px;
 }
@@ -853,6 +984,9 @@ h2 {
   border-radius: 10px;
   overflow: hidden;
   min-width: 0;
+}
+.details-panel {
+  min-height: 0;
 }
 .panel-heading {
   display: flex;
@@ -1088,9 +1222,6 @@ dd {
 @media (max-width: 1100px) {
   .map-workspace {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .details-panel {
-    max-width: 100%;
   }
   .parking-map-page {
     padding: 18px;

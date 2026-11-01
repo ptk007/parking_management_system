@@ -4,10 +4,12 @@ function validateParkingMap(map) {
     typeof n === "number" && Number.isFinite(n) && n >= min && n <= max;
   const box = (v) =>
     object(v) &&
-    finite(v.x, 0, 1000) &&
+    finite(v.x, 0, 40000) &&
     finite(v.y, 0, 40000) &&
-    finite(v.width, 0, 1000) &&
-    finite(v.height, 0, 40000);
+    finite(v.width, 0, 40000) &&
+    finite(v.height, 0, 40000) &&
+    v.x + v.width <= 40000 &&
+    v.y + v.height <= 40000;
   if (
     !object(map) ||
     !Array.isArray(map.slots) ||
@@ -18,6 +20,11 @@ function validateParkingMap(map) {
     !object(map.layout.positions)
   )
     throw new Error("Invalid parking map");
+  if (
+    map.layout.zoom !== undefined &&
+    !finite(map.layout.zoom, 25, 250)
+  )
+    throw new Error("Invalid parking map zoom");
   const keys = new Set(),
     names = new Set();
   for (const slot of map.slots) {

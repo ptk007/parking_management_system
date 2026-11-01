@@ -4,6 +4,7 @@ export interface LayoutBox {
   width: number
   height: number
 }
+export const MAX_CANVAS_SIZE = 40000
 export interface LayoutShape extends LayoutBox {
   id: string
   type: 'rectangle' | 'ellipse' | 'line' | 'text'
@@ -16,11 +17,13 @@ export interface ParkingLayout {
   background: { name: string; dataUrl: string } | null
   shapes: LayoutShape[]
   positions: Record<string, LayoutBox>
+  zoom: number
 }
 export const emptyParkingLayout = (): ParkingLayout => ({
   background: null,
   shapes: [],
   positions: {},
+  zoom: 100,
 })
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -29,10 +32,12 @@ const finite = (value: unknown, min: number, max: number): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
 const box = (value: unknown): value is LayoutBox =>
   record(value) &&
-  finite(value.x, 0, 1000) &&
-  finite(value.y, 0, 40000) &&
-  finite(value.width, 0, 1000) &&
-  finite(value.height, 0, 40000)
+  finite(value.x, 0, MAX_CANVAS_SIZE) &&
+  finite(value.y, 0, MAX_CANVAS_SIZE) &&
+  finite(value.width, 0, MAX_CANVAS_SIZE) &&
+  finite(value.height, 0, MAX_CANVAS_SIZE) &&
+  value.x + value.width <= MAX_CANVAS_SIZE &&
+  value.y + value.height <= MAX_CANVAS_SIZE
 
 export function restoreParkingLayout(value: unknown): ParkingLayout {
   if (value === undefined || value === null) return emptyParkingLayout()
@@ -45,6 +50,10 @@ export function restoreParkingLayout(value: unknown): ParkingLayout {
     throw new Error('Invalid saved layout.')
   }
   const result = emptyParkingLayout()
+  if (value.zoom !== undefined) {
+    if (!finite(value.zoom, 25, 250)) throw new Error('Invalid saved map zoom.')
+    result.zoom = value.zoom
+  }
   if (value.background !== null && value.background !== undefined) {
     const bg = value.background
     if (

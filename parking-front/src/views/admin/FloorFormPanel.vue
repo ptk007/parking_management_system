@@ -31,7 +31,7 @@
         <option value="motorcycle">Motorcycle</option>
       </select>
     </label>
-    <label class="floor-field">
+    <label v-if="mode === 'edit' && floor?.parking_map" class="floor-field">
       <span>Status</span>
       <select v-model="status" :disabled="isSaving">
         <option value="available">Available</option>
@@ -94,6 +94,7 @@ import { floorService, type ParkingBuilding, type ParkingFloor } from '@/service
 const props = defineProps<{
   mode: 'add' | 'edit'
   buildings: ParkingBuilding[]
+  floors?: ParkingFloor[]
   floor?: ParkingFloor | null
 }>()
 const emit = defineEmits<{
@@ -144,6 +145,17 @@ const saveFloor = async () => {
     error.value = 'Floor not found.'
     return
   }
+  const duplicate = (props.floors || []).some(
+    (item) =>
+      item._id !== props.floor?._id &&
+      item.building?._id === buildingId.value &&
+      item.floor === floorNumber.value &&
+      item.veh_type === vehicleType.value,
+  )
+  if (duplicate) {
+    error.value = 'This floor already exists for the selected vehicle type in this building.'
+    return
+  }
 
   error.value = ''
   isSaving.value = true
@@ -151,7 +163,7 @@ const saveFloor = async () => {
     building: buildingId.value,
     floor: floorNumber.value,
     veh_type: vehicleType.value,
-    status: status.value,
+    status: props.mode === 'add' ? 'disable' : status.value,
   }
 
   try {

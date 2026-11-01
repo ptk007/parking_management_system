@@ -49,7 +49,8 @@ defineProps<{ log: ParkingLogDisplay; hideName?: boolean }>()
   padding: 24px 30px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px #0001;
+  border: 1px solid #111;
+  box-shadow: 0 2px 5px #0002;
 }
 .log-icon {
   color: #a52f30;
@@ -69,7 +70,7 @@ span {
   padding: 0 6px;
 }
 strong.parking {
-  color: #b77913;
+  color: #16a36a;
 }
 strong.exited {
   color: #b73232;

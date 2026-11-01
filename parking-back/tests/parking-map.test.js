@@ -47,6 +47,11 @@ test("validates map geometry, unique slot identities and embedded-only images", 
     dataUrl: "https://example.test/x.png",
   };
   assert.throws(() => validateParkingMap(external), /background/);
+  const wide = map();
+  wide.layout.positions['["default",1]'].x = 1200;
+  assert.equal(validateParkingMap(wide).layout.positions['["default",1]'].x, 1200);
+  wide.layout.zoom = 251;
+  assert.throws(() => validateParkingMap(wide), /zoom/);
 });
 test("rejects layout edits on Available floors at the API and permits status-only changes", async (t) => {
   const floor = { _id: id, status: "available", parking_map: map() };

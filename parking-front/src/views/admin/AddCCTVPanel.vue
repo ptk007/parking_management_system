@@ -89,7 +89,7 @@
             <label class="add-cctv-field"
               ><span>RTSP Link</span><input v-model="rtspLink" type="text"
             /></label>
-            <p>Status : <span class="add-cctv-status">Online</span></p>
+            <p>Status : <span class="add-cctv-status">Unknown</span></p>
           </div>
         </details>
       </div>
@@ -285,7 +285,7 @@ async function save() {
   padding-top: 12px;
 }
 .add-cctv-status {
-  color: #218143;
+  color: #64748b;
 }
 .add-cctv-actions {
   display: flex;

@@ -23,7 +23,7 @@
             <h3>
               Staff List <span class="staff-count">{{ adminStore.staffList.length }}</span>
             </h3>
-            <p>Staff can be edited when Offline or Disable.</p>
+            <p>Staff profiles can be edited while Offline.</p>
           </div>
           <div v-if="!adminStore.staffList.length" class="staff-empty" role="status">
             <span class="staff-empty-icon"><Users :size="34" :stroke-width="1.6" /></span>
@@ -66,14 +66,28 @@
             </div>
             <div class="row-actions">
               <button
+                v-if="staff.status === 'Offline'"
+                class="staff-status-toggle disable"
+                type="button"
+                :aria-label="`Disable ${staff.staffName}`"
+                @click="setStaffStatus(staff, 'Disable')"
+              >
+                Disable
+              </button>
+              <button
+                v-else-if="staff.status === 'Disable'"
+                class="staff-status-toggle enable"
+                type="button"
+                :aria-label="`Enable ${staff.staffName}`"
+                @click="setStaffStatus(staff, 'Offline')"
+              >
+                Enable
+              </button>
+              <button
                 type="button"
                 aria-label="Edit staff"
                 :disabled="!canEditStaff(staff)"
-                :title="
-                  canEditStaff(staff)
-                    ? 'Edit staff'
-                    : 'Cannot edit staff while online or logging in'
-                "
+                :title="canEditStaff(staff) ? 'Edit staff' : 'Staff can only be edited while offline'"
                 @click="openEditStaff(staff)"
               >
                 <SquarePen class="h-6 w-6" :stroke-width="2.4" />
@@ -143,6 +157,7 @@
             v-else-if="setupMode === 'add-floor' || setupMode === 'edit-floor'"
             :mode="setupMode === 'add-floor' ? 'add' : 'edit'"
             :buildings="buildings"
+            :floors="parkingFloors"
             :floor="editingFloor"
             @saved="handleFloorSaved"
             @deleted="handleFloorSaved"
@@ -360,6 +375,11 @@ onMounted(() => {
 
 async function loadParkingSetup() {
   await Promise.all([loadBuildings(), loadFloors(), loadCameraSummaries()])
+  const requestedFloorId = route.query.cctvFloorId
+  if (typeof requestedFloorId === 'string') {
+    const requestedFloor = parkingFloors.value.find((floor) => floor._id === requestedFloorId)
+    if (requestedFloor) openFloorCctv(requestedFloor)
+  }
 }
 
 async function loadCameraSummaries() {
@@ -511,7 +531,15 @@ const togglePasswordVisibility = (staffId: string) => {
 }
 
 const canEditStaff = (staff: StaffMember) => {
-  return staff.status !== 'Online' && staff.status !== 'Logging in'
+  return staff.status === 'Offline'
+}
+
+const setStaffStatus = (staff: StaffMember, status: 'Offline' | 'Disable') => {
+  if (
+    (staff.status === 'Offline' && status === 'Disable') ||
+    (staff.status === 'Disable' && status === 'Offline')
+  )
+    adminStore.updateStaff(staff._id, { status })
 }
 
 const addStaffForm = () => {
@@ -2551,6 +2579,31 @@ const ParkingSetupList = defineComponent({
 .staff-manager-section .row-actions > button:hover:not(:disabled) {
   background: #f8fafc;
   color: #a52f30;
+}
+.staff-manager-section .row-actions > .staff-status-toggle {
+  width: auto;
+  min-width: 62px;
+  padding: 0 9px;
+  color: #fff;
+  border-color: #000;
+  font-size: 11px;
+  font-weight: 600;
+}
+.staff-manager-section .row-actions > .staff-status-toggle.enable {
+  background: #16a34a;
+}
+.staff-manager-section .row-actions > .staff-status-toggle.disable {
+  background: #dc2626;
+}
+.staff-manager-section .row-actions > .staff-status-toggle.enable:hover:not(:disabled) {
+  background: #15803d;
+}
+.staff-manager-section .row-actions > .staff-status-toggle.disable:hover:not(:disabled) {
+  background: #b91c1c;
+}
+.staff-manager-section .row-actions > .staff-status-toggle:hover:not(:disabled) {
+  color: #fff;
+  border-color: #000;
 }
 .staff-manager-section .staff-form-panel {
   min-height: 0;

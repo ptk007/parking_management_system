@@ -1,97 +1,110 @@
 <template>
-  <section class="dashboard-map">
+  <section :class="['dashboard-map', { 'header-only': headerOnly }]">
     <div class="map-header">
+      <button
+        class="filter-toggle"
+        :aria-label="expanded ? 'Collapse filters' : 'Expand filters'"
+        :title="expanded ? 'Collapse filters' : 'Expand filters'"
+        :aria-expanded="expanded"
+        aria-controls="map-filters"
+        @click="expanded = !expanded"
+      >
+        <Menu :size="24" aria-hidden="true" />
+      </button>
       <div class="location" role="status">{{ location }}</div>
       <span v-if="isSample" class="sample-badge">Sample map</span>
       <button v-else @click="showSample">View sample map</button>
-      <button :aria-expanded="expanded" aria-controls="map-filters" @click="expanded = !expanded">
-        {{ expanded ? 'Collapse filters' : 'Expand filters' }}
-      </button>
     </div>
 
-    <div class="stats">
-      <div v-for="stat in stats" :key="stat.label" class="stat-card">
-        <strong :style="{ color: stat.color }">{{ stat.value }}</strong
-        ><span>{{ stat.label }}</span>
-      </div>
-    </div>
-    <div :class="['map-surface', { 'filters-open': expanded }]">
-      <div v-if="expanded" id="map-filters" class="filter-overlay">
-        <label
-          >Building *<select v-model="building">
-            <option value="">Select building</option>
-            <option v-for="item in buildings" :key="item._id" :value="item._id">
-              {{ item.building_name }}
-            </option>
-          </select></label
-        >
-        <label
-          >Floor *<select v-model="floorNumber" :disabled="!building">
-            <option value="">Select floor</option>
-            <option v-for="item in floorNumbers" :key="item" :value="String(item)">
-              {{ item }}
-            </option>
-          </select></label
-        >
-        <label
-          >Vehicle *<select v-model="vehicle" :disabled="!floorNumber">
-            <option value="">Select vehicle</option>
-            <option v-for="item in vehicleTypes" :key="item" :value="item">
-              {{ item === 'car' ? 'Cars' : 'Motorcycles' }}
-            </option>
-          </select></label
-        >
-      </div>
-      <div v-if="loading" class="map-empty" role="status">Loading parking locations...</div>
-      <div v-else-if="error" class="map-empty" role="alert">
-        {{ error }} <button @click="load">Try again</button>
-      </div>
-      <div v-else-if="!selectedFloor" class="map-empty">
-        <MapPin :size="42" />
-        <h2>Select a parking location</h2>
-        <p>Select Building, Floor and Vehicle to view the parking map.</p>
-        <p v-if="!floors.length">No parking locations have been configured yet.</p>
-      </div>
-      <div
-        v-else-if="!slots.length && !layout.shapes.length && !layout.background"
-        class="map-empty"
+    <div v-if="expanded" id="map-filters" :class="['filter-overlay', { inline: headerOnly }]">
+      <label
+        >1. Building *<select v-model="building">
+          <option value="">Select building</option>
+          <option v-for="item in buildings" :key="item._id" :value="item._id">
+            {{ item.building_name }}
+          </option>
+        </select></label
       >
-        <MapPin :size="42" />
-        <h2>No parking map yet</h2>
-        <p>{{ location }} has 0 parking slots.</p>
-      </div>
-      <template v-else>
-        <ParkingLayoutEditor
-          :key="`${selectedFloor._id}:${auth.canManageParking}`"
-          :slots="slots"
-          :model-value="layout"
-          readonly
-          fit-to-viewport
-          save-message=""
-          :save-failed="false"
-          @selection="selection = $event"
-        />
-      </template>
+      <label v-if="building"
+        >2. Floor *<select v-model="floorNumber">
+          <option value="">Select floor</option>
+          <option v-for="item in floorNumbers" :key="item" :value="String(item)">
+            {{ item }}
+          </option>
+        </select></label
+      >
+      <label v-if="floorNumber"
+        >3. Vehicle *<select v-model="vehicle">
+          <option value="">Select vehicle</option>
+          <option v-for="item in vehicleTypes" :key="item" :value="item">
+            {{ item === 'car' ? 'Cars' : 'Motorcycles' }}
+          </option>
+        </select></label
+      >
     </div>
-    <div class="map-footer">
-      <div v-if="auth.canManageParking && selectedFloor?.parking_map" class="map-actions">
-        <button :disabled="saving || !selection.length" @click="setStatus('available')">
-          Enable</button
-        ><button :disabled="saving || !selection.length" @click="setStatus('disabled')">
-          Disable</button
-        ><span>Selected: {{ selection.length }}</span>
+
+    <template v-if="!headerOnly">
+      <div class="stats">
+        <div v-for="stat in stats" :key="stat.label" class="stat-card">
+          <strong :style="{ color: stat.color }">{{ stat.value }}</strong
+          ><span>{{ stat.label }}</span>
+        </div>
       </div>
-      <div class="status-legend">
-        <span v-for="(label, status) in statusLabels" :key="status"
-          ><i :class="status" />{{ label }}</span
+
+      <div :class="['map-surface', { 'filters-open': expanded }]">
+        <div v-if="loading" class="map-empty" role="status">Loading parking locations...</div>
+        <div v-else-if="error" class="map-empty" role="alert">
+          {{ error }} <button @click="load">Try again</button>
+        </div>
+        <div v-else-if="selectedFloor?.status === 'disable'" class="map-empty" role="status">
+          <h2>Parking is not available for now!</h2>
+        </div>
+        <div v-else-if="!selectedFloor" class="map-empty">
+          <MapPin :size="42" />
+          <h2>Select a parking location</h2>
+          <p v-if="!floors.length">No parking locations have been configured yet.</p>
+        </div>
+        <div
+          v-else-if="!slots.length && !layout.shapes.length && !layout.background"
+          class="map-empty"
         >
+          <MapPin :size="42" />
+          <h2>No parking map yet</h2>
+          <p>{{ location }} has 0 parking slots.</p>
+        </div>
+        <template v-else>
+          <ParkingLayoutEditor
+            :key="`${selectedFloor._id}:${auth.canManageParking}`"
+            :slots="slots"
+            :model-value="layout"
+            readonly
+            fit-to-viewport
+            save-message=""
+            :save-failed="false"
+            @selection="selection = $event"
+          />
+        </template>
       </div>
-    </div>
+      <div class="map-footer">
+        <div v-if="auth.canManageParking && selectedFloor?.parking_map" class="map-actions">
+          <button :disabled="saving || !selection.length" @click="setStatus('available')">
+            Enable</button
+          ><button :disabled="saving || !selection.length" @click="setStatus('disabled')">
+            Disable</button
+          ><span>Selected: {{ selection.length }}</span>
+        </div>
+        <div class="status-legend">
+          <span v-for="(label, status) in statusLabels" :key="status"
+            ><i :class="status" />{{ label }}</span
+          >
+        </div>
+      </div>
+    </template>
   </section>
 </template>
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { MapPin } from 'lucide-vue-next'
+import { MapPin, Menu } from 'lucide-vue-next'
 import { floorService, type ParkingFloor } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { useAdminStore } from '@/stores/admin'
@@ -102,13 +115,14 @@ import { createDashboardLayout } from './dashboardLayoutTemplate'
 import { slotKey } from './parkingMapJson'
 const auth = useAuthStore(),
   admin = useAdminStore()
+withDefaults(defineProps<{ headerOnly?: boolean }>(), { headerOnly: false })
 const floors = ref<ParkingFloor[]>([]),
   loading = ref(false),
   error = ref('')
 const building = ref(''),
   floorNumber = ref(''),
   vehicle = ref(''),
-  expanded = ref(true)
+expanded = ref(false)
 const selection = ref<string[]>([]),
   saving = ref(false)
 const buildings = computed(() => [
@@ -295,14 +309,34 @@ onMounted(load)
   border-radius: 8px;
   overflow: hidden;
 }
+.dashboard-map.header-only {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  margin-bottom: 20px;
+}
 .map-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
   padding: 10px 16px;
   border-bottom: 1px solid #e5e7eb;
+}
+.filter-toggle {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-color: #e4e4e4;
+  border-radius: 6px;
+  background: #e4e4e4;
+  color: #8d8d8d;
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+}
+.filter-toggle:hover {
+  background: #d7d7d7;
 }
 .sample-badge {
   padding: 5px 10px;
@@ -310,7 +344,7 @@ onMounted(load)
   color: #92400e;
   background: #fef3c7;
   font-size: 12px;
-  margin-right: auto;
+  margin-left: auto;
 }
 .location {
   color: #334155;
@@ -346,7 +380,7 @@ button:disabled {
 
 .filter-overlay {
   position: absolute;
-  top: 16px;
+  top: 60px;
   left: 16px;
   right: 16px;
   border: 1px solid #e2e8f0;
@@ -358,6 +392,10 @@ button:disabled {
   padding: 18px 20px;
   background: #f8fafc;
   box-shadow: 0 4px 8px #0001;
+}
+.filter-overlay.inline {
+  position: static;
+  margin: 0 16px 10px;
 }
 label {
   display: grid;
@@ -412,14 +450,8 @@ select {
   font-size: 14px;
 }
 .filters-open .map-empty {
-  padding-top: 160px;
-  min-height: 460px;
-}
-@media (max-width: 900px) {
-  .filters-open .map-empty {
-    padding-top: 250px;
-    min-height: 540px;
-  }
+  padding-top: 30px;
+  min-height: 380px;
 }
 .status-legend,
 .map-actions {

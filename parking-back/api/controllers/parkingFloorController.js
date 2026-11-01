@@ -114,6 +114,18 @@ exports.createFloor = async (req, res) => {
     }
 
     if (
+      floor !== undefined &&
+      veh_type !== undefined &&
+      (await ParkingFloor.exists({ building, floor, veh_type }))
+    ) {
+      await removeUploadedFile(req.file);
+      return res.status(409).json({
+        success: false,
+        message: "floor already exists for this vehicle type in this building",
+      });
+    }
+
+    if (
       requestedZone !== undefined &&
       (await ParkingFloor.exists({ building, zone: requestedZone }))
     ) {
@@ -253,12 +265,29 @@ exports.updateFloor = async (req, res) => {
     }
 
     const nextBuilding = req.body?.building ?? parkingFloor.building;
+    const nextFloor = req.body?.floor ?? parkingFloor.floor;
+    const nextVehicleType = req.body?.veh_type ?? parkingFloor.veh_type;
     const nextZone = req.body?.zone ?? parkingFloor.zone;
     if (!(await buildingExists(nextBuilding))) {
       await removeUploadedFile(req.file);
       return res.status(400).json({
         success: false,
         message: "building must be an existing parking_building id",
+      });
+    }
+
+    if (
+      await ParkingFloor.exists({
+        building: nextBuilding,
+        floor: nextFloor,
+        veh_type: nextVehicleType,
+        _id: { $ne: parkingFloor._id },
+      })
+    ) {
+      await removeUploadedFile(req.file);
+      return res.status(409).json({
+        success: false,
+        message: "floor already exists for this vehicle type in this building",
       });
     }
 

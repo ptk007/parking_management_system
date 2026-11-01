@@ -18,7 +18,7 @@
         { 'slots-content': activeTab === 'slots' || !authStore.canManageParking },
       ]"
     >
-      <DashboardMap v-show="activeTab === 'slots' || !authStore.canManageParking" />
+      <DashboardMap :header-only="activeTab !== 'slots' && authStore.canManageParking" />
 
       <div v-if="activeTab === 'cctv' && authStore.canManageParking" class="cctv-grid">
         <CameraPreviewCard
