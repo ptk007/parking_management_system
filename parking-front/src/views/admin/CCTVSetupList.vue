@@ -26,8 +26,8 @@
     <section class="slot-files-panel" aria-labelledby="slot-files-title">
       <div class="slot-files-header">
         <div>
-          <h3 id="slot-files-title">Parking slot files</h3>
-          <p>Shared original CCTV sources for every building and floor. Up to 5 MB per import.</p>
+          <h3 id="slot-files-title">Original CCTV source files</h3>
+          <p>Shared CCTV sources for every building and floor. Up to 5 MB per import.</p>
         </div>
         <button
           class="slot-import-button"
@@ -35,7 +35,7 @@
           :disabled="importing"
           @click="fileInput?.click()"
         >
-          <Upload :size="17" /> {{ importing ? 'Importing...' : 'Import parking slot' }}
+          <Upload :size="17" /> {{ importing ? 'Importing...' : 'Import CCTV source' }}
         </button>
         <input
           ref="fileInput"
@@ -43,15 +43,19 @@
           type="file"
           accept=".json,application/json"
           multiple
-          aria-label="Import parking slot JSON files"
+          aria-label="Import original CCTV source JSON files"
           :disabled="importing"
           @change="importSlotFiles"
         />
       </div>
       <p v-if="importError" class="slot-import-error" role="alert">{{ importError }}</p>
       <p v-if="importMessage" class="slot-import-success" role="status">{{ importMessage }}</p>
-      <ul v-if="slotFiles.length" class="slot-file-list" aria-label="Imported parking slot files">
-        <li v-for="file in slotFiles" :key="file._id">
+      <ul
+        v-if="cctvSourceFiles.length"
+        class="slot-file-list"
+        aria-label="Imported original CCTV source files"
+      >
+        <li v-for="file in cctvSourceFiles" :key="file._id">
           <FileJson :size="22" aria-hidden="true" />
           <div class="slot-file-name">
             <strong>{{ file.original_name }}</strong
@@ -92,15 +96,16 @@
         </div>
         <div>
           <dt>Original CCTV Source</dt>
-          <dd>
-            {{
-              slotFiles.find((file) => file._id === camera.parkingSlotFileId)?.original_name || '-'
-            }}
-          </dd>
+          <dd>{{ camera.cctvFileName || '-' }}</dd>
         </div>
         <div>
           <dt>Parking Slot File</dt>
-          <dd>{{ camera.cctvFileName || '-' }}</dd>
+          <dd>
+            {{
+              slotFiles.find((file) => file._id === camera.parkingSlotFileId)?.original_name ||
+              (camera.parkingSlotData ? 'Embedded JSON' : '-')
+            }}
+          </dd>
         </div>
         <div>
           <dt>Camera No/IP</dt>
@@ -145,6 +150,11 @@ const vehicle = computed(() =>
   props.selectedFloor?.veh_type === 'motorcycle' ? 'Motorcycles' : 'Cars',
 )
 const slotFiles = ref<ParkingSlotFile[]>([])
+const cctvSourceFiles = computed(() =>
+  slotFiles.value.filter(
+    (file) => file.fileType === 'cctv' || file.fileType === undefined,
+  ),
+)
 async function loadSourceFiles() {
   try {
     slotFiles.value = (await floorService.sourceFiles()).data.files
@@ -174,7 +184,7 @@ async function importSlotFiles(event: Event) {
       throw new Error('Please choose .json files only.')
     if (files.reduce((sum, file) => sum + file.size, 0) > MAX_IMPORT_BYTES)
       throw new Error('Selected files must total 5 MB or less.')
-    const names = new Set(slotFiles.value.map((file) => file.original_name))
+    const names = new Set(cctvSourceFiles.value.map((file) => file.original_name))
     for (const file of files) {
       if (names.has(file.name)) throw new Error(`File already imported: ${file.name}`)
       names.add(file.name)
@@ -191,7 +201,7 @@ async function importSlotFiles(event: Event) {
     importMessage.value = `Imported ${files.length} file${files.length === 1 ? '' : 's'} successfully.`
   } catch (cause) {
     importError.value = isAxiosError<{ message?: string }>(cause)
-      ? cause.response?.data?.message || 'Unable to import parking slot files. Please try again.'
+      ? cause.response?.data?.message || 'Unable to import CCTV source files. Please try again.'
       : cause instanceof Error
         ? cause.message
         : 'Unable to import files.'

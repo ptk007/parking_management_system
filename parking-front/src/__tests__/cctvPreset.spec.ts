@@ -14,14 +14,13 @@ vi.mock('@/services/api', () => ({
 let wrapper: VueWrapper
 const floor: ParkingFloor = {
   _id: 'f1',
-  building: { _id: 'b1', building_name: 'E5', building_image: null, date_add: '', time_add: '' },
+  building: { _id: 'b1', building_name: 'E5', building_image: null, date_updated: '', time_updated: '' },
   floor: 3,
   veh_type: 'motorcycle',
-  zone: 1,
   parking_slot_file: null,
-  status: 'disable',
-  date_add: '',
-  time_add: '',
+  status: 'Disable',
+  date_updated: '',
+  time_updated: '',
 }
 const sources = [{ _id: 's1', original_name: 'original.json', path: 'a.json', size: 10 }]
 function file(name: string, text: string) {
@@ -64,31 +63,61 @@ describe('shared CCTV source library and per-floor presets', () => {
     await upload([file('a.json', '[{"number":1}]'), file('b.json', '[{"number":1}]')])
     expect(floorService.importSourceFiles).toHaveBeenCalledTimes(1)
   })
-  it('edits a saved camera using the original source selector before the Parking Slot File upload', async () => {
+  it('edits a saved camera without replacing its current slot JSON file', async () => {
     const camera = {
       _id: 'cam1',
       name: 'Entrance',
       cameraSelector: 'cam-2',
       ipAddress: '192.168.1.2',
       rtspLink: '',
-      cctvFileName: 'slots.json',
+      cctvFileName: 'original.json',
       parkingSlotFileId: 's1',
-      parkingSlotData: { slots: [{ number: 1 }] },
+      parkingSlotData: {
+        categories: [{ name: 'zoneA_slot01', supercategory: 'parking-slot' }],
+      },
     }
     wrapper = mount(AddCCTVPanel, { props: { mode: 'edit', selectedFloor: floor, camera } })
     await flushPromises()
-    expect((wrapper.get('select').element as HTMLSelectElement).value).toBe('s1')
+    expect((wrapper.findAll('select')[0]!.element as HTMLSelectElement).value).toBe('original.json')
     const fields = wrapper.findAll('.add-cctv-fields > .add-cctv-field').map((f) => f.text())
     expect(fields[1]).toContain('Select 1 Original CCTV Source')
-    expect(fields[3]).toContain('Parking Slot File')
+    expect(fields[3]).toContain('Parking Slot JSON File')
     vi.mocked(floorService.saveCamera).mockResolvedValue({ data: { floor } } as never)
     await wrapper.get('input[type="text"]').setValue('Updated entrance')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(floorService.saveCamera).toHaveBeenCalledWith('f1', {
-      ...camera,
+      _id: camera._id,
+      cameraSelector: camera.cameraSelector,
+      ipAddress: camera.ipAddress,
+      rtspLink: camera.rtspLink,
+      cctvFileName: camera.cctvFileName,
+      parkingSlotFileId: camera.parkingSlotFileId,
       name: 'Updated entrance',
+    }, null)
+    expect(wrapper.emitted('saved')?.[0]).toEqual([floor])
+  })
+  it('creates a preset from a parking-slot JSON file upload', async () => {
+    wrapper = mount(AddCCTVPanel, { props: { mode: 'add', selectedFloor: floor } })
+    await flushPromises()
+    vi.mocked(floorService.saveCamera).mockResolvedValue({ data: { floor } } as never)
+    await wrapper.findAll('select')[0]!.setValue('original.json')
+    const json = JSON.stringify({
+      categories: [{ name: 'zoneA_slot01', supercategory: 'parking-slot' }],
     })
+    const slotFile = file('slots.json', json)
+    await upload([slotFile])
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(floorService.saveCamera).toHaveBeenCalledWith(
+      'f1',
+      expect.objectContaining({
+        cctvFileName: 'original.json',
+        parkingSlotFileId: null,
+      }),
+      slotFile,
+    )
     expect(wrapper.emitted('saved')?.[0]).toEqual([floor])
   })
   it('shows upload errors and permits retry', async () => {

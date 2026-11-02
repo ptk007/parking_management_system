@@ -4,7 +4,7 @@ const User = require("../models/userModel");
 const { getBangkokDateTime } = require("../utils/dateTime");
 
 const PUBLIC_USER_FIELDS =
-  "_id username name role status date_add time_add user_image";
+  "_id username name role status date_updated time_updated date_add time_add user_image";
 
 function getImagePath(file) {
   return file ? `images/user/${file.filename}` : undefined;
@@ -48,6 +48,8 @@ exports.createUser = async (req, res) => {
       name,
       role,
       status: "offline",
+      date_updated: createdAt.date_add,
+      time_updated: createdAt.time_add,
       ...createdAt,
       user_image: getImagePath(req.file),
     });
@@ -130,6 +132,10 @@ exports.updateUser = async (req, res) => {
     if (imagePath) {
       user.user_image = imagePath;
     }
+
+    const updatedAt = getBangkokDateTime();
+    user.date_updated = updatedAt.date_add;
+    user.time_updated = updatedAt.time_add;
 
     await user.save();
     const safeUser = await User.findById(user._id).select(PUBLIC_USER_FIELDS);

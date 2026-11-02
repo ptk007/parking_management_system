@@ -19,19 +19,18 @@ const building = {
   _id: 'b1',
   building_name: 'B6',
   building_image: null,
-  date_add: '',
-  time_add: '',
+  date_updated: '2026-11-02',
+  time_updated: '10:15:00',
 }
 const floors = [1, 2].map((floor) => ({
   _id: `f${floor}`,
   building,
   floor,
   veh_type: 'car' as const,
-  zone: floor,
   parking_slot_file: floor === 2 ? 'map.json' : null,
-  status: 'available' as const,
-  date_add: '',
-  time_add: '',
+  status: 'Available' as const,
+  date_updated: '',
+  time_updated: '',
 }))
 async function openSetup() {
   localStorage.clear()
@@ -58,6 +57,8 @@ afterEach(() => {
 describe('admin parking setup floor actions', () => {
   it('marks only floors with maps green and opens CCTV with the selected location', async () => {
     await openSetup()
+    expect(wrapper.get('.building-row').text()).toContain('Date Updated : 2026-11-02')
+    expect(wrapper.get('.building-row').text()).toContain('Time Updated : 10:15:00')
     const maps = wrapper.findAll('.floor-parking-map')
     expect(maps[0]!.classes()).not.toContain('has-map')
     expect(maps[1]!.classes()).toContain('has-map')

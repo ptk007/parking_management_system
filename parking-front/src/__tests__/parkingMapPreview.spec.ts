@@ -17,7 +17,7 @@ const floors = ['floor-one', 'floor-two'].map((_id, index) => ({
   floor: index,
   veh_type: 'car',
   building: { _id: `building-${index}`, building_name: `Building ${index}` },
-  status: 'disable',
+  status: 'Disable',
 }))
 const mapSlots = [
   { number: 1, name: 'camera_slot_01', zone: 'default', status: 'disabled' },
@@ -102,6 +102,10 @@ describe('Parking Map workspace', () => {
       .findAll('[data-layout-slot]')
       .map((item) => item.attributes('transform'))
     await editor(wrapper)
+    expect(wrapper.get('#slot-cctv option[value=""]').text()).toBe('None')
+    expect(wrapper.get('#slot-parking-name option[value=""]').text()).toBe('None')
+    expect(wrapper.get<HTMLSelectElement>('#slot-cctv').element.disabled).toBe(true)
+    expect(wrapper.get<HTMLSelectElement>('#slot-parking-name').element.disabled).toBe(true)
     expect(
       wrapper.findAll('[data-layout-slot]').map((item) => item.attributes('transform')),
     ).toEqual(positions)
@@ -127,28 +131,101 @@ describe('Parking Map workspace', () => {
         building: 'building-0',
         floor: 0,
         veh_type: 'car',
-        status: 'available',
+        status: 'Available',
       }),
     )
     expect(available.attributes('aria-pressed')).toBe('true')
     expect(wrapper.findAll<HTMLButtonElement>('.view-mode button')[1]!.element.disabled).toBe(true)
   })
-  it('keeps occupied slots read-only and renames editable map labels without changing identity or position', async () => {
+  it('assigns a floor CCTV and one of its parking-slot categories to a selected map slot', async () => {
+    const cameraPreset = {
+      _id: 'camera-1',
+      name: 'North entrance',
+      cameraSelector: '',
+      ipAddress: '',
+      rtspLink: '',
+      cctvFileName: 'north.json',
+      parkingSlotFileId: 'slot-file-1',
+      parkingSlotData: {
+        categories: [
+          { name: 'all', supercategory: 'none' },
+          { name: 'zoneA_slot01', supercategory: 'parking-slot' },
+          { name: 'zoneA_slot02', supercategory: 'parking-slot' },
+        ],
+      },
+    }
+    vi.mocked(floorService.list).mockResolvedValueOnce({
+      data: { floors: [{ ...floors[0], camera_presets: [cameraPreset] }] },
+    } as never)
     const { wrapper } = await createPage()
-    await select(wrapper, 3)
-    expect(wrapper.get('.slot-preview').text()).toContain('Occupied')
-    expect(wrapper.get<HTMLButtonElement>('.disable-button').element.disabled).toBe(true)
-    await editor(wrapper)
     await select(wrapper, 1)
-    const position = wrapper.get('[data-slot="1"]').attributes('transform')
-    await wrapper.get('#slot-name').setValue('camera_slot_02')
-    await wrapper.get('.rename-slot').trigger('submit')
-    expect(wrapper.get('.field-error').text()).toContain('already in use')
-    await wrapper.get('#slot-name').setValue('zoneA_slot01')
-    await wrapper.get('.rename-slot').trigger('submit')
-    expect(wrapper.get('[data-slot="1"]').text()).toContain('zoneA_slot01')
-    expect(wrapper.get('[data-slot="1"]').attributes('transform')).toBe(position)
-    expect(JSON.parse(localStorage.getItem(key())!).slots[0].name).toBe('zoneA_slot01')
+    await editor(wrapper)
+    expect(wrapper.text()).not.toContain('Slot name')
+    expect(wrapper.get('#slot-cctv').text()).toContain('North entrance')
+    await wrapper.get('#slot-cctv').setValue('camera-1')
+    expect(wrapper.get('#slot-parking-name').text()).toContain('zoneA_slot01')
+    expect(wrapper.get('#slot-parking-name').text()).toContain('zoneA_slot02')
+    await wrapper.get('#slot-parking-name').setValue('zoneA_slot02')
+    const savedSlot = JSON.parse(localStorage.getItem(key())!).slots[0]
+    expect(savedSlot).toMatchObject({
+      cameraPresetId: 'camera-1',
+      parkingSlotName: 'zoneA_slot02',
+    })
+    expect(floorService.saveMap).toHaveBeenCalled()
+
+    await wrapper.get('#slot-parking-name').setValue('')
+    const unassignedNameSlot = JSON.parse(localStorage.getItem(key())!).slots[0]
+    expect(unassignedNameSlot.cameraPresetId).toBe('camera-1')
+    expect(unassignedNameSlot).not.toHaveProperty('parkingSlotName')
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain(
+      'Map saved and shared with dashboards',
+    )
+    await wrapper.get('#slot-parking-name').setValue('zoneA_slot02')
+
+    await select(wrapper, 2)
+    await wrapper.get('#slot-cctv').setValue('camera-1')
+    const secondSlotOptions = wrapper
+      .get('#slot-parking-name')
+      .findAll('option')
+      .map((option) => option.attributes('value'))
+    expect(secondSlotOptions).toContain('zoneA_slot01')
+    expect(secondSlotOptions).not.toContain('zoneA_slot02')
+
+    await select(wrapper, 1)
+    expect(wrapper.get<HTMLSelectElement>('#slot-parking-name').element.value).toBe(
+      'zoneA_slot02',
+    )
+    expect(
+      wrapper.get('#slot-parking-name').find('option[value="zoneA_slot02"]').exists(),
+    ).toBe(true)
+  })
+  it('shows only CCTV assignment for multiple selected slots and applies it to all', async () => {
+    const cameraPreset = {
+      _id: 'camera-1',
+      name: 'North entrance',
+      cameraSelector: '',
+      ipAddress: '',
+      rtspLink: '',
+      cctvFileName: 'north.json',
+      parkingSlotFileId: 'slot-file-1',
+      parkingSlotData: { categories: [] },
+    }
+    vi.mocked(floorService.list).mockResolvedValueOnce({
+      data: { floors: [{ ...floors[0], camera_presets: [cameraPreset] }] },
+    } as never)
+    const { wrapper } = await createPage()
+    await select(wrapper, 1)
+    await wrapper.get('[data-slot="2"]').trigger('keydown', { key: 'Enter', shiftKey: true })
+    await editor(wrapper)
+
+    expect(wrapper.find('#slot-cctv').exists()).toBe(true)
+    expect(wrapper.find('#slot-parking-name').exists()).toBe(false)
+    await wrapper.get('#slot-cctv').setValue('camera-1')
+
+    const savedSlots = JSON.parse(localStorage.getItem(key())!).slots
+    expect(savedSlots[0].cameraPresetId).toBe('camera-1')
+    expect(savedSlots[1].cameraPresetId).toBe('camera-1')
   })
   it('persists autosave independently per floor, saves manually, and warns before losing changes', async () => {
     const { wrapper, router } = await createPage()
@@ -209,7 +286,7 @@ describe('Parking Map workspace', () => {
   })
   it('blocks layout editing and importing while the floor is Available', async () => {
     vi.mocked(floorService.list).mockResolvedValue({
-      data: { floors: [{ ...floors[0], status: 'available' }] },
+      data: { floors: [{ ...floors[0], status: 'Available' }] },
     } as never)
     const { wrapper } = await createPage()
     expect(wrapper.findAll<HTMLButtonElement>('.view-mode button')[1]!.element.disabled).toBe(true)

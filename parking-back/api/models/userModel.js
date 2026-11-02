@@ -32,6 +32,14 @@ const userSchema = new mongoose.Schema(
       enum: USER_STATUSES,
       default: "offline",
     },
+    date_updated: {
+      type: String,
+      default: null,
+    },
+    time_updated: {
+      type: String,
+      default: null,
+    },
     date_add: {
       type: String,
       required: true,

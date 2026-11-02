@@ -3,10 +3,11 @@ const path = require("path");
 const mongoose = require("mongoose");
 const ParkingBuilding = require("../models/parkingBuildingModel");
 const ParkingFloor = require("../models/parkingFloorModel");
+const ParkingSourceFile = require("../models/parkingSourceFileModel");
 const { getBangkokDateTime } = require("../utils/dateTime");
 
 const FILE_ROOT = path.resolve(__dirname, "../../../json_file/parking_slots");
-const BUILDING_FIELDS = "_id building_name building_status building_image";
+const BUILDING_FIELDS = "_id building_name building_image date_updated time_updated";
 
 function isValidId(id) {
   return mongoose.Types.ObjectId.isValid(id);
@@ -14,6 +15,55 @@ function isValidId(id) {
 
 function getFilePath(file) {
   return file ? `json_file/parking_slots/${file.filename}` : undefined;
+}
+
+function getUpdatedAt() {
+  const timestamp = getBangkokDateTime();
+  return {
+    date_updated: timestamp.date_add,
+    time_updated: timestamp.time_add,
+  };
+}
+
+function normalizeFloorStatus(status) {
+  if (typeof status !== "string") {
+    return status;
+  }
+
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "available") return "Available";
+  if (normalized === "disable") return "Disable";
+  return status;
+}
+
+function getParkingSlotNames(data) {
+  if (!data || !Array.isArray(data.categories)) {
+    throw new Error("Parking slot JSON must contain a categories array");
+  }
+
+  const names = data.categories
+    .filter(
+      (category) =>
+        category &&
+        category.supercategory === "parking-slot" &&
+        typeof category.name === "string" &&
+        category.name.trim(),
+    )
+    .map((category) => category.name.trim());
+
+  if (!names.length) {
+    throw new Error("Parking slot JSON contains no parking-slot categories");
+  }
+  return names;
+}
+
+async function readParkingSlotJson(filePath) {
+  const absolutePath = path.resolve(__dirname, "../../..", filePath);
+  const relativePath = path.relative(FILE_ROOT, absolutePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error("Invalid parking slot file path");
+  }
+  return JSON.parse((await fs.readFile(absolutePath, "utf8")).replace(/^\uFEFF/, ""));
 }
 
 async function deleteParkingSlotFile(filePath) {
@@ -68,7 +118,7 @@ function sendError(res, error) {
   if (error?.code === 11000) {
     return res.status(409).json({
       success: false,
-      message: "zone already exists in this building",
+      message: "floor already exists for this vehicle type in this building",
     });
   }
 
@@ -86,14 +136,13 @@ function sendError(res, error) {
   });
 }
 
-// POST /api/admin/system/floors - Create a floor; legacy map uploads remain optional.
+// POST /api/admin/system/floors - Create a floor; legacy slot-file uploads remain optional.
 exports.createFloor = async (req, res) => {
   try {
     const {
       building,
       floor,
       veh_type,
-      zone: requestedZone,
       status,
     } = req.body ?? {};
 
@@ -125,45 +174,14 @@ exports.createFloor = async (req, res) => {
       });
     }
 
-    if (
-      requestedZone !== undefined &&
-      (await ParkingFloor.exists({ building, zone: requestedZone }))
-    ) {
-      await removeUploadedFile(req.file);
-      return res.status(409).json({
-        success: false,
-        message: "zone already exists in this building",
-      });
-    }
-
-    let parkingFloor;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      // Existing databases still enforce a unique (building, zone) index.
-      // Assign that internal value automatically when the form omits it.
-      const lastFloor =
-        requestedZone === undefined
-          ? await ParkingFloor.findOne({ building })
-              .sort({ zone: -1 })
-              .select("zone")
-          : null;
-      const zone = requestedZone ?? Number(lastFloor?.zone || 0) + 1;
-      try {
-        parkingFloor = await ParkingFloor.create({
-          building,
-          floor,
-          veh_type,
-          zone,
-          status,
-          parking_slot_file: getFilePath(req.file),
-          ...getBangkokDateTime(),
-        });
-        break;
-      } catch (error) {
-        if (requestedZone === undefined && error?.code === 11000 && attempt < 2)
-          continue;
-        throw error;
-      }
-    }
+    const parkingFloor = await ParkingFloor.create({
+      building,
+      floor,
+      veh_type,
+      status: normalizeFloorStatus(status),
+      parking_slot_file: getFilePath(req.file),
+      ...getUpdatedAt(),
+    });
     await parkingFloor.populate("building", BUILDING_FIELDS);
 
     return res.status(201).json({ success: true, floor: parkingFloor });
@@ -182,28 +200,9 @@ exports.listFloors = async (req, res) => {
   try {
     const floors = await ParkingFloor.find()
       .populate("building", BUILDING_FIELDS)
-      .sort({ date_add: -1, time_add: -1 });
+      .sort({ date_updated: -1, time_updated: -1 });
 
     return res.json({ success: true, count: floors.length, floors });
-  } catch (error) {
-    return sendError(res, error);
-  }
-};
-
-// GET /api/admin/system/floors/check-duplicate?building=id&zone=number
-// Check whether a zone is already used within a building.
-exports.checkDuplicateZone = async (req, res) => {
-  try {
-    const { building, zone } = req.query;
-    if (!building || zone === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "building and zone query parameters are required",
-      });
-    }
-
-    const exists = await ParkingFloor.exists({ building, zone });
-    return res.json({ success: true, duplicate: Boolean(exists) });
   } catch (error) {
     return sendError(res, error);
   }
@@ -267,7 +266,6 @@ exports.updateFloor = async (req, res) => {
     const nextBuilding = req.body?.building ?? parkingFloor.building;
     const nextFloor = req.body?.floor ?? parkingFloor.floor;
     const nextVehicleType = req.body?.veh_type ?? parkingFloor.veh_type;
-    const nextZone = req.body?.zone ?? parkingFloor.zone;
     if (!(await buildingExists(nextBuilding))) {
       await removeUploadedFile(req.file);
       return res.status(400).json({
@@ -291,24 +289,13 @@ exports.updateFloor = async (req, res) => {
       });
     }
 
-    if (
-      await ParkingFloor.exists({
-        building: nextBuilding,
-        zone: nextZone,
-        _id: { $ne: parkingFloor._id },
-      })
-    ) {
-      await removeUploadedFile(req.file);
-      return res.status(409).json({
-        success: false,
-        message: "zone already exists in this building",
-      });
-    }
-
     const previousFile = parkingFloor.parking_slot_file;
-    for (const field of ["building", "floor", "veh_type", "zone", "status"]) {
+    for (const field of ["building", "floor", "veh_type", "status"]) {
       if (req.body?.[field] !== undefined) {
-        parkingFloor[field] = req.body[field];
+        parkingFloor[field] =
+          field === "status"
+            ? normalizeFloorStatus(req.body[field])
+            : req.body[field];
       }
     }
 
@@ -316,6 +303,7 @@ exports.updateFloor = async (req, res) => {
     if (newFilePath) {
       parkingFloor.parking_slot_file = newFilePath;
     }
+    Object.assign(parkingFloor, getUpdatedAt());
 
     await parkingFloor.save();
     if (newFilePath) {
@@ -381,7 +369,7 @@ exports.deleteFloor = async (req, res) => {
   }
 };
 
-// Store the original slot JSON files under the selected floor preset.
+// Store the original slot JSON files on the selected floor.
 exports.importSlotFiles = async (req, res) => {
   const files = req.files || [];
   let saved = false;
@@ -436,6 +424,7 @@ exports.importSlotFiles = async (req, res) => {
             })),
           },
         },
+        $set: getUpdatedAt(),
       },
       { new: true, runValidators: true },
     ).populate("building", BUILDING_FIELDS);
@@ -493,7 +482,40 @@ exports.saveMap = async (req, res) => {
     }
     const floor = await ParkingFloor.findById(req.params.id);
     if (!floor) return res.status(404).json({ message: "Floor not found" });
-    if (floor.status === "available") {
+    for (const slot of map.slots) {
+      const hasCameraPreset = slot.cameraPresetId !== undefined;
+      const hasParkingSlot = slot.parkingSlotName !== undefined;
+      if (!hasCameraPreset && !hasParkingSlot) continue;
+      if (typeof slot.cameraPresetId !== "string" || !slot.cameraPresetId.trim())
+        return res.status(400).json({
+          message: "A parking slot name requires a CCTV preset",
+        });
+      const camera = Array.from(floor.camera_presets || []).find(
+        (preset) => String(preset._id) === slot.cameraPresetId,
+      );
+      if (!camera)
+        return res.status(400).json({
+          message: "Selected CCTV preset does not belong to this floor",
+        });
+      if (!hasParkingSlot) continue;
+      if (typeof slot.parkingSlotName !== "string" || !slot.parkingSlotName.trim())
+        return res.status(400).json({
+          message: "Parking slot name must not be empty",
+        });
+      let names;
+      try {
+        names = getParkingSlotNames(camera.parkingSlotData);
+      } catch {
+        return res.status(400).json({
+          message: "Selected CCTV preset has no parking-slot categories",
+        });
+      }
+      if (!names.includes(slot.parkingSlotName))
+        return res.status(400).json({
+          message: "Selected parking slot does not belong to this CCTV preset",
+        });
+    }
+    if (floor.status === "Available") {
       const previous = floor.parking_map;
       const geometry = (value) =>
         JSON.stringify({
@@ -518,7 +540,7 @@ exports.saveMap = async (req, res) => {
     // Compare status as part of the write, so a concurrent activation cannot accept a layout change.
     const updated = await ParkingFloor.findOneAndUpdate(
       { _id: floor._id, status: floor.status },
-      { $set: { parking_map: map } },
+      { $set: { parking_map: map, ...getUpdatedAt() } },
       { new: true },
     );
     if (!updated)
@@ -531,69 +553,208 @@ exports.saveMap = async (req, res) => {
   }
 };
 exports.saveCameraPreset = async (req, res) => {
+  const uploadedFile = req.file;
+  let sourceFile;
+  let saved = false;
   try {
     if (!isValidId(req.params.id))
       return res.status(400).json({ message: "Invalid floor id" });
+    if (req.params.cameraId && !isValidId(req.params.cameraId))
+      return res.status(400).json({ message: "Invalid camera id" });
     const floor = await ParkingFloor.findById(req.params.id);
     if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const existingCamera = req.params.cameraId
+      ? floor.camera_presets.id(req.params.cameraId)
+      : null;
+    if (req.params.cameraId && !existingCamera)
+      return res.status(404).json({ message: "Camera preset not found" });
     const data = req.body || {};
-    if (
-      typeof data.name !== "string" ||
-      !data.name.trim() ||
-      !data.parkingSlotFileId ||
-      !data.parkingSlotData
-    )
+    if (typeof data.name !== "string" || !data.name.trim())
       return res
         .status(400)
-        .json({
-          message:
-            "Name, original CCTV source and parking slot file are required",
+        .json({ message: "Camera preset name is required" });
+
+    let parkingSlotData;
+    let parkingSlotFileId = null;
+    if (uploadedFile) {
+      const contents = (
+        await fs.readFile(uploadedFile.path, "utf8")
+      ).replace(/^\uFEFF/, "");
+      try {
+        parkingSlotData = JSON.parse(contents);
+      } catch (error) {
+        return res.status(400).json({
+          message: `Invalid parking slot JSON: ${error.message}`,
         });
-    const SourceFile = require("../models/parkingSourceFileModel");
-    const sourceExists =
-      isValidId(data.parkingSlotFileId) &&
-      ((await SourceFile.exists({ _id: data.parkingSlotFileId })) ||
-        (await ParkingFloor.exists({
-          "parking_slot_files._id": data.parkingSlotFileId,
-        })));
-    if (!sourceExists)
-      return res
-        .status(400)
-        .json({ message: "Original CCTV source not found" });
-    const preset = Object.fromEntries(
-      [
-        "name",
-        "cameraSelector",
-        "ipAddress",
-        "rtspLink",
-        "cctvFileName",
-        "parkingSlotFileId",
-        "parkingSlotData",
-      ].map((key) => [key, data[key]]),
-    );
-    if (req.params.cameraId) {
-      const camera = floor.camera_presets.id(req.params.cameraId);
-      if (!camera) return res.status(404).json({ message: "Camera not found" });
-      Object.assign(camera, preset);
+      }
+      try {
+        getParkingSlotNames(parkingSlotData);
+      } catch (error) {
+        return res.status(400).json({
+          message: error.message,
+        });
+      }
+      sourceFile = await ParkingSourceFile.create({
+        original_name: uploadedFile.originalname,
+        path: getFilePath(uploadedFile),
+        size: uploadedFile.size,
+        fileType: "parking-slot",
+      });
+      parkingSlotFileId = String(sourceFile._id);
+    } else if (
+      Object.hasOwn(data, "parkingSlotData") &&
+      !data.parkingSlotFileId
+    ) {
+      try {
+        parkingSlotData =
+          typeof data.parkingSlotData === "string"
+            ? JSON.parse(data.parkingSlotData)
+            : data.parkingSlotData;
+      } catch (error) {
+        return res.status(400).json({
+          message: `Invalid parking slot JSON: ${error.message}`,
+        });
+      }
+      try {
+        getParkingSlotNames(parkingSlotData);
+      } catch (error) {
+        return res.status(400).json({ message: error.message });
+      }
     } else {
-      floor.camera_presets.push(preset);
+      parkingSlotFileId = data.parkingSlotFileId || existingCamera?.parkingSlotFileId || null;
+      if (parkingSlotFileId) {
+        if (!isValidId(parkingSlotFileId))
+          return res.status(400).json({
+            message: "Invalid parking slot file id",
+          });
+        sourceFile = await ParkingSourceFile.findOne({
+          _id: parkingSlotFileId,
+          fileType: "parking-slot",
+        });
+        if (!sourceFile)
+          return res.status(400).json({
+            message: "Parking slot JSON file not found",
+          });
+        parkingSlotData = await readParkingSlotJson(sourceFile.path);
+        try {
+          getParkingSlotNames(parkingSlotData);
+        } catch (error) {
+          return res.status(400).json({ message: error.message });
+        }
+      } else {
+        parkingSlotData = existingCamera?.parkingSlotData;
+        try {
+          getParkingSlotNames(parkingSlotData);
+        } catch {
+          return res.status(400).json({
+            message: "Provide parkingSlotData or a parking slot JSON file",
+          });
+        }
+      }
     }
+
+    const cctvFileName =
+      typeof data.cctvFileName === "string"
+        ? data.cctvFileName.trim()
+        : existingCamera?.cctvFileName || "";
+    const preset = {
+      name: data.name.trim(),
+      cctvFileName,
+      cameraSelector: data.cameraSelector ?? existingCamera?.cameraSelector,
+      ipAddress: data.ipAddress ?? existingCamera?.ipAddress,
+      rtspLink: data.rtspLink ?? existingCamera?.rtspLink,
+      parkingSlotFileId,
+      parkingSlotData,
+    };
+
+    if (existingCamera) {
+      Object.assign(existingCamera, {
+        ...preset,
+        status: existingCamera.status === "Disable" ? "Disable" : "Unknown",
+      });
+    } else {
+      floor.camera_presets.push({ ...preset, status: "Unknown" });
+    }
+
+    Object.assign(floor, getUpdatedAt());
     await floor.save();
     await floor.populate("building", BUILDING_FIELDS);
-    res.json({ floor });
+    saved = true;
+    return res.json({ success: true, floor });
+  } catch (error) {
+    return sendError(res, error);
+  } finally {
+    if (uploadedFile && !saved) {
+      const cleanup = [removeUploadedFile(uploadedFile)];
+      if (sourceFile?._id) {
+        cleanup.push(ParkingSourceFile.deleteOne({ _id: sourceFile._id }));
+      }
+      const results = await Promise.allSettled(cleanup);
+      for (const result of results) {
+        if (result.status === "rejected") console.error(result.reason);
+      }
+    }
+  }
+};
+
+exports.updateCameraPresetStatus = async (req, res) => {
+  try {
+    const { id, cameraId } = req.params;
+    const { status } = req.body || {};
+    if (!isValidId(id) || !isValidId(cameraId))
+      return res.status(400).json({ message: "Invalid floor or camera id" });
+    if (!["Disable", "Unknown"].includes(status))
+      return res.status(400).json({
+        message: "Camera preset status must be Disable or Unknown",
+      });
+
+    const floor = await ParkingFloor.findById(id);
+    if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const camera = floor.camera_presets.id(cameraId);
+    if (!camera)
+      return res.status(404).json({ message: "Camera preset not found" });
+
+    camera.status = status;
+    Object.assign(floor, getUpdatedAt());
+    await floor.save();
+    await floor.populate("building", BUILDING_FIELDS);
+    return res.json({ success: true, floor });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.listCameraParkingSlotCategories = async (req, res) => {
+  try {
+    const { id, cameraId } = req.params;
+    if (!isValidId(id) || !isValidId(cameraId))
+      return res.status(400).json({ message: "Invalid floor or camera id" });
+    const floor = await ParkingFloor.findById(id).select("camera_presets");
+    if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const camera = floor.camera_presets.id(cameraId);
+    if (!camera)
+      return res.status(404).json({ message: "Camera preset not found" });
+    try {
+      return res.json({
+        categories: getParkingSlotNames(camera.parkingSlotData),
+      });
+    } catch (error) {
+      return res
+        .status(400)
+        .json({ message: error.message });
+    }
   } catch (error) {
     return sendError(res, error);
   }
 };
 exports.listSourceFiles = async (req, res) => {
   try {
-    const SourceFile = require("../models/parkingSourceFileModel");
     const floors = await ParkingFloor.find().select("parking_slot_files");
     const legacy = floors.flatMap((floor) =>
       Array.from(floor.parking_slot_files || []),
     );
     if (legacy.length)
-      await SourceFile.bulkWrite(
+      await ParkingSourceFile.bulkWrite(
         legacy.map((file) => ({
           updateOne: {
             filter: { _id: file._id },
@@ -603,12 +764,13 @@ exports.listSourceFiles = async (req, res) => {
                 path: file.path,
                 size: file.size,
               },
+              $set: { fileType: "parking-slot" },
             },
             upsert: true,
           },
         })),
       );
-    const files = await SourceFile.find().sort({ createdAt: -1 });
+    const files = await ParkingSourceFile.find().sort({ createdAt: -1 });
     res.json({ files });
   } catch (error) {
     return sendError(res, error);
@@ -630,18 +792,18 @@ exports.importSourceFiles = async (req, res) => {
         return res
           .status(400)
           .json({ message: `Invalid JSON: ${file.originalname}` });
-    const SourceFile = require("../models/parkingSourceFileModel");
     // Validate the entire batch before writing any records.
     const docs = files.map((file) => ({
       _id: new mongoose.Types.ObjectId(),
       original_name: file.originalname,
       path: getFilePath(file),
       size: file.size,
+      fileType: "cctv",
     }));
     try {
-      await SourceFile.insertMany(docs, { ordered: true });
+      await ParkingSourceFile.insertMany(docs, { ordered: true });
     } catch (error) {
-      await SourceFile.deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
+      await ParkingSourceFile.deleteMany({ _id: { $in: docs.map((doc) => doc._id) } });
       throw error;
     }
     saved = true;
@@ -656,9 +818,7 @@ exports.downloadSourceFile = async (req, res) => {
   try {
     if (!isValidId(req.params.fileId))
       return res.status(400).json({ message: "Invalid file id" });
-    const file = await require("../models/parkingSourceFileModel").findById(
-      req.params.fileId,
-    );
+    const file = await ParkingSourceFile.findById(req.params.fileId);
     if (!file) return res.status(404).json({ message: "File not found" });
     const absolutePath = path.resolve(__dirname, "../../..", file.path);
     const relative = path.relative(FILE_ROOT, absolutePath);
@@ -705,7 +865,7 @@ exports.setSlotStatuses = async (req, res) => {
     const map = { ...floor.parking_map, slots };
     const updated = await ParkingFloor.findOneAndUpdate(
       { _id: floor._id, parking_map: floor.parking_map },
-      { $set: { parking_map: map } },
+      { $set: { parking_map: map, ...getUpdatedAt() } },
       { new: true },
     );
     if (!updated)

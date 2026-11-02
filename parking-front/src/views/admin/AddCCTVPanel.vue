@@ -42,18 +42,18 @@
         <label class="add-cctv-field">
           <span>Select 1 Original CCTV Source</span>
           <select
-            v-model="selectedParkingFile"
+            v-model="selectedCctvFile"
             required
-            :disabled="!availableParkingFiles.length || saving"
+            :disabled="!availableCctvFiles.length || saving"
           >
             <option value="" disabled>
               {{
-                availableParkingFiles.length
+                availableCctvFiles.length
                   ? 'Select original CCTV source'
-                  : 'Import files in Parking slot files first'
+                  : 'Import original CCTV source files first'
               }}
             </option>
-            <option v-for="file in availableParkingFiles" :key="file._id" :value="file._id">
+            <option v-for="file in availableCctvFiles" :key="file._id" :value="file.original_name">
               {{ file.original_name }}
             </option>
           </select>
@@ -67,17 +67,21 @@
           />
         </label>
         <label class="add-cctv-field">
-          <span>Parking Slot File</span>
+          <span>Parking Slot JSON File</span>
           <input
             class="add-cctv-file"
             type="file"
             accept=".json,application/json"
-            :required="!camera?.parkingSlotData"
+            :required="!camera?.parkingSlotFileId"
+            :disabled="saving"
             @change="selectCctvFile"
           />
-          <small v-if="mode === 'edit' && camera?.cctvFileName"
-            >Current file: {{ camera.cctvFileName }}. Choose a file to replace it.</small
-          >
+          <small v-if="mode === 'edit' && camera?.parkingSlotFileId">
+            Leave empty to keep the current file, or choose a replacement.
+          </small>
+          <small v-else-if="mode === 'edit' && camera?.parkingSlotData">
+            This preset has embedded slot data. Upload a JSON file to replace it.
+          </small>
         </label>
 
         <details class="add-cctv-connection">
@@ -106,11 +110,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ArrowLeft } from 'lucide-vue-next'
 import type { CctvFormCamera } from './cctvForm'
 import { floorService, type ParkingSlotFile } from '@/services/api'
-import { MAX_IMPORT_BYTES, parseParkingMapJson } from '@/components/parking/parkingMapJson'
+import { MAX_IMPORT_BYTES } from '@/components/parking/parkingMapJson'
 
 const emit = defineEmits<{
   save: [camera: CctvFormCamera, file: File | null]
@@ -136,6 +140,11 @@ const ipAddress = ref(props.camera?.ipAddress || '')
 const rtspLink = ref(props.camera?.rtspLink || '')
 const cctvFile = ref<File | null>(null)
 const availableParkingFiles = ref<ParkingSlotFile[]>([])
+const availableCctvFiles = computed(() =>
+  availableParkingFiles.value.filter(
+    (file) => file.fileType === 'cctv' || file.fileType === undefined,
+  ),
+)
 const error = ref(''),
   saving = ref(false)
 onMounted(async () => {
@@ -145,7 +154,7 @@ onMounted(async () => {
     error.value = 'Unable to load original CCTV sources.'
   }
 })
-const selectedParkingFile = ref(props.camera?.parkingSlotFileId || '')
+const selectedCctvFile = ref(props.camera?.cctvFileName || '')
 function selectCctvFile(event: Event) {
   cctvFile.value = (event.target as HTMLInputElement).files?.[0] || null
 }
@@ -154,28 +163,50 @@ async function save() {
   saving.value = true
   error.value = ''
   try {
-    if (!cameraName.value.trim() || !selectedParkingFile.value)
+    if (!cameraName.value.trim() || !selectedCctvFile.value)
       throw new Error('Enter a CCTV name and select an original CCTV source.')
-    let parkingSlotData = props.camera?.parkingSlotData
     if (cctvFile.value) {
       if (cctvFile.value.size > MAX_IMPORT_BYTES)
         throw new Error('Choose a parking slot file up to 5 MB.')
       const text = await cctvFile.value.text()
-      parseParkingMapJson(text)
-      parkingSlotData = JSON.parse(text.replace(/^\uFEFF/, ''))
+      let parkingSlotData: unknown
+      try {
+        parkingSlotData = JSON.parse(text.replace(/^\uFEFF/, ''))
+      } catch {
+        throw new Error('Parking Slot JSON file is invalid.')
+      }
+      const categories = (parkingSlotData as { categories?: unknown })?.categories
+      if (
+        !Array.isArray(categories) ||
+        !categories.some(
+          (category) =>
+            category &&
+            typeof category === 'object' &&
+            'supercategory' in category &&
+            category.supercategory === 'parking-slot' &&
+            'name' in category &&
+            typeof category.name === 'string' &&
+            category.name.trim(),
+        )
+      )
+        throw new Error('JSON must contain at least one parking-slot category name.')
+    } else if (!props.camera?.parkingSlotFileId) {
+      throw new Error('Choose a Parking Slot JSON file.')
     }
-    if (!parkingSlotData) throw new Error('Import a Parking Slot File.')
     const camera: CctvFormCamera = {
       ...(props.camera?._id ? { _id: props.camera._id } : {}),
       name: cameraName.value.trim(),
       cameraSelector: cameraSelector.value,
       ipAddress: ipAddress.value,
       rtspLink: rtspLink.value,
-      cctvFileName: cctvFile.value?.name || props.camera?.cctvFileName || '',
-      parkingSlotFileId: selectedParkingFile.value,
-      parkingSlotData,
+      cctvFileName: selectedCctvFile.value,
+      parkingSlotFileId: cctvFile.value ? null : props.camera?.parkingSlotFileId || null,
     }
-    const response = await floorService.saveCamera(props.selectedFloor._id, camera)
+    const response = await floorService.saveCamera(
+      props.selectedFloor._id,
+      camera,
+      cctvFile.value,
+    )
     emit('saved', response.data.floor)
     emit('save', camera, cctvFile.value)
   } catch (cause) {

@@ -155,7 +155,7 @@ describe('dashboard parking locations and permissions', () => {
   })
   it('shows the unavailable message for a disabled floor', async () => {
     vi.mocked(floorService.catalog).mockResolvedValueOnce({
-      data: { floors: [{ ...floors[0], status: 'disable' }] },
+      data: { floors: [{ ...floors[0], status: 'Disable' }] },
     } as never)
     const { wrapper } = await createDashboard('user')
     await selectLocation(wrapper)

@@ -52,8 +52,8 @@ app.use((error, req, res, next) => {
 async function startServer() {
   try {
     await mongoose.connect(MONGODB_URI);
-    // Retire the old floor state while preserving the floor and its map.
-    await require("./api/models/parkingFloorModel").updateMany({ status: "unavailable" }, { $set: { status: "disable" } });
+    await require("./api/utils/migrateParkingBuildingFields")();
+    await require("./api/utils/migrateParkingFloorFields")();
     console.log("Connected to MongoDB");
 
     app.listen(PORT, () => {

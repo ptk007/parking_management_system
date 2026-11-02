@@ -83,7 +83,7 @@ function sendError(res, error) {
 // POST /api/admin/system/buildings - Create a parking building.
 exports.createBuilding = async (req, res) => {
   try {
-    const { building_name, building_status } = req.body ?? {};
+    const { building_name } = req.body ?? {};
 
     if (
       building_name &&
@@ -96,11 +96,12 @@ exports.createBuilding = async (req, res) => {
       });
     }
 
+    const timestamp = getBangkokDateTime();
     const building = await ParkingBuilding.create({
       building_name,
-      building_status,
       building_image: getImagePath(req.file),
-      ...getBangkokDateTime(),
+      date_updated: timestamp.date_add,
+      time_updated: timestamp.time_add,
     });
 
     return res.status(201).json({ success: true, building });
@@ -118,8 +119,8 @@ exports.createBuilding = async (req, res) => {
 exports.listBuildings = async (req, res) => {
   try {
     const buildings = await ParkingBuilding.find().sort({
-      date_add: -1,
-      time_add: -1,
+      date_updated: -1,
+      time_updated: -1,
     });
     return res.json({
       success: true,
@@ -210,7 +211,7 @@ exports.updateBuilding = async (req, res) => {
     }
 
     const previousImage = building.building_image;
-    for (const field of ["building_name", "building_status"]) {
+    for (const field of ["building_name"]) {
       if (req.body?.[field] !== undefined) {
         building[field] = req.body[field];
       }
@@ -220,6 +221,10 @@ exports.updateBuilding = async (req, res) => {
     if (imagePath) {
       building.building_image = imagePath;
     }
+
+    const timestamp = getBangkokDateTime();
+    building.date_updated = timestamp.date_add;
+    building.time_updated = timestamp.time_add;
 
     await building.save();
     if (imagePath && previousImage) {

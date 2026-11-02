@@ -39,6 +39,7 @@ test("stores original source files centrally without a building or floor and pre
   assert.equal(res.statusCode, 201);
   const doc = insert.mock.calls[0].arguments[0][0];
   assert.equal(doc.original_name, "source.json");
+  assert.equal(doc.fileType, "cctv");
   assert.equal("floor" in doc, false);
   assert.equal(await fs.readFile(file.path, "utf8"), text);
 });
@@ -73,6 +74,10 @@ test("promotes legacy floor imports to the shared library with their original ID
   assert.equal(
     migrate.mock.calls[0].arguments[0][0].updateOne.filter._id,
     file._id,
+  );
+  assert.equal(
+    migrate.mock.calls[0].arguments[0][0].updateOne.update.$set.fileType,
+    "parking-slot",
   );
 });
 test("deleting a floor keeps a promoted source used by other floors", async (t) => {

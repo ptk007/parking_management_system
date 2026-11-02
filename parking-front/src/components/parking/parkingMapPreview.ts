@@ -8,6 +8,8 @@ export interface PreviewSlot {
   number: number
   zone: string
   status: SlotStatus
+  cameraPresetId?: string
+  parkingSlotName?: string
 }
 
 // Row boundaries follow the existing ReferenceParkingMap floor plan.

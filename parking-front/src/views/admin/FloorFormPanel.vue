@@ -34,8 +34,8 @@
     <label v-if="mode === 'edit' && floor?.parking_map" class="floor-field">
       <span>Status</span>
       <select v-model="status" :disabled="isSaving">
-        <option value="available">Available</option>
-        <option value="disable">Disable</option>
+        <option value="Available">Available</option>
+        <option value="Disable">Disable</option>
       </select>
     </label>
     <p v-if="error" class="floor-error" role="alert">{{ error }}</p>
@@ -107,7 +107,7 @@ const buildingId = ref(props.floor?.building?._id ?? props.buildings[0]?._id ?? 
 const floorNumber = ref(props.floor?.floor ?? 1)
 const vehicleType = ref<ParkingFloor['veh_type']>(props.floor?.veh_type ?? 'car')
 const status = ref<ParkingFloor['status']>(
-  props.floor?.status === 'available' ? 'available' : 'disable',
+  props.floor?.status === 'Available' ? 'Available' : 'Disable',
 )
 const isSaving = ref(false)
 const error = ref('')
@@ -163,7 +163,7 @@ const saveFloor = async () => {
     building: buildingId.value,
     floor: floorNumber.value,
     veh_type: vehicleType.value,
-    status: props.mode === 'add' ? 'disable' : status.value,
+    status: props.mode === 'add' ? 'Disable' : status.value,
   }
 
   try {

@@ -71,11 +71,22 @@ function slotOf(value: unknown, defaultZone?: string, fallbackNumber = 1): Previ
     (typeof originalName !== 'string' || !originalName.trim() || originalName.length > 100)
   )
     throw new Error('Slot name must be between 1 and 100 characters.')
+  const cameraPresetId = value.cameraPresetId
+  const parkingSlotName = value.parkingSlotName
+  if (
+    (cameraPresetId !== undefined &&
+      (typeof cameraPresetId !== 'string' || !cameraPresetId.trim())) ||
+    (parkingSlotName !== undefined &&
+      (typeof parkingSlotName !== 'string' || !parkingSlotName.trim()))
+  )
+    throw new Error('Invalid CCTV slot assignment.')
   return {
     number,
     zone: zone.trim(),
     status: statusOf(value.status ?? value.slot_status),
     ...(originalName !== undefined ? { name: String(originalName).trim() } : {}),
+    ...(typeof cameraPresetId === 'string' ? { cameraPresetId } : {}),
+    ...(typeof parkingSlotName === 'string' ? { parkingSlotName } : {}),
   }
 }
 

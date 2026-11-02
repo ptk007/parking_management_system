@@ -161,12 +161,11 @@ Stores parking zone metadata and map references.
 **Example document:**
 ```json
 {
-  "_id":
-  "building": "E4",
-  "parking_status": "Active",
-  "building_image": "images/parking_building/E4.jpg"
-  "date_add": "2026-06-29",
-  "time_add": "11:00:00",
+  "_id": "...",
+  "building_name": "E4",
+  "building_image": "images/parking_building/E4.jpg",
+  "date_updated": "2026-06-29",
+  "time_updated": "11:00:00"
 }
 ```
 

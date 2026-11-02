@@ -805,15 +805,15 @@ const ParkingSetupList = defineComponent({
             'p',
             `Floor : ${floor.floor}      (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
           ),
-          h('p', `Date Updated : ${floor.date_add}`),
-          h('p', `Time Updated : ${floor.time_add}`),
+          h('p', `Date Updated : ${floor.date_updated}`),
+          h('p', `Time Updated : ${floor.time_updated}`),
         ]),
         h('p', { class: 'floor-status' }, [
           'Status : ',
           h(
             'strong',
-            { class: floor.status === 'available' ? 'available' : 'disable' },
-            floor.status === 'available' ? 'Available' : 'Disable',
+            { class: floor.status === 'Available' ? 'available' : 'disable' },
+            floor.status === 'Available' ? 'Available' : 'Disable',
           ),
         ]),
         h('div', { class: 'floor-actions' }, [
@@ -916,8 +916,8 @@ const ParkingSetupList = defineComponent({
                     'p',
                     `All Floors : ${new Set(buildingFloors.map((floor) => floor.floor)).size}`,
                   ),
-                  h('p', `Date Updated : ${building.date_add}`),
-                  h('p', `Time Updated : ${building.time_add}`),
+                  h('p', `Date Updated : ${building.date_updated}`),
+                  h('p', `Time Updated : ${building.time_updated}`),
                 ]),
                 h(BuildingCameraSummary, {
                   summary: props.cameraSummaries[building._id],

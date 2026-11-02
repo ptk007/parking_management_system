@@ -56,7 +56,7 @@
         <div v-else-if="error" class="map-empty" role="alert">
           {{ error }} <button @click="load">Try again</button>
         </div>
-        <div v-else-if="selectedFloor?.status === 'disable'" class="map-empty" role="status">
+        <div v-else-if="selectedFloor?.status === 'Disable'" class="map-empty" role="status">
           <h2>Parking is not available for now!</h2>
         </div>
         <div v-else-if="!selectedFloor" class="map-empty">
@@ -225,16 +225,15 @@ function showSample() {
         _id: 'sample-e4',
         building_name: 'E4 (Sample)',
         building_image: null,
-        date_add: '',
-        time_add: '',
+        date_updated: '',
+        time_updated: '',
       },
       floor: 4,
       veh_type: 'car',
-      zone: 1,
-      status: 'available',
+      status: 'Available',
       parking_slot_file: null,
-      date_add: '',
-      time_add: '',
+      date_updated: '',
+      time_updated: '',
       parking_map: {
         version: 2,
         sourceName: 'Sample parking map',

@@ -41,6 +41,27 @@ describe('parking map JSON import', () => {
     ).toThrow('Duplicate slot name')
   })
 
+  it('preserves camera preset and parking-slot assignments when maps are restored', () => {
+    const restored = restoreMapDraft(
+      JSON.stringify({
+        version: 2,
+        slots: [
+          {
+            number: 1,
+            zone: 'A',
+            status: 'available',
+            cameraPresetId: 'camera-1',
+            parkingSlotName: 'zoneA_slot01',
+          },
+        ],
+      }),
+    )
+    expect(restored.slots[0]).toMatchObject({
+      cameraPresetId: 'camera-1',
+      parkingSlotName: 'zoneA_slot01',
+    })
+  })
+
   it('reads the existing dashboard JSON and Roboflow export from the project', () => {
     const slots = parseParkingMapJson(JSON.stringify(legacy))
     expect(slots).toHaveLength(124)

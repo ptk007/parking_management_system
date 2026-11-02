@@ -44,16 +44,48 @@ router.post(
   floorController.createFloor,
 );
 router.get("/", floorController.listFloors);
-router.get("/check-duplicate", floorController.checkDuplicateZone);
-const slotUpload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 20 },
-  fileFilter: (req, file, callback) => callback(null, path.extname(file.originalname).toLowerCase() === ".json"),
+const slotUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 20 },
+  fileFilter: (req, file, callback) =>
+    callback(
+      null,
+      path.extname(file.originalname).toLowerCase() === ".json",
+    ),
+});
+const presetFileUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, callback) => {
+    if (path.extname(file.originalname).toLowerCase() !== ".json") {
+      return callback(new Error("Only JSON files are allowed"));
+    }
+    return callback(null, true);
+  },
 });
 router.get("/source-files", floorController.listSourceFiles);
-router.post("/source-files", slotUpload.array("files", 20), floorController.importSourceFiles);
+router.post(
+  "/source-files",
+  slotUpload.array("files", 20),
+  floorController.importSourceFiles,
+);
 router.get("/source-files/:fileId", floorController.downloadSourceFile);
 router.put("/:id/map", floorController.saveMap);
-router.post("/:id/cameras", floorController.saveCameraPreset);
-router.patch("/:id/cameras/:cameraId", floorController.saveCameraPreset);
+router.post(
+  "/:id/cameras",
+  presetFileUpload.single("parking_slot_file"),
+  floorController.saveCameraPreset,
+);
+router.patch("/:id/cameras/:cameraId/status", floorController.updateCameraPresetStatus);
+router.get(
+  "/:id/cameras/:cameraId/parking-slot-categories",
+  floorController.listCameraParkingSlotCategories,
+);
+router.patch(
+  "/:id/cameras/:cameraId",
+  presetFileUpload.single("parking_slot_file"),
+  floorController.saveCameraPreset,
+);
 router.post("/:id/slot-files", slotUpload.array("files", 20), floorController.importSlotFiles);
 router.get("/:id/slot-files/:fileId", floorController.downloadSlotFile);
 router.get("/:id", floorController.getFloor);

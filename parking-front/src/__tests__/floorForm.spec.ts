@@ -9,8 +9,8 @@ vi.mock('@/services/api', () => ({
 }))
 
 const buildings: ParkingBuilding[] = [
-  { _id: 'building-e4', building_name: 'E4', building_image: null, date_add: '', time_add: '' },
-  { _id: 'building-e5', building_name: 'E5', building_image: null, date_add: '', time_add: '' },
+  { _id: 'building-e4', building_name: 'E4', building_image: null, date_updated: '', time_updated: '' },
+  { _id: 'building-e5', building_name: 'E5', building_image: null, date_updated: '', time_updated: '' },
 ]
 
 const wrappers: VueWrapper[] = []
@@ -37,7 +37,7 @@ describe('admin floor form', () => {
       building: 'building-e5',
       floor: 4,
       veh_type: 'car',
-      status: 'disable',
+      status: 'Disable',
     })
     expect(wrapper.emitted('saved')?.[0]).toEqual(['building-e5'])
   })
@@ -49,11 +49,10 @@ describe('admin floor form', () => {
       building: buildings[0]!,
       floor: 4,
       veh_type: 'car',
-      zone: 1,
       parking_slot_file: null,
-      status: 'disable',
-      date_add: '',
-      time_add: '',
+      status: 'Disable',
+      date_updated: '',
+      time_updated: '',
     }
     const wrapper = mount(FloorFormPanel, {
       props: { mode: 'add', buildings, floors: [existing] },
@@ -80,11 +79,10 @@ describe('admin floor form', () => {
       building: buildings[0]!,
       floor: 2,
       veh_type: 'motorcycle',
-      zone: 1,
       parking_slot_file: null,
-      status: 'disable',
-      date_add: '',
-      time_add: '',
+      status: 'Disable',
+      date_updated: '',
+      time_updated: '',
       parking_map: {
         version: 2,
         sourceName: 'map',
@@ -96,7 +94,7 @@ describe('admin floor form', () => {
     wrappers.push(wrapper)
 
     expect(wrapper.findAll('select')).toHaveLength(3)
-    expect(wrapper.findAll('select')[2]!.element.value).toBe('disable')
+    expect(wrapper.findAll('select')[2]!.element.value).toBe('Disable')
   })
 
   it('deletes an existing floor only after confirmation', async () => {
@@ -106,11 +104,10 @@ describe('admin floor form', () => {
       building: buildings[0]!,
       floor: 2,
       veh_type: 'motorcycle',
-      zone: 1,
       parking_slot_file: null,
-      status: 'disable',
-      date_add: '',
-      time_add: '',
+      status: 'Disable',
+      date_updated: '',
+      time_updated: '',
     }
     const wrapper = mount(FloorFormPanel, { props: { mode: 'edit', buildings, floor } })
     wrappers.push(wrapper)

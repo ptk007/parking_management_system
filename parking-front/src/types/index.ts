@@ -7,6 +7,8 @@ export interface ApiUser {
   name: string
   role: UserRole
   status: UserStatus
+  date_updated?: string | null
+  time_updated?: string | null
   date_add?: string
   time_add?: string
   user_image?: string | null

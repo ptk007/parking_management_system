@@ -6,5 +6,5 @@ export interface CctvFormCamera {
   ipAddress: string
   rtspLink: string
   cctvFileName: string
-  parkingSlotFileId: string
+  parkingSlotFileId: string | null
 }

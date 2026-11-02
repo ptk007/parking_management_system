@@ -15,8 +15,8 @@ const building: ParkingBuilding = {
   _id: 'building-1',
   building_name: 'E4',
   building_image: 'images/parking_building/e4.jpg',
-  date_add: '28/09/2569',
-  time_add: '12:00:00',
+  date_updated: '28/09/2569',
+  time_updated: '12:00:00',
 }
 
 const wrappers: VueWrapper[] = []

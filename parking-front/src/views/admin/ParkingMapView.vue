@@ -1,5 +1,8 @@
 <template>
   <section class="parking-map-page">
+    <div v-if="assignmentNotification" class="assignment-notification" role="alert" aria-live="assertive">
+      {{ assignmentNotification }}
+    </div>
     <header class="page-heading">
       <RouterLink to="/admin/setup" class="back-button" aria-label="Back to Parking Setup"
         ><ArrowLeft :size="20"
@@ -16,19 +19,19 @@
           >
             <button
               type="button"
-              :class="['floor-status-button', 'available', { active: floor.status === 'available' }]"
-              :aria-pressed="floor.status === 'available'"
+              :class="['floor-status-button', 'available', { active: floor.status === 'Available' }]"
+              :aria-pressed="floor.status === 'Available'"
               :disabled="updatingFloorStatus"
-              @click="setFloorStatus('available')"
+              @click="setFloorStatus('Available')"
             >
               Available
             </button>
             <button
               type="button"
-              :class="['floor-status-button', 'disable', { active: floor.status === 'disable' }]"
-              :aria-pressed="floor.status === 'disable'"
+              :class="['floor-status-button', 'disable', { active: floor.status === 'Disable' }]"
+              :aria-pressed="floor.status === 'Disable'"
               :disabled="updatingFloorStatus"
-              @click="setFloorStatus('disable')"
+              @click="setFloorStatus('Disable')"
             >
               Disable
             </button>
@@ -151,7 +154,7 @@
               </option>
             </select>
           </div>
-          <p v-if="floor.status === 'available'" class="locked-note">
+          <p v-if="floor.status === 'Available'" class="locked-note">
             Disable this floor in Parking Setup to use Layout editor.
           </p>
           <p v-if="slots.length && !visibleKeys.size" class="empty-results">
@@ -184,37 +187,45 @@
             <span>{{ selectedSlots.length }} selected</span>
           </div>
           <template v-if="inspectedSlot">
-            <div :class="['slot-preview', inspectedSlot.status]">
-              <ParkingSquare :size="36" /><strong>{{ slotDisplayName(inspectedSlot) }}</strong
-              ><span>{{ statusLabels[inspectedSlot.status] }}</span>
-            </div>
             <div class="detail-body">
-              <form
+              <div v-if="selectedSlots.length === 1" :class="['slot-preview', inspectedSlot.status]">
+                <ParkingSquare :size="36" /><strong>{{ slotDisplayName(inspectedSlot) }}</strong
+                ><span>{{ statusLabels[inspectedSlot.status] }}</span>
+              </div>
+              <div
                 v-if="viewMode === 'layout' && canEditLayout"
-                class="rename-slot"
-                @submit.prevent="renameSlot"
+                class="slot-assignment"
               >
-                <label for="slot-name">Slot name</label>
-                <div>
-                  <input
-                    id="slot-name"
-                    v-model="slotName"
-                    maxlength="100"
-                    autocomplete="off"
-                  /><button
-                    :disabled="
-                      !slotName.trim() || slotName.trim() === slotDisplayName(inspectedSlot)
-                    "
+                <label for="slot-cctv">Select CCTV</label>
+                <select
+                  id="slot-cctv"
+                  v-model="selectedCctvPresetId"
+                  :disabled="!floor.camera_presets?.length"
+                >
+                  <option value="">{{ floor.camera_presets?.length ? 'Select CCTV' : 'None' }}</option>
+                  <option
+                    v-for="camera in floor.camera_presets || []"
+                    :key="camera._id"
+                    :value="camera._id"
                   >
-                    Apply
-                  </button>
-                </div>
-                <p>
-                  Use the exact parking slot name in your CCTV JSON file, including capital letters.
-                </p>
-                <p v-if="renameError" class="field-error" role="alert">{{ renameError }}</p>
-              </form>
-              <dl>
+                    {{ camera.name }}
+                  </option>
+                </select>
+                <template v-if="selectedSlots.length === 1">
+                  <label for="slot-parking-name">Select Parking Slot</label>
+                  <select
+                    id="slot-parking-name"
+                    v-model="selectedParkingSlotName"
+                    :disabled="!selectedCctvPresetId || !parkingSlotNames.length"
+                  >
+                    <option value="">{{ parkingSlotNames.length ? 'Select Parking Slot' : 'None' }}</option>
+                    <option v-for="name in parkingSlotNames" :key="name" :value="name">
+                      {{ name }}
+                    </option>
+                  </select>
+                </template>
+              </div>
+              <dl v-if="selectedSlots.length === 1">
                 <div>
                   <dt>Building</dt>
                   <dd>{{ floor.building?.building_name || '-' }}</dd>
@@ -223,12 +234,11 @@
                   <dt>Floor</dt>
                   <dd>{{ floor.floor }}</dd>
                 </div>
-                <div>
-                  <dt>Slot name</dt>
-                  <dd>{{ slotDisplayName(inspectedSlot) }}</dd>
-                </div>
               </dl>
-              <p v-if="!isEditableSlot(inspectedSlot)" class="locked-note">
+              <p
+                v-if="selectedSlots.length === 1 && !isEditableSlot(inspectedSlot)"
+                class="locked-note"
+              >
                 <LockKeyhole :size="15" /> Occupied and incoming statuses are controlled by the
                 camera.
               </p>
@@ -327,6 +337,7 @@ import {
   slotKey,
   validateSlots,
 } from '@/components/parking/parkingMapJson'
+import type { CctvFormCamera } from './cctvForm'
 const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore()
@@ -335,14 +346,14 @@ const floor = ref<ParkingFloor | null>(null),
   error = ref('')
 const slots = ref<PreviewSlot[]>([]),
   layout = ref<ParkingLayout>(emptyParkingLayout())
-const canEditLayout = computed(() => auth.isAdmin && floor.value?.status !== 'available')
+const canEditLayout = computed(() => auth.isAdmin && floor.value?.status !== 'Available')
 const editorRevision = ref(0)
 const sourceName = ref('New map'),
   viewMode = ref<'preview' | 'layout'>('preview')
 const selected = ref(new Set<string>()),
-  inspectedKey = ref<string | null>(null),
-  slotName = ref(''),
-  renameError = ref('')
+  inspectedKey = ref<string | null>(null)
+const assignmentNotification = ref('')
+let assignmentNotificationTimeout: ReturnType<typeof setTimeout> | undefined
 const autosave = ref(true),
   dirty = ref(false),
   saving = ref(false),
@@ -366,6 +377,68 @@ let allowLeave = false
 const inspectedSlot = computed(() =>
   slots.value.find((slot) => slotKey(slot) === inspectedKey.value),
 )
+const selectedCctvPresetId = computed({
+  get: () => {
+    if (selectedSlots.value.length > 1) {
+      const presetIds = new Set(selectedSlots.value.map((slot) => slot.cameraPresetId || ''))
+      return presetIds.size === 1 ? [...presetIds][0]! : ''
+    }
+    return inspectedSlot.value?.cameraPresetId || ''
+  },
+  set: (cameraPresetId: string) => {
+    updateSelectedSlots({
+      cameraPresetId: cameraPresetId || undefined,
+      parkingSlotName: undefined,
+    })
+  },
+})
+const selectedCameraPreset = computed(() =>
+  floor.value?.camera_presets?.find(
+    (camera) => camera._id === selectedCctvPresetId.value,
+  ),
+)
+const parkingSlotNames = computed(() => {
+  const slot = inspectedSlot.value
+  const assignedNames = new Set(
+    slots.value
+      .filter(
+        (other) =>
+          other.cameraPresetId === selectedCctvPresetId.value &&
+          other.parkingSlotName &&
+          (!slot || slotKey(other) !== slotKey(slot)),
+      )
+      .map((other) => other.parkingSlotName!),
+  )
+  return getCameraSlotNames(selectedCameraPreset.value).filter(
+    (name) => !assignedNames.has(name),
+  )
+})
+const selectedParkingSlotName = computed({
+  get: () => inspectedSlot.value?.parkingSlotName || '',
+  set: (parkingSlotName: string) => {
+    const slot = inspectedSlot.value
+    if (
+      parkingSlotName &&
+      slot &&
+      slots.value.some(
+        (other) =>
+          slotKey(other) !== slotKey(slot) &&
+          other.cameraPresetId === slot.cameraPresetId &&
+          other.parkingSlotName === parkingSlotName,
+      )
+    ) {
+      showAssignmentNotification(
+        `Parking slot "${parkingSlotName}" is already assigned to another map slot.`,
+      )
+      return
+    }
+    assignmentNotification.value = ''
+    updateInspectedSlot({
+      cameraPresetId: slot?.cameraPresetId,
+      parkingSlotName: parkingSlotName || undefined,
+    })
+  },
+})
 const selectedSlots = computed(() =>
   slots.value.filter((slot) => selected.value.has(slotKey(slot))),
 )
@@ -407,8 +480,6 @@ function clearFilters() {
 }
 function inspectSlot(slot: PreviewSlot) {
   inspectedKey.value = slotKey(slot)
-  slotName.value = slotDisplayName(slot)
-  renameError.value = ''
 }
 function withPositions(items: PreviewSlot[], next: ParkingLayout): ParkingLayout {
   return {
@@ -588,7 +659,7 @@ async function setFloorStatus(status: ParkingFloor['status']) {
   updatingFloorStatus.value = true
   floorStatusError.value = ''
   try {
-    if (status === 'available' && dirty.value && !(await persistDraft()))
+    if (status === 'Available' && dirty.value && !(await persistDraft()))
       throw new Error('Save map changes before making this floor available.')
 
     const data: ParkingFloorPayload = {
@@ -609,21 +680,71 @@ async function setFloorStatus(status: ParkingFloor['status']) {
     updatingFloorStatus.value = false
   }
 }
-function renameSlot() {
-  const slot = inspectedSlot.value,
-    name = slotName.value.trim()
-  if (!canEditLayout.value || viewMode.value !== 'layout' || !slot || !name) return
-  if (
-    slots.value.some((other) => slotKey(other) !== slotKey(slot) && slotDisplayName(other) === name)
-  ) {
-    renameError.value = 'This slot name is already in use. Choose a unique name.'
-    return
-  }
+function updateInspectedSlot(
+  assignment: Pick<PreviewSlot, 'cameraPresetId' | 'parkingSlotName'>,
+) {
+  const slot = inspectedSlot.value
+  if (!canEditLayout.value || viewMode.value !== 'layout' || !slot) return
+  updateSlots([slot], assignment)
+}
+function updateSelectedSlots(
+  assignment: Pick<PreviewSlot, 'cameraPresetId' | 'parkingSlotName'>,
+) {
+  const targets =
+    selectedSlots.value.length > 1
+      ? selectedSlots.value
+      : inspectedSlot.value
+        ? [inspectedSlot.value]
+        : []
+  if (!canEditLayout.value || viewMode.value !== 'layout' || !targets.length) return
+  updateSlots(targets, assignment)
+}
+function updateSlots(
+  targets: PreviewSlot[],
+  assignment: Pick<PreviewSlot, 'cameraPresetId' | 'parkingSlotName'>,
+) {
+  const targetKeys = new Set(targets.map(slotKey))
   slots.value = slots.value.map((other) =>
-    slotKey(other) === slotKey(slot) ? { ...other, name } : other,
+    targetKeys.has(slotKey(other))
+      ? {
+          ...other,
+          cameraPresetId: assignment.cameraPresetId,
+          parkingSlotName: assignment.parkingSlotName,
+        }
+      : other,
   )
-  renameError.value = ''
   changed()
+}
+function showAssignmentNotification(message: string) {
+  assignmentNotification.value = message
+  if (assignmentNotificationTimeout) clearTimeout(assignmentNotificationTimeout)
+  assignmentNotificationTimeout = setTimeout(() => {
+    assignmentNotification.value = ''
+    assignmentNotificationTimeout = undefined
+  }, 4000)
+}
+
+function getCameraSlotNames(camera?: CctvFormCamera) {
+  const data = camera?.parkingSlotData
+  if (!data || typeof data !== 'object' || !('categories' in data)) return []
+  const categories = data.categories
+  if (!Array.isArray(categories)) return []
+  return [
+    ...new Set(
+      categories
+        .filter(
+          (category): category is { name: string; supercategory: string } =>
+            !!category &&
+            typeof category === 'object' &&
+            'name' in category &&
+            typeof category.name === 'string' &&
+            !!category.name.trim() &&
+            'supercategory' in category &&
+            category.supercategory === 'parking-slot',
+        )
+        .map((category) => category.name.trim()),
+    ),
+  ]
 }
 async function importJson(event: Event) {
   const input = event.target as HTMLInputElement,
@@ -716,8 +837,7 @@ watch(canEditLayout, (allowed) => {
 })
 watch(() => route.params.floorId, loadFloor, { immediate: true })
 watch(inspectedSlot, (slot) => {
-  if (slot) slotName.value = slotDisplayName(slot)
-  else inspectedKey.value = null
+  if (!slot) inspectedKey.value = null
 })
 watch(
   () => auth.isAdmin,
@@ -732,6 +852,7 @@ onMounted(() => window.addEventListener('beforeunload', beforeUnload))
 onBeforeUnmount(() => {
   ++loadVersion
   ++importVersion
+  if (assignmentNotificationTimeout) clearTimeout(assignmentNotificationTimeout)
   window.removeEventListener('beforeunload', beforeUnload)
 })
 </script>
@@ -1094,30 +1215,32 @@ h2 {
 .detail-body {
   padding: 0 16px 16px;
 }
-.rename-slot {
+.slot-assignment {
   display: grid;
   gap: 8px;
   font-size: 12px;
   margin-bottom: 18px;
 }
-.rename-slot > div {
-  display: flex;
-  gap: 5px;
-}
-.rename-slot input {
+.slot-assignment select {
   min-width: 0;
   width: 100%;
   padding: 8px;
   border: 1px solid #dbe2eb;
   border-radius: 6px;
 }
-.rename-slot p {
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.7;
-}
-.rename-slot .field-error {
+.assignment-notification {
+  position: fixed;
+  top: 90px;
+  right: 20px;
+  z-index: 40;
+  max-width: min(360px, calc(100vw - 40px));
+  padding: 12px 16px;
+  border: 1px solid #f3b4b4;
+  border-radius: 8px;
+  background: #fff1f0;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 14%);
   color: #b42318;
+  font-size: 13px;
 }
 dl {
   font-size: 12px;

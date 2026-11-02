@@ -54,7 +54,7 @@ test("validates map geometry, unique slot identities and embedded-only images", 
   assert.throws(() => validateParkingMap(wide), /zoom/);
 });
 test("rejects layout edits on Available floors at the API and permits status-only changes", async (t) => {
-  const floor = { _id: id, status: "available", parking_map: map() };
+  const floor = { _id: id, status: "Available", parking_map: map() };
   t.mock.method(ParkingFloor, "findById", async () => floor);
   const update = t.mock.method(
     ParkingFloor,
@@ -73,18 +73,89 @@ test("rejects layout edits on Available floors at the API and permits status-onl
   await controller.saveMap({ params: { id }, body: status }, accepted);
   assert.equal(accepted.statusCode, 200);
   assert.equal(update.mock.callCount(), 1);
-  assert.equal(update.mock.calls[0].arguments[0].status, "available");
+  assert.equal(update.mock.calls[0].arguments[0].status, "Available");
 });
 test("persists layouts on disabled floors and reports a concurrent floor activation", async (t) => {
   t.mock.method(ParkingFloor, "findById", async () => ({
     _id: id,
-    status: "disable",
+    status: "Disable",
     parking_map: null,
   }));
   t.mock.method(ParkingFloor, "findOneAndUpdate", async () => null);
   const res = response();
   await controller.saveMap({ params: { id }, body: map() }, res);
   assert.equal(res.statusCode, 409);
+});
+test("saves slot-to-camera category assignments only when they belong to the floor preset", async (t) => {
+  const cameraId = "507f1f77bcf86cd799439012";
+  const camera = {
+    _id: cameraId,
+    parkingSlotData: {
+      categories: [
+        { name: "all", supercategory: "none" },
+        { name: "zoneA_slot01", supercategory: "parking-slot" },
+      ],
+    },
+  };
+  const floor = {
+    _id: id,
+    status: "Disable",
+    parking_map: null,
+    camera_presets: [camera],
+  };
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  const update = t.mock.method(ParkingFloor, "findOneAndUpdate", async () => floor);
+  const assignedMap = map();
+  assignedMap.slots[0].cameraPresetId = cameraId;
+  assignedMap.slots[0].parkingSlotName = "zoneA_slot01";
+  const saved = response();
+  await controller.saveMap({ params: { id }, body: assignedMap }, saved);
+  assert.equal(saved.statusCode, 200);
+  assert.equal(
+    update.mock.calls[0].arguments[1].$set.parking_map.slots[0].cameraPresetId,
+    cameraId,
+  );
+  assert.equal(
+    update.mock.calls[0].arguments[1].$set.parking_map.slots[0].parkingSlotName,
+    "zoneA_slot01",
+  );
+
+  const cameraOnlyMap = map();
+  cameraOnlyMap.slots[0].cameraPresetId = cameraId;
+  const cameraOnlySaved = response();
+  await controller.saveMap(
+    { params: { id }, body: cameraOnlyMap },
+    cameraOnlySaved,
+  );
+  assert.equal(cameraOnlySaved.statusCode, 200);
+  assert.equal(
+    update.mock.calls[1].arguments[1].$set.parking_map.slots[0].cameraPresetId,
+    cameraId,
+  );
+  assert.equal(
+    update.mock.calls[1].arguments[1].$set.parking_map.slots[0].parkingSlotName,
+    undefined,
+  );
+
+  const invalidMap = map();
+  invalidMap.slots[0].parkingSlotName = "zoneA_slot02";
+  const rejected = response();
+  await controller.saveMap({ params: { id }, body: invalidMap }, rejected);
+  assert.equal(rejected.statusCode, 400);
+  assert.match(rejected.body.message, /requires a CCTV preset/);
+  assert.equal(update.mock.callCount(), 2);
+
+  const invalidCategoryMap = map();
+  invalidCategoryMap.slots[0].cameraPresetId = cameraId;
+  invalidCategoryMap.slots[0].parkingSlotName = "zoneA_slot02";
+  const invalidCategory = response();
+  await controller.saveMap(
+    { params: { id }, body: invalidCategoryMap },
+    invalidCategory,
+  );
+  assert.equal(invalidCategory.statusCode, 400);
+  assert.match(invalidCategory.body.message, /does not belong to this CCTV preset/);
+  assert.equal(update.mock.callCount(), 2);
 });
 test("staff slot changes preserve camera occupancy; users cannot call the same write API", async (t) => {
   let role = "user";

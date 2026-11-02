@@ -67,8 +67,8 @@ export interface ParkingBuilding {
   _id: string
   building_name: string
   building_image: string | null
-  date_add: string
-  time_add: string
+  date_updated: string
+  time_updated: string
 }
 
 export const buildingService = {
@@ -95,6 +95,7 @@ export interface ParkingSlotFile {
   original_name: string
   path: string
   size: number
+  fileType?: 'cctv' | 'parking-slot'
   sourceFloorId?: string
 }
 
@@ -103,7 +104,6 @@ export interface ParkingFloor {
   building: ParkingBuilding | null
   floor: number
   veh_type: 'car' | 'motorcycle'
-  zone: number
   parking_slot_file: string | null
   parking_slot_files?: ParkingSlotFile[]
   parking_map?: {
@@ -113,9 +113,9 @@ export interface ParkingFloor {
     layout: import('@/components/parking/parkingLayout').ParkingLayout
   } | null
   camera_presets?: import('@/views/admin/cctvForm').CctvFormCamera[]
-  status: 'available' | 'disable'
-  date_add: string
-  time_add: string
+  status: 'Available' | 'Disable'
+  date_updated: string
+  time_updated: string
 }
 
 export type ParkingFloorPayload = Pick<ParkingFloor, 'floor' | 'veh_type' | 'status'> & {
@@ -130,13 +130,34 @@ export const floorService = {
     ),
   catalog: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors/catalog'),
   saveMap: (id: string, map: unknown) => apiClient.put(`/admin/system/floors/${id}/map`, map),
-  saveCamera: (id: string, camera: import('@/views/admin/cctvForm').CctvFormCamera) =>
-    camera._id
-      ? apiClient.patch<{ floor: ParkingFloor }>(
-          `/admin/system/floors/${id}/cameras/${camera._id}`,
-          camera,
-        )
-      : apiClient.post<{ floor: ParkingFloor }>(`/admin/system/floors/${id}/cameras`, camera),
+  saveCamera: (
+    id: string,
+    camera: import('@/views/admin/cctvForm').CctvFormCamera,
+    file?: File | null,
+  ) => {
+    const url = camera._id
+      ? `/admin/system/floors/${id}/cameras/${camera._id}`
+      : `/admin/system/floors/${id}/cameras`
+    if (file) {
+      const data = new FormData()
+      Object.entries(camera).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && key !== 'parkingSlotData') {
+          data.append(key, String(value))
+        }
+      })
+      data.append('parking_slot_file', file)
+      return camera._id
+        ? apiClient.patch<{ floor: ParkingFloor }>(url, data, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+        : apiClient.post<{ floor: ParkingFloor }>(url, data, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+    }
+    return camera._id
+      ? apiClient.patch<{ floor: ParkingFloor }>(url, camera)
+      : apiClient.post<{ floor: ParkingFloor }>(url, camera)
+  },
   sourceFiles: () =>
     apiClient.get<{ files: ParkingSlotFile[] }>('/admin/system/floors/source-files'),
   importSourceFiles: (files: File[]) => {
