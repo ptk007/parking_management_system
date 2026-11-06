@@ -64,7 +64,35 @@
     </section>
 
     <section v-else class="history-panel">
-      <ParkingLogCard v-for="entry in parkingHistory" :key="entry.id" :log="entry" hide-name />
+      <div class="sample-log-controls">
+        <button
+          type="button"
+          class="sample-log-toggle"
+          :aria-pressed="isShowingSampleHistory"
+          @click="isShowingSampleHistory = !isShowingSampleHistory"
+        >
+          {{ isShowingSampleHistory ? 'Hide sample history' : 'View sample history' }}
+        </button>
+        <span v-if="isShowingSampleHistory" class="sample-log-note">
+          Sample preview only. These logs are not saved to the database.
+        </span>
+      </div>
+      <p v-if="!isShowingSampleHistory && isLoadingHistory" class="panel-state" role="status">
+        Loading parking history...
+      </p>
+      <p v-else-if="!isShowingSampleHistory && historyError" class="panel-state error" role="alert">
+        {{ historyError }}
+        <button type="button" @click="loadParkingHistory">Try again</button>
+      </p>
+      <p v-else-if="!displayedParkingHistory.length" class="panel-state" role="status">
+        No parking history found
+      </p>
+      <ParkingLogCard
+        v-for="entry in displayedParkingHistory"
+        :key="entry.id"
+        :log="entry"
+        hide-name
+      />
     </section>
 
     <div
@@ -266,7 +294,8 @@ import { isAxiosError } from 'axios'
 import { Bike, CarFront, PencilLine, Plus, Trash2, X } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/ParkingLogCard.vue'
-import { vehicleService } from '@/services/api'
+import { parkingLogService, vehicleService, type ParkingLogRecord } from '@/services/api'
+import { userParkingLogSamples } from '@/data/parkingLogSamples'
 import { thaiProvinces } from '@/data/thaiProvinces'
 
 type ActiveTab = 'cars' | 'history'
@@ -320,26 +349,19 @@ const isTypePickerOpen = ref(false)
 const selectedVehicleType = ref<VehicleType>('car')
 const editingVehicleId = ref<string | null>(null)
 const isLoadingVehicles = ref(false)
+const isLoadingHistory = ref(false)
 const isSaving = ref(false)
 const vehicleError = ref('')
+const historyError = ref('')
 const formError = ref('')
 
 const vehicles = ref<UserVehicle[]>([])
 
-const parkingHistory = ref<ParkingLogDisplay[]>([
-  {
-    id: 1,
-    brand: 'Toyota',
-    model: 'Fortuner',
-    color: 'Black',
-    licenseNumber: '-',
-    province: '-',
-    parkingSlot: 'B10',
-    date: '12/08/2569',
-    parkingTime: '12:00',
-    status: 'Parking',
-  },
-])
+const parkingHistory = ref<ParkingLogDisplay[]>([])
+const isShowingSampleHistory = ref(false)
+const displayedParkingHistory = computed(() =>
+  isShowingSampleHistory.value ? userParkingLogSamples : parkingHistory.value,
+)
 
 const vehicleForm = reactive({
   type: 'car' as VehicleType,
@@ -367,6 +389,25 @@ const mapApiVehicle = (vehicle: ApiVehicle): UserVehicle => ({
   color: vehicle.color,
   licenseNumber: vehicle.license_num,
   province: vehicle.province,
+})
+
+const mapApiParkingLog = (log: ParkingLogRecord): ParkingLogDisplay => ({
+  id: log._id,
+  name: log.name,
+  brand: log.brand,
+  model: log.model,
+  color: log.color,
+  licenseNumber: log.license_num,
+  province: log.province,
+  building: log.building,
+  floor: log.floor,
+  date: log.date_enter,
+  parkingTime: log.park_time,
+  exitDate: log.date_exit || '-',
+  exitTime: log.exit_time || '-',
+  parkingSlot: log.park_slot === null ? '-' : String(log.park_slot),
+  status: log.park_status === 'Not parking' ? 'Not Parking' : log.park_status,
+  slotDisabled: log.slotDisabled,
 })
 
 const createVehiclePayload = () => ({
@@ -403,6 +444,23 @@ const loadVehicles = async () => {
     vehicleError.value = getVehicleError(err, 'Failed to load vehicles')
   } finally {
     isLoadingVehicles.value = false
+  }
+}
+
+const loadParkingHistory = async () => {
+  historyError.value = ''
+  if (!shouldSyncWithApi.value) {
+    parkingHistory.value = []
+    return
+  }
+  isLoadingHistory.value = true
+  try {
+    const response = await parkingLogService.myHistory()
+    parkingHistory.value = response.data.logs.map(mapApiParkingLog)
+  } catch (err) {
+    historyError.value = getVehicleError(err, 'Failed to load parking history')
+  } finally {
+    isLoadingHistory.value = false
   }
 }
 
@@ -596,9 +654,13 @@ watch(
   [ownerId, shouldSyncWithApi],
   () => {
     loadVehicles()
+    if (activeTab.value === 'history') loadParkingHistory()
   },
   { immediate: true },
 )
+watch(activeTab, (tab) => {
+  if (tab === 'history') loadParkingHistory()
+})
 </script>
 
 <style scoped>
@@ -763,6 +825,28 @@ watch(
   display: grid;
   align-content: start;
   gap: 18px;
+}
+
+.sample-log-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sample-log-toggle {
+  border: 1px solid #9e2d25;
+  border-radius: 5px;
+  background: #fff;
+  color: #9e2d25;
+  padding: 9px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sample-log-note {
+  color: #555;
+  font-size: 14px;
 }
 
 .history-card {

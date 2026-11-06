@@ -4,6 +4,7 @@ const express = require("express");
 const multer = require("multer");
 const userController = require("../controllers/userController");
 const floorController = require("../controllers/parkingFloorController");
+const cctvSourceController = require("../controllers/cctvSourceController");
 
 const router = express.Router();
 const fileDirectory = path.resolve(
@@ -64,6 +65,18 @@ const presetFileUpload = multer({
   },
 });
 router.get("/source-files", floorController.listSourceFiles);
+router.post(
+  "/source-files/:fileId/cameras/search",
+  cctvSourceController.searchCameraSource,
+);
+router.post(
+  "/source-files/:fileId/cameras/:recordIndex/probe",
+  cctvSourceController.probeCameraSource,
+);
+router.post(
+  "/source-files/:fileId/cameras/:recordIndex/preview",
+  cctvSourceController.streamCameraPreview,
+);
 router.post(
   "/source-files",
   slotUpload.array("files", 20),

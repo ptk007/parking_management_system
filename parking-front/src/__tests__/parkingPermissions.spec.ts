@@ -4,10 +4,46 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import DashboardView from '@/views/staff/DashboardView.vue'
 import { useAuthStore } from '@/stores/auth'
-import { floorService } from '@/services/api'
+import { floorService, parkingLogService } from '@/services/api'
 import { emptyParkingLayout } from '@/components/parking/parkingLayout'
 import type { UserRole } from '@/types'
-vi.mock('@/services/api', () => ({ floorService: { catalog: vi.fn(), setSlotStatuses: vi.fn() } }))
+vi.mock('@/services/api', () => ({
+  floorService: { catalog: vi.fn(), setSlotStatuses: vi.fn() },
+  parkingLogService: {
+    list: vi.fn().mockResolvedValue({
+      data: {
+        logs: [
+          {
+            _id: 'log-1',
+            owner: null,
+            name: 'Guest 1',
+            building: 'E4',
+            buildingId: 'b1',
+            floor: 4,
+            floorId: 'f1',
+            veh_type: 'car',
+            cameraPresetId: 'camera-1',
+            parkingSlotName: null,
+            brand: 'Unknown',
+            model: 'Unknown',
+            color: 'Unknown',
+            license_num: 'กข 1234',
+            province: 'เชียงราย',
+            date_enter: '2026-11-04',
+            park_time: '10:00:00',
+            date_exit: null,
+            exit_time: null,
+            park_slot: 1,
+            park_status: 'Parking',
+            slotDisabled: false,
+            createdAt: '2026-11-04T03:00:00.000Z',
+            updatedAt: '2026-11-04T03:00:00.000Z',
+          },
+        ],
+      },
+    }),
+  },
+}))
 const map = {
   version: 2,
   sourceName: 'saved map',
@@ -65,6 +101,38 @@ async function selectLocation(wrapper: VueWrapper, building = 'b1', floor = '4',
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(floorService.catalog).mockResolvedValue({ data: { floors } } as never)
+  vi.mocked(parkingLogService.list).mockResolvedValue({
+    data: {
+      logs: [
+        {
+          _id: 'log-1',
+          owner: null,
+          name: 'Guest 1',
+          building: 'E4',
+          buildingId: 'b1',
+          floor: 4,
+          floorId: 'f1',
+          veh_type: 'car',
+          cameraPresetId: 'camera-1',
+          parkingSlotName: null,
+          brand: 'Unknown',
+          model: 'Unknown',
+          color: 'Unknown',
+          license_num: 'กข 1234',
+          province: 'เชียงราย',
+          date_enter: '2026-11-04',
+          park_time: '10:00:00',
+          date_exit: null,
+          exit_time: null,
+          park_slot: 1,
+          park_status: 'Parking',
+          slotDisabled: false,
+          createdAt: '2026-11-04T03:00:00.000Z',
+          updatedAt: '2026-11-04T03:00:00.000Z',
+        },
+      ],
+    },
+  } as never)
 })
 afterEach(() => {
   wrappers.splice(0).forEach((w) => w.unmount())
@@ -220,8 +288,7 @@ describe('dashboard parking locations and permissions', () => {
         'Brand',
         'Model',
         'Color',
-        'License plate',
-        'Province',
+        'License Plate',
         'Date Enter',
         'Parking Time',
         'Date Exited',
@@ -230,6 +297,8 @@ describe('dashboard parking locations and permissions', () => {
         'Parking Status',
       ])
         expect(text).toContain(label)
+      expect(text).not.toContain('Province')
+      expect(text).toContain('กข 1234')
       expect(text).not.toContain('Face Driver')
     },
   )

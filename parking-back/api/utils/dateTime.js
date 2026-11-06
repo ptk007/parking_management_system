@@ -1,4 +1,4 @@
-function getBangkokDateTime() {
+function getBangkokDateTime(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Bangkok",
     year: "numeric",
@@ -8,7 +8,7 @@ function getBangkokDateTime() {
     minute: "2-digit",
     second: "2-digit",
     hourCycle: "h23",
-  }).formatToParts(new Date());
+  }).formatToParts(date);
 
   const value = (type) => parts.find((part) => part.type === type)?.value;
 

@@ -27,6 +27,7 @@ from pathlib import Path
 from cctv_viewer import load_cameras, open_capture, select_camera, redact_stream_url
 from parking_config import add_runtime_arguments
 from parking_export import export_results
+from parking_model_events import ParkingModelEventPublisher
 from project_paths import (
     PROJECT_ROOT,
     DEFAULT_CCTV_JSON,
@@ -64,6 +65,10 @@ CAMERA_ID = (
     str(selected_camera.get('NO', '')).strip()
     if selected_camera is not None
     else str(RUNTIME_ARGS.camera)
+)
+MODEL_EVENT_PUBLISHER = ParkingModelEventPublisher.from_environment(
+    CAMERA_ID,
+    Path(RUNTIME_ARGS.cctv_json).name if selected_camera is not None else '',
 )
 RUN_STARTED_AT = datetime.now(timezone.utc)
 RUN_STARTED_AT_ISO = RUN_STARTED_AT.isoformat()
@@ -1803,6 +1808,12 @@ def _save_stable_snapshot(info, candidate):
         'stable_full_support_count': int(candidate.get('full_support_count', 0)),
         'stable_frame_idx': candidate.get('frame_idx')
     })
+    if MODEL_EVENT_PUBLISHER and not info.get('model_event_detection_sent'):
+        info['model_event_detection_sent'] = True
+        MODEL_EVENT_PUBLISHER.publish_not_parking(
+            candidate['text'],
+            datetime.now(timezone.utc).isoformat(),
+        )
 
 
 def _should_replace_stable(stable, candidate):
@@ -2804,11 +2815,22 @@ def _record_parking_start(state, frame_idx):
         'date_parking': event_date,
         'parking_time': event_time,
         'parking_start_frame': int(frame_idx),
+        'parking_slot_name': state.get('parking_slot_name'),
         'date_exited': None,
         'exited_time': None,
         'exited_at': None,
         'parking_duration_seconds': None
     })
+    if MODEL_EVENT_PUBLISHER:
+        plate = state.get('model_event_plate', '').strip()
+        if plate:
+            MODEL_EVENT_PUBLISHER.publish(
+                'Parking',
+                plate,
+                parking_slot_name=state.get('parking_slot_name', ''),
+                occurred_at=event_at,
+            )
+            state['model_event_parking_sent'] = plate
     _history_dirty = True
 
 
@@ -2837,6 +2859,15 @@ def _record_parking_exit(state, frame_idx):
         'exited_frame': int(frame_idx),
         'parking_duration_seconds': round(duration_seconds, 3)
     })
+    if MODEL_EVENT_PUBLISHER:
+        plate = state.get('model_event_plate', '').strip()
+        if plate:
+            MODEL_EVENT_PUBLISHER.publish(
+                'Exited',
+                plate,
+                parking_slot_name=state.get('parking_slot_name', ''),
+                occurred_at=event_at,
+            )
     state.update({
         'date_exited': event_date,
         'exited_time': event_time,
@@ -3211,6 +3242,21 @@ def _refresh_slot_owner_identity(state, car_id, frame_idx=None):
         plate_text = info.get('stable_text') or info.get('text', '')
         if plate_text:
             state['owner_plate_text'] = plate_text
+        stable_plate = str(info.get('stable_text') or '').strip()
+        if stable_plate:
+            state['model_event_plate'] = stable_plate
+            if (
+                MODEL_EVENT_PUBLISHER
+                and state.get('status') == 'parking'
+                and state.get('model_event_parking_sent') != stable_plate
+            ):
+                MODEL_EVENT_PUBLISHER.publish(
+                    'Parking',
+                    stable_plate,
+                    parking_slot_name=state.get('parking_slot_name', ''),
+                    occurred_at=state.get('parking_started_at', ''),
+                )
+                state['model_event_parking_sent'] = stable_plate
 
 
 def _strong_reid_candidate_for_slot(slot, car_id, car_box):
@@ -3527,6 +3573,9 @@ def _clear_slot_to_available(state, frame_idx):
         'inferred_parking': False,
         'owner_last_seen_frame': None,
         'owner_plate_text': '',
+        'model_event_plate': '',
+        'model_event_parking_sent': '',
+        'parking_slot_name': '',
         'parking_history': parking_history,
         'last_center': None,
         'last_anchor': None,
@@ -3645,6 +3694,7 @@ def update_parking_states(car_boxes, frame_idx):
                 ):
                     state['status'] = 'parking'
                     state['inferred_parking'] = True
+                    state['parking_slot_name'] = slot['name']
                     _record_parking_start(state, frame_idx)
                     state['missing_hits'] = state.get('occupied_missing_hits', 0)
                     state['empty_hits'] = 0
@@ -3765,6 +3815,7 @@ def update_parking_states(car_boxes, frame_idx):
                 and state['stationary_hits'] >= PARKING_STABLE_DETECTIONS
             ):
                 state['status'] = 'parking'
+                state['parking_slot_name'] = slot['name']
                 _record_parking_start(state, frame_idx)
             else:
                 state['status'] = 'occupied'
@@ -4724,6 +4775,8 @@ except KeyboardInterrupt:
 finally:
     cap.release()
     cv2.destroyAllWindows()
+    if MODEL_EVENT_PUBLISHER:
+        MODEL_EVENT_PUBLISHER.close()
 
     if not RUNTIME_ARGS.no_export:
         try:

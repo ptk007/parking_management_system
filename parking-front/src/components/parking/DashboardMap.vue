@@ -15,10 +15,13 @@
       <span v-if="isSample" class="sample-badge">Sample map</span>
       <button v-else @click="showSample">View sample map</button>
     </div>
+    <p v-if="syncError && !headerOnly" class="refresh-error" role="status">
+      Live parking updates are temporarily unavailable. <button @click="load(true)">Retry</button>
+    </p>
 
     <div v-if="expanded" id="map-filters" :class="['filter-overlay', { inline: headerOnly }]">
       <label
-        >1. Building *<select v-model="building">
+        >1. Building *<select v-model="building" aria-label="Building">
           <option value="">Select building</option>
           <option v-for="item in buildings" :key="item._id" :value="item._id">
             {{ item.building_name }}
@@ -26,7 +29,7 @@
         </select></label
       >
       <label v-if="building"
-        >2. Floor *<select v-model="floorNumber">
+        >2. Floor *<select v-model="floorNumber" aria-label="Floor">
           <option value="">Select floor</option>
           <option v-for="item in floorNumbers" :key="item" :value="String(item)">
             {{ item }}
@@ -34,7 +37,7 @@
         </select></label
       >
       <label v-if="floorNumber"
-        >3. Vehicle *<select v-model="vehicle">
+        >3. Vehicle *<select v-model="vehicle" aria-label="Vehicle">
           <option value="">Select vehicle</option>
           <option v-for="item in vehicleTypes" :key="item" :value="item">
             {{ item === 'car' ? 'Cars' : 'Motorcycles' }}
@@ -54,7 +57,7 @@
       <div :class="['map-surface', { 'filters-open': expanded }]">
         <div v-if="loading" class="map-empty" role="status">Loading parking locations...</div>
         <div v-else-if="error" class="map-empty" role="alert">
-          {{ error }} <button @click="load">Try again</button>
+          {{ error }} <button @click="load()">Try again</button>
         </div>
         <div v-else-if="selectedFloor?.status === 'Disable'" class="map-empty" role="status">
           <h2>Parking is not available for now!</h2>
@@ -103,7 +106,7 @@
   </section>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MapPin, Menu } from 'lucide-vue-next'
 import { floorService, type ParkingFloor } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
@@ -116,15 +119,21 @@ import { slotKey } from './parkingMapJson'
 const auth = useAuthStore(),
   admin = useAdminStore()
 withDefaults(defineProps<{ headerOnly?: boolean }>(), { headerOnly: false })
+const emit = defineEmits<{
+  'location-change': [location: { floor: ParkingFloor; isSample: boolean } | null]
+}>()
 const floors = ref<ParkingFloor[]>([]),
   loading = ref(false),
-  error = ref('')
+  error = ref(''),
+  syncError = ref('')
 const building = ref(''),
   floorNumber = ref(''),
   vehicle = ref(''),
 expanded = ref(false)
 const selection = ref<string[]>([]),
   saving = ref(false)
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+let loadPending = false
 const buildings = computed(() => [
   ...new Map(
     floors.value.filter((f) => f.building).map((f) => [f.building!._id, f.building!]),
@@ -157,13 +166,15 @@ const slots = computed<PreviewSlot[]>(() => selectedFloor.value?.parking_map?.sl
 const layout = computed(() =>
   restoreParkingLayout(selectedFloor.value?.parking_map?.layout || emptyParkingLayout()),
 )
-const location = computed(() =>
-  [
+const location = computed(() => {
+  if (!building.value || !floorNumber.value || !vehicle.value)
+    return 'Select a parking location'
+  return [
     buildings.value.find((b) => b._id === building.value)?.building_name || 'No building selected',
     floorNumber.value ? `Floor ${floorNumber.value}` : 'No floor selected',
     vehicle.value ? (vehicle.value === 'car' ? 'Cars' : 'Motorcycles') : 'No vehicle selected',
-  ].join(' / '),
-)
+  ].join(' / ')
+})
 const stats = computed(() => [
   { label: 'Total slots', value: slots.value.length, color: '#cf3b30' },
   ...(['available', 'incoming', 'occupied', 'disabled'] as const)
@@ -215,6 +226,13 @@ watch(selectedFloor, () => {
   selection.value = []
   error.value = ''
 })
+watch(
+  [selectedFloor, isSample],
+  ([floor, sample]) => {
+    emit('location-change', floor ? { floor, isSample: sample } : null)
+  },
+  { immediate: true },
+)
 function showSample() {
   let sample = floors.value.find((floor) => floor._id === 'sample-e4-floor4')
   if (!sample) {
@@ -249,11 +267,20 @@ function showSample() {
   expanded.value = false
   error.value = ''
 }
-async function load() {
-  loading.value = true
-  error.value = ''
+async function load(silent = false) {
+  if (loadPending) return
+  loadPending = true
+  if (!silent) {
+    loading.value = true
+    error.value = ''
+  }
   try {
-    floors.value = (await floorService.catalog()).data.floors
+    const refreshedFloors = (await floorService.catalog()).data.floors
+    const sampleFloor = floors.value.find((floor) => floor._id === 'sample-e4-floor4')
+    floors.value = sampleFloor
+      ? [...refreshedFloors, sampleFloor]
+      : refreshedFloors
+    syncError.value = ''
     if (
       !floors.value.some(
         (floor) =>
@@ -264,10 +291,16 @@ async function load() {
       )
     )
       showSample()
-  } catch {
-    showSample()
+  } catch (loadError) {
+    if (silent) {
+      syncError.value = 'Refresh failed'
+      console.error('Failed to refresh dashboard parking map:', loadError)
+    } else {
+      showSample()
+    }
   } finally {
-    loading.value = false
+    loadPending = false
+    if (!silent) loading.value = false
   }
 }
 async function setStatus(status: 'available' | 'disabled') {
@@ -295,9 +328,27 @@ async function setStatus(status: 'available' | 'disabled') {
     saving.value = false
   }
 }
-onMounted(load)
+onMounted(() => {
+  void load()
+  refreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') void load(true)
+  }, 5000)
+})
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 </script>
 <style scoped>
+.refresh-error {
+  margin: 0;
+  padding: 6px 16px;
+  color: #8a4b08;
+  background: #fff7ed;
+  font-size: 13px;
+}
+.refresh-error button {
+  margin-left: 6px;
+}
 .dashboard-map {
   display: flex;
   flex-direction: column;

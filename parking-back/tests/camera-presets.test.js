@@ -66,6 +66,8 @@ test("floor and camera schemas expose the revised fields and title-case statuses
     "Disable",
     "Unknown",
   ]);
+  assert.equal(cameraSchema.path("cameraNo").instance, "String");
+  assert.equal(cameraSchema.path("sourceCameraName").instance, "String");
   assert.equal(cameraSchema.path("createAt").instance, "Date");
   assert.equal(cameraSchema.path("updateAt").instance, "Date");
   assert.equal(cameraSchema.options.timestamps.createdAt, "createAt");
@@ -148,6 +150,9 @@ test("camera creation accepts embedded slot JSON without creating a physical fil
         name: "North camera",
         cctvFileName: "camera-north.json",
         parkingSlotData,
+        cameraNo: "CAM-5",
+        sourceCameraName: "North entrance",
+        status: "Offline",
       },
     },
     res,
@@ -156,6 +161,9 @@ test("camera creation accepts embedded slot JSON without creating a physical fil
   assert.equal(res.statusCode, 200);
   assert.equal(floor.camera_presets[0].parkingSlotFileId, null);
   assert.deepEqual(floor.camera_presets[0].parkingSlotData, parkingSlotData);
+  assert.equal(floor.camera_presets[0].cameraNo, "CAM-5");
+  assert.equal(floor.camera_presets[0].sourceCameraName, "North entrance");
+  assert.equal(floor.camera_presets[0].status, "Offline");
   assert.equal(createSource.mock.callCount(), 0);
   assert.equal(findSource.mock.callCount(), 0);
 });

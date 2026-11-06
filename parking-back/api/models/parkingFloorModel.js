@@ -9,7 +9,9 @@ const cameraPresetSchema = new mongoose.Schema(
     name: { type: String, required: true },
     cctvFileName: String,
     cameraSelector: String,
+    cameraNo: String,
     ipAddress: String,
+    sourceCameraName: String,
     rtspLink: String,
     status: {
       type: String,

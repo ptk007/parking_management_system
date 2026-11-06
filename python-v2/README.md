@@ -20,6 +20,7 @@ parking_runtime_v2/
 ├─ launcher.py
 ├─ parkng_model.py            # one isolated camera worker
 ├─ multi_camera.py            # supervisor for one or many workers
+├─ parking_model_events.py    # asynchronous backend parking-event publisher
 ├─ parking_profiles.py        # create/edit/select/confirm CCTV profiles
 ├─ cctv_viewer.py             # CCTV JSON + low-latency RTSP reader
 ├─ parking_config.py
@@ -87,6 +88,31 @@ The setup menu is:
 5. Start confirmed CCTV profile(s)
 0. Exit
 ```
+
+### Optional parking-management API sync
+
+The worker can send stable plate detections and parking/exit transitions to the
+parking-management backend. Set these environment variables in the same Windows
+environment that starts `run.bat` (child camera workers inherit them):
+
+```bat
+set "PARKING_MODEL_EVENTS_URL=http://localhost:5000/api/parking-logs/model-events"
+set "PARKING_MODEL_API_KEY=replace-with-the-same-private-value-as-the-backend"
+```
+
+`PARKING_MODEL_API_KEY` must match the backend's private environment value. Do
+not commit the key or place it in frontend configuration. With the normal CCTV
+profile workflow, each event is bound using the selected camera's `NO` and the
+selected CCTV JSON filename; that pair must identify exactly one CCTV preset in
+the backend. If it is ambiguous or missing, the backend rejects the event and
+the worker reports the API error. Fix the preset's camera number/source filename
+pair in the backend rather than allowing a worker to guess between multiple
+presets.
+
+If API sync variables are absent, detection and local result export continue
+without backend updates. Events are queued and retried outside the
+frame-processing thread; API/configuration failures are printed to the worker
+console.
 
 The top of the menu always displays the currently confirmed CCTV selection.
 Saved profiles are numbered by sorted profile filename. The selected source

@@ -661,19 +661,29 @@ exports.saveCameraPreset = async (req, res) => {
       name: data.name.trim(),
       cctvFileName,
       cameraSelector: data.cameraSelector ?? existingCamera?.cameraSelector,
+      cameraNo: data.cameraNo ?? existingCamera?.cameraNo,
       ipAddress: data.ipAddress ?? existingCamera?.ipAddress,
+      sourceCameraName:
+        data.sourceCameraName ?? existingCamera?.sourceCameraName,
       rtspLink: data.rtspLink ?? existingCamera?.rtspLink,
       parkingSlotFileId,
       parkingSlotData,
     };
 
+    const connectionStatus = ["Online", "Offline", "Unknown"].includes(
+      data.status,
+    )
+      ? data.status
+      : "Unknown";
     if (existingCamera) {
       Object.assign(existingCamera, {
         ...preset,
-        status: existingCamera.status === "Disable" ? "Disable" : "Unknown",
+        status: existingCamera.status === "Disable"
+          ? "Disable"
+          : connectionStatus,
       });
     } else {
-      floor.camera_presets.push({ ...preset, status: "Unknown" });
+      floor.camera_presets.push({ ...preset, status: connectionStatus });
     }
 
     Object.assign(floor, getUpdatedAt());
@@ -771,7 +781,29 @@ exports.listSourceFiles = async (req, res) => {
         })),
       );
     const files = await ParkingSourceFile.find().sort({ createdAt: -1 });
-    res.json({ files });
+    const filesWithAvailability = await Promise.all(
+      files.map(async (file) => {
+        const document = typeof file.toObject === "function" ? file.toObject() : { ...file };
+        if (typeof document.path !== "string" || !document.path) {
+          return { ...document, available: false };
+        }
+        const absolutePath = path.resolve(__dirname, "../../..", document.path);
+        const relative = path.relative(FILE_ROOT, absolutePath);
+        if (relative.startsWith("..") || path.isAbsolute(relative)) {
+          return { ...document, available: false };
+        }
+        try {
+          await fs.access(absolutePath);
+          return { ...document, available: true };
+        } catch (error) {
+          if (error.code === "ENOENT") {
+            return { ...document, available: false };
+          }
+          throw error;
+        }
+      }),
+    );
+    res.json({ files: filesWithAvailability });
   } catch (error) {
     return sendError(res, error);
   }
@@ -824,6 +856,15 @@ exports.downloadSourceFile = async (req, res) => {
     const relative = path.relative(FILE_ROOT, absolutePath);
     if (relative.startsWith("..") || path.isAbsolute(relative))
       throw new Error("Invalid source file path");
+    try {
+      await fs.access(absolutePath);
+    } catch (error) {
+      if (error.code === "ENOENT")
+        return res.status(404).json({
+          message: "Source file is missing from the server. Re-import the JSON file.",
+        });
+      throw error;
+    }
     return res.download(absolutePath, file.original_name);
   } catch (error) {
     return sendError(res, error);

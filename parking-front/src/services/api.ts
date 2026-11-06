@@ -48,6 +48,39 @@ export const parkingService = {
     }),
 }
 
+export interface ParkingLogRecord {
+    _id: string
+    owner: string | null
+    name: string
+    building: string
+    buildingId: string
+    floor: number
+    floorId: string
+    veh_type: 'car' | 'motorcycle'
+    cameraPresetId: string
+    parkingSlotName: string | null
+    brand: string
+    model: string
+    color: string
+    license_num: string
+    province: string
+    date_enter: string
+    park_time: string
+    date_exit: string | null
+    exit_time: string | null
+    park_slot: number | null
+    park_status: 'Parking' | 'Exited' | 'Not parking'
+    slotDisabled: boolean
+    createdAt: string
+    updatedAt: string
+}
+
+export const parkingLogService = {
+    list: (filters?: { buildingId?: string; floorId?: string; veh_type?: 'car' | 'motorcycle' }) =>
+      apiClient.get<{ logs: ParkingLogRecord[] }>('/parking-logs', { params: filters }),
+    myHistory: () => apiClient.get<{ logs: ParkingLogRecord[] }>('/parking-logs/me'),
+}
+
 export const vehicleService = {
   getByUser: (userId: string) => apiClient.get(`/vehicles/user/${userId}`),
   create: (data: any) => apiClient.post('/vehicles', data),
@@ -97,6 +130,15 @@ export interface ParkingSlotFile {
   size: number
   fileType?: 'cctv' | 'parking-slot'
   sourceFloorId?: string
+  available?: boolean
+}
+
+export interface CctvSourceSearchResult {
+  matches: import('@/views/admin/cctvForm').CctvSourceMatch[]
+  camera?: import('@/views/admin/cctvForm').CctvSourceMatch
+  status: import('@/views/admin/cctvForm').CctvConnectionStatus
+  message: string
+  frameData?: string
 }
 
 export interface ParkingFloor {
@@ -160,6 +202,37 @@ export const floorService = {
   },
   sourceFiles: () =>
     apiClient.get<{ files: ParkingSlotFile[] }>('/admin/system/floors/source-files'),
+  searchCctvSource: (fileId: string, query: string) =>
+    apiClient.post<CctvSourceSearchResult>(
+      `/admin/system/floors/source-files/${fileId}/cameras/search`,
+      { query },
+    ),
+  streamCctvPreview: (
+    fileId: string,
+    recordIndex: number,
+    parkingSlotData: unknown,
+    signal: AbortSignal,
+  ) => {
+    const token = localStorage.getItem('token')
+    return fetch(
+      `${API_BASE_URL.replace(/\/+$/, '')}/admin/system/floors/source-files/${fileId}/cameras/${recordIndex}/preview`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ parkingSlotData }),
+        signal,
+      },
+    )
+  },
+  probeCctvSource: (fileId: string, recordIndex: number) =>
+    apiClient.post<
+      import('@/views/admin/cctvForm').CctvConnectionCheck & {
+        camera: import('@/views/admin/cctvForm').CctvSourceMatch
+      }
+    >(`/admin/system/floors/source-files/${fileId}/cameras/${recordIndex}/probe`),
   importSourceFiles: (files: File[]) => {
     const data = new FormData()
     files.forEach((file) => data.append('files', file))

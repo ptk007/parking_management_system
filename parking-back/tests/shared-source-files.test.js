@@ -70,7 +70,7 @@ test("promotes legacy floor imports to the shared library with their original ID
   t.mock.method(SourceFile, "find", () => ({ sort: async () => [file] }));
   const res = response();
   await controller.listSourceFiles({}, res);
-  assert.deepEqual(res.body.files, [file]);
+  assert.deepEqual(res.body.files, [{ ...file, available: false }]);
   assert.equal(
     migrate.mock.calls[0].arguments[0][0].updateOne.filter._id,
     file._id,
@@ -79,6 +79,27 @@ test("promotes legacy floor imports to the shared library with their original ID
     migrate.mock.calls[0].arguments[0][0].updateOne.update.$set.fileType,
     "parking-slot",
   );
+});
+test("reports whether each shared source file is present on disk", async (t) => {
+  const file = await upload(t, '{"cameras":[]}', "available.json");
+  const document = {
+    _id: "507f1f77bcf86cd799439013",
+    original_name: file.originalname,
+    path: `json_file/parking_slots/${file.filename}`,
+    size: file.size,
+    fileType: "cctv",
+  };
+  t.mock.method(ParkingFloor, "find", () => ({
+    select: async () => [],
+  }));
+  t.mock.method(SourceFile, "find", () => ({
+    sort: async () => [document],
+  }));
+  const res = response();
+
+  await controller.listSourceFiles({}, res);
+
+  assert.deepEqual(res.body.files, [{ ...document, available: true }]);
 });
 test("deleting a floor keeps a promoted source used by other floors", async (t) => {
   const id = "507f1f77bcf86cd799439011";
