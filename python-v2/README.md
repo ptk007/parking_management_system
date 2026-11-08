@@ -89,30 +89,51 @@ The setup menu is:
 0. Exit
 ```
 
-### Optional parking-management API sync
+### Optional parking-management API sync and YOLO control
 
-The worker can send stable plate detections and parking/exit transitions to the
-parking-management backend. Set these environment variables in the same Windows
-environment that starts `run.bat` (child camera workers inherit them):
+The Python supervisor can accept per-camera YOLO ON/OFF commands from the
+backend, and workers can send stable plate detections and parking/exit
+transitions. Set these environment variables in the same Windows environment
+that starts `run.bat` (child camera workers inherit them):
 
 ```bat
+set "PARKING_MODEL_RUNTIME_URL=http://localhost:5000/api/model-runtime/sync"
 set "PARKING_MODEL_EVENTS_URL=http://localhost:5000/api/parking-logs/model-events"
 set "PARKING_MODEL_API_KEY=replace-with-the-same-private-value-as-the-backend"
 ```
 
 `PARKING_MODEL_API_KEY` must match the backend's private environment value. Do
-not commit the key or place it in frontend configuration. With the normal CCTV
-profile workflow, each event is bound using the selected camera's `NO` and the
-selected CCTV JSON filename; that pair must identify exactly one CCTV preset in
-the backend. If it is ambiguous or missing, the backend rejects the event and
-the worker reports the API error. Fix the preset's camera number/source filename
-pair in the backend rather than allowing a worker to guess between multiple
-presets.
+not commit the key or place it in frontend configuration. Replace port `5000`
+with the backend's configured port if needed. The confirmed profiles in
+`cctv/parking-cam/active.json` are the only cameras this supervisor can control.
+The backend ON command is remembered in MongoDB, so the supervisor starts
+enabled cameras after `run.bat` starts again. An ON request is rejected if the
+preset is disabled, lacks parking-slot categories/map assignments, or has an
+ambiguous camera identity. If the local confirmed profile is absent or its
+parking JSON does not contain every mapped slot category, the preset reports an
+error instead of starting the wrong worker.
 
-If API sync variables are absent, detection and local result export continue
-without backend updates. Events are queued and retried outside the
-frame-processing thread; API/configuration failures are printed to the worker
-console.
+When `PARKING_MODEL_RUNTIME_URL` is configured, `multi_camera.py` waits for
+backend commands and starts/stops each worker independently. If it is not
+configured, the existing behavior remains: every confirmed profile starts.
+`PARKING_MODEL_EVENTS_URL` enables database event updates; configure both URLs
+for YOLO control plus parking map/history updates. Events are queued and retried
+outside the frame-processing thread; API/configuration failures are printed to
+the worker or supervisor console. Worker status is written under that camera's
+results directory and reported to the backend on each supervisor heartbeat.
+When remote control is enabled, `multi_camera.py` gives each worker a
+`PARKING_RUNTIME_FRAME_FILE` path under `results/runtime_frames/`; the filename
+is derived from the normalized camera number and CCTV source filename. The
+worker publishes its rendered frame atomically at no more than 5 FPS, bounded
+by the existing 1280×720 display size. The supervisor removes the frame when
+that worker stops or restarts, so a stopped camera does not keep showing an old
+frame. The backend serves the latest frame to the authenticated admin CCTV
+preset preview; it includes car boxes/tracks, detected license-plate
+boxes/confidence, OCR labels, and parking-slot overlays. The browser preview
+displays actual worker output; the separate raw RTSP preview is used when YOLO
+is off. This frame publishing is enabled only in remote-control mode; without
+`PARKING_MODEL_RUNTIME_URL`, existing local `run.bat` operation remains
+unchanged and does not report YOLO frames to the frontend.
 
 The top of the menu always displays the currently confirmed CCTV selection.
 Saved profiles are numbered by sorted profile filename. The selected source

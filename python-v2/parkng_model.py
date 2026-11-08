@@ -27,7 +27,7 @@ from pathlib import Path
 from cctv_viewer import load_cameras, open_capture, select_camera, redact_stream_url
 from parking_config import add_runtime_arguments
 from parking_export import export_results
-from parking_model_events import ParkingModelEventPublisher
+from parking_model_events import ParkingModelEventPublisher, write_worker_status
 from project_paths import (
     PROJECT_ROOT,
     DEFAULT_CCTV_JSON,
@@ -926,6 +926,45 @@ def prepare_display_frame(frame):
         (max(1, int(frame_width * scale)), max(1, int(frame_height * scale))),
         interpolation=cv2.INTER_AREA
     )
+
+
+RUNTIME_FRAME_FILE = os.environ.get('PARKING_RUNTIME_FRAME_FILE', '').strip()
+_last_runtime_frame_at = 0.0
+_last_runtime_frame_error_at = 0.0
+
+
+def publish_runtime_frame(frame):
+    """Atomically publish a rate-limited annotated frame for the web preview."""
+    global _last_runtime_frame_at, _last_runtime_frame_error_at
+    if not RUNTIME_FRAME_FILE:
+        return
+
+    now = time.monotonic()
+    if now - _last_runtime_frame_at < 0.2:
+        return
+    _last_runtime_frame_at = now
+
+    success, encoded = cv2.imencode(
+        '.jpg',
+        prepare_display_frame(frame),
+        [cv2.IMWRITE_JPEG_QUALITY, 78],
+    )
+    if not success:
+        if now - _last_runtime_frame_error_at >= 30.0:
+            print('[YOLO preview] Could not encode an annotated frame.')
+            _last_runtime_frame_error_at = now
+        return
+
+    temporary_path = f'{RUNTIME_FRAME_FILE}.{os.getpid()}.tmp'
+    try:
+        Path(RUNTIME_FRAME_FILE).parent.mkdir(parents=True, exist_ok=True)
+        with open(temporary_path, 'wb') as frame_file:
+            frame_file.write(encoded.tobytes())
+        os.replace(temporary_path, RUNTIME_FRAME_FILE)
+    except OSError as error:
+        if now - _last_runtime_frame_error_at >= 30.0:
+            print(f'[YOLO preview] Could not publish an annotated frame: {error}')
+            _last_runtime_frame_error_at = now
 
 
 _UNICODE_FONT_CACHE = {}
@@ -4047,6 +4086,8 @@ cap = open_capture(video_path)
 if not cap.isOpened():
     raise RuntimeError(f'Could not open video: {redact_stream_url(video_path)}')
 
+write_worker_status('Online')
+
 if str(video_path).lower().startswith(('rtsp://', 'rtsps://', 'rtmp://', 'http://', 'https://')):
     print('[RTSP] Low-latency latest-frame capture: ENABLED (stale frames are dropped)')
 
@@ -4056,6 +4097,7 @@ max_frames_to_process = RUNTIME_ARGS.max_frames or None
 last_boxes = []
 car_boxes_latest = {}
 plate_crops = {}
+plate_boxes_latest = []
 
 _processing_started_at = time.perf_counter()
 _last_export_at = time.monotonic()
@@ -4211,6 +4253,7 @@ try:
 
             last_boxes = []
             car_boxes_latest = {}
+            plate_boxes_latest = []
 
             # =================================================
             # Process cars + collect Stage-2 jobs
@@ -4311,6 +4354,7 @@ try:
                     'conf': float(conf),
                     'car_crop': car_crop,
                     'selected_crop': car_crop,
+                    'selected_crop_origin': (px1, py1),
                     'plate_box': None,
                     'plate_conf': 0.0
                 })
@@ -4376,6 +4420,7 @@ try:
                         )
                     ):
                         task['selected_crop'] = padded_crop
+                        task['selected_crop_origin'] = (cx1, cy1)
                         task['plate_box'] = padded_plate_box
                         task['plate_conf'] = padded_plate_conf
 
@@ -4408,6 +4453,17 @@ try:
 
                 if plate_crop.size == 0:
                     continue
+                crop_origin_x, crop_origin_y = task['selected_crop_origin']
+                plate_boxes_latest.append(
+                    (
+                        resolved_id,
+                        crop_origin_x + rx1,
+                        crop_origin_y + ry1,
+                        crop_origin_x + rx2,
+                        crop_origin_y + ry2,
+                        plate_conf,
+                    )
+                )
 
                 h, w = plate_crop.shape[:2]
 
@@ -4534,6 +4590,33 @@ try:
 
             draw_parking_slots(frame)
 
+            for (
+                car_track_id,
+                plate_x1,
+                plate_y1,
+                plate_x2,
+                plate_y2,
+                plate_conf,
+            ) in plate_boxes_latest:
+                cv2.rectangle(
+                    frame,
+                    (plate_x1, plate_y1),
+                    (plate_x2, plate_y2),
+                    (255, 0, 255),
+                    2,
+                )
+                cv2.putText(
+                    frame,
+                    f'Plate {resolve_car_id(car_track_id)} ({plate_conf:.2f})',
+                    (plate_x1, max(plate_y1 - 5, 16)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+
+            publish_runtime_frame(frame)
             cv2.imshow('Parking CCTV', prepare_display_frame(frame))
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord('q')):
@@ -4773,6 +4856,7 @@ except KeyboardInterrupt:
 # ============================================================
 
 finally:
+    write_worker_status('Offline')
     cap.release()
     cv2.destroyAllWindows()
     if MODEL_EVENT_PUBLISHER:

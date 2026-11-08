@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from cctv_viewer import camera_label, load_cameras, select_camera
+from parking_model_events import ModelRuntimeClient
 from parking_profiles import load_active_profiles
 from project_paths import (
     DEFAULT_CCTV_JSON,
@@ -139,6 +143,12 @@ def _result_dir(parent: Path, profile: Dict[str, Any], camera: Dict[str, Any]) -
     return Path(parent) / f"{profile_name}__camera_{camera_no}"
 
 
+def _runtime_frame_path(camera_no: str, cctv_file_name: str) -> Path:
+    identity = f"{camera_no.strip().lower()}\0{cctv_file_name.strip().lower()}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return Path(RESULTS_DIR) / "runtime_frames" / f"{digest}.jpg"
+
+
 def _build_command(
     args: argparse.Namespace,
     profile: Dict[str, Any],
@@ -177,6 +187,43 @@ def _build_command(
     return command
 
 
+def _profile_parking_inventory(
+    args: argparse.Namespace,
+    profile: Dict[str, Any],
+) -> Tuple[bool, List[str]]:
+    if str(profile.get("parking", "on")).lower() != "on":
+        return False, []
+    parking_value = str(profile.get("parking_json", "")).strip()
+    parking_path = (
+        _resolve_profile_path(parking_value, "parking")
+        if parking_value
+        else _resolve_profile_path(str(args.parking_json or ""), "parking")
+        if args.parking_json
+        else DEFAULT_PARKING_JSON
+    )
+    try:
+        data = json.loads(parking_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return False, []
+    categories = data.get("categories") if isinstance(data, dict) else None
+    if not isinstance(categories, list):
+        return False, []
+    names = list(
+        dict.fromkeys(
+            category["name"].strip()
+            for category in categories
+            if isinstance(category, dict)
+            and category.get("supercategory") == "parking-slot"
+            and isinstance(category.get("name"), str)
+            and category["name"].strip()
+        )
+    )
+    selected = [str(name).strip() for name in profile.get("parking_slots", []) if str(name).strip()]
+    if selected:
+        names = [name for name in names if name in selected]
+    return bool(names), names
+
+
 def _prepare_jobs(args: argparse.Namespace):
     profiles = _load_jobs(args)
     prepared = []
@@ -188,28 +235,269 @@ def _prepare_jobs(args: argparse.Namespace):
             print(f"[WARN] Duplicate CCTV skipped: {camera_label(camera, show_source=True)}")
             continue
         seen.add(unique)
+        parking_enabled, parking_slot_names = _profile_parking_inventory(args, profile)
+        export_dir = _result_dir(args.export_dir, profile, camera)
         prepared.append(
             {
                 "order": order,
                 "profile": profile,
                 "camera": camera,
                 "command": _build_command(args, profile, cctv_path, camera),
+                "status_file": export_dir / "model-runtime-status.json",
+                "runtime_frame_file": _runtime_frame_path(
+                    str(camera.get("NO", "")).strip()
+                    or str(profile.get("camera", "")).strip(),
+                    cctv_path.name,
+                ),
+                "parking_enabled": parking_enabled,
+                "parking_slot_names": parking_slot_names,
                 "process": None,
                 "restarts": 0,
                 "next_start": 0.0,
+                "desired_enabled": None,
+                "runtime_status": "Offline",
+                "runtime_message": "",
             }
         )
     return prepared
 
 
-def _start_job(job: Dict[str, Any]) -> None:
+def _start_job(
+    job: Dict[str, Any],
+    runtime_id: str = "",
+) -> None:
     profile = job["profile"]
     camera = job["camera"]
     print(
         f"Starting [{job['order']}] {profile.get('name', '-')}"
         f" -> {camera_label(camera, show_source=True)}"
     )
-    job["process"] = subprocess.Popen(job["command"], cwd=PROJECT_DIR)
+    environment = os.environ.copy()
+    if runtime_id:
+        status_file = Path(job["status_file"])
+        frame_file = Path(job["runtime_frame_file"])
+        status_file.parent.mkdir(parents=True, exist_ok=True)
+        status_file.unlink(missing_ok=True)
+        frame_file.parent.mkdir(parents=True, exist_ok=True)
+        frame_file.unlink(missing_ok=True)
+        environment["PARKING_RUNTIME_STATUS_FILE"] = str(status_file)
+        environment["PARKING_RUNTIME_ID"] = runtime_id
+        environment["PARKING_RUNTIME_FRAME_FILE"] = str(frame_file)
+    job["process"] = subprocess.Popen(
+        job["command"],
+        cwd=PROJECT_DIR,
+        env=environment,
+    )
+    job["runtime_status"] = "Starting"
+    job["runtime_message"] = ""
+
+
+def _job_runtime_status(job: Dict[str, Any]) -> Dict[str, str]:
+    process = job.get("process")
+    if process is not None and process.poll() is not None:
+        code = process.returncode
+        return {
+            "status": "Error" if code else "Offline",
+            "message": f"YOLO worker exited with code {code}" if code else "",
+        }
+    if process is None:
+        status = job.get("runtime_status", "Offline")
+        if job.get("desired_enabled") and status == "Offline":
+            status = "Starting"
+        return {"status": status, "message": job.get("runtime_message", "")}
+    try:
+        data = json.loads(Path(job["status_file"]).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"status": "Starting", "message": ""}
+    except (OSError, json.JSONDecodeError) as error:
+        return {"status": "Error", "message": f"Invalid worker status file: {error}"}
+    status = data.get("status")
+    if status not in {"Offline", "Starting", "Online", "Error"}:
+        return {"status": "Error", "message": "Worker reported an invalid status"}
+    return {
+        "status": status,
+        "message": str(data.get("message", ""))[:500],
+    }
+
+
+def _stop_job(job: Dict[str, Any]) -> None:
+    process = job.get("process")
+    if process is not None and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+    job["process"] = None
+    job["runtime_status"] = "Offline"
+    job["runtime_message"] = ""
+    try:
+        Path(job["runtime_frame_file"]).unlink(missing_ok=True)
+    except OSError as error:
+        print(f"[YOLO control] Could not remove stale model preview frame: {error}")
+
+
+def _runtime_identity(camera_no: str, cctv_file_name: str) -> Tuple[str, str]:
+    return camera_no.strip().lower(), cctv_file_name.strip().lower()
+
+
+def _run_remote_controlled(
+    jobs: List[Dict[str, Any]],
+    client: ModelRuntimeClient,
+    args: argparse.Namespace,
+) -> int:
+    runtime_id = uuid.uuid4().hex
+    profile_payload = []
+    for job in jobs:
+        camera = job["camera"]
+        cctv_path, _ = _resolve_camera(job["profile"])
+        profile_payload.append(
+            {
+                "cameraNo": str(camera.get("NO", "")).strip()
+                or str(job["profile"].get("camera", "")).strip(),
+                "cctvFileName": cctv_path.name,
+                "profileName": str(job["profile"].get("name", "")),
+                "parkingEnabled": job["parking_enabled"],
+                "parkingSlotNames": job["parking_slot_names"],
+            }
+        )
+
+    identities = {
+        _runtime_identity(item["cameraNo"], item["cctvFileName"]): job
+        for item, job in zip(profile_payload, jobs)
+    }
+    next_sync = 0.0
+    print("\nYOLO remote control is enabled. Waiting for backend camera commands.")
+
+    try:
+        while True:
+            now = time.monotonic()
+            if now >= next_sync:
+                workers = []
+                for profile in profile_payload:
+                    job = identities[
+                        _runtime_identity(profile["cameraNo"], profile["cctvFileName"])
+                    ]
+                    state = _job_runtime_status(job)
+                    job["runtime_status"] = state["status"]
+                    job["runtime_message"] = state["message"]
+                    workers.append(
+                        {
+                            "cameraNo": profile["cameraNo"],
+                            "cctvFileName": profile["cctvFileName"],
+                            **state,
+                        }
+                    )
+
+                response = client.sync(
+                    {
+                        "runtimeId": runtime_id,
+                        "profiles": profile_payload,
+                        "workers": workers,
+                    }
+                )
+                if response is not None:
+                    commands = {
+                        _runtime_identity(item.get("cameraNo", ""), item.get("cctvFileName", "")): item
+                        for item in response["commands"]
+                    }
+                    for issue in response.get("issues", []):
+                        print(
+                            "[YOLO control] "
+                            f"{issue.get('cameraNo', '-')}: {issue.get('message', 'Profile binding failed')}"
+                        )
+                    for key, job in identities.items():
+                        command = commands.get(key)
+                        previous_desired = job.get("desired_enabled")
+                        if command is None:
+                            desired = False
+                            command_message = "No matching CCTV preset is configured"
+                        else:
+                            desired = bool(command.get("enabled") and command.get("runnable"))
+                            command_message = str(command.get("message", ""))
+                        if desired and previous_desired is not True:
+                            job["restarts"] = 0
+                            job["next_start"] = 0.0
+                        job["desired_enabled"] = desired
+                        if not desired:
+                            _stop_job(job)
+                            if command is None or (
+                                command.get("enabled") and not command.get("runnable")
+                            ):
+                                job["runtime_status"] = "Error"
+                                job["runtime_message"] = command_message
+                        elif job.get("process") is None and job.get("next_start", 0.0) != float("inf"):
+                            job["next_start"] = min(job.get("next_start", 0.0), now)
+                next_sync = now + 3.0
+
+            now = time.monotonic()
+            for job in jobs:
+                if not job.get("desired_enabled"):
+                    continue
+                process = job.get("process")
+                if process is not None and process.poll() is not None:
+                    code = process.returncode
+                    job["process"] = None
+                    try:
+                        Path(job["runtime_frame_file"]).unlink(missing_ok=True)
+                    except OSError as error:
+                        print(f"[YOLO control] Could not remove stale model preview frame: {error}")
+                    job["runtime_status"] = "Error" if code else "Offline"
+                    job["runtime_message"] = (
+                        f"YOLO worker exited with code {code}" if code else "YOLO worker stopped unexpectedly"
+                    )
+                    if job["restarts"] < max(0, args.max_restarts):
+                        job["restarts"] += 1
+                        job["next_start"] = now + max(0.1, args.restart_delay)
+                        print(
+                            f"[WARN] YOLO worker stopped: {job['profile'].get('name', '-')}; "
+                            f"restart {job['restarts']}/{args.max_restarts} in {args.restart_delay:.1f}s"
+                        )
+                    else:
+                        job["next_start"] = float("inf")
+                        print(
+                            f"[ERROR] YOLO worker restart limit reached: {job['profile'].get('name', '-')}"
+                        )
+                if (
+                    job.get("process") is None
+                    and job.get("next_start", 0.0) != float("inf")
+                    and now >= job.get("next_start", 0.0)
+                ):
+                    try:
+                        _start_job(job, runtime_id)
+                    except OSError as error:
+                        job["runtime_status"] = "Error"
+                        job["runtime_message"] = f"Could not start YOLO worker: {error}"
+                        job["restarts"] += 1
+                        job["next_start"] = (
+                            now + max(0.1, args.restart_delay)
+                            if job["restarts"] < max(0, args.max_restarts)
+                            else float("inf")
+                        )
+                        print(f"[YOLO control] {job['runtime_message']}")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\nStopping all remotely controlled YOLO workers...")
+    finally:
+        for job in jobs:
+            _stop_job(job)
+        client.sync(
+            {
+                "runtimeId": runtime_id,
+                "profiles": profile_payload,
+                "workers": [
+                    {
+                        "cameraNo": item["cameraNo"],
+                        "cctvFileName": item["cctvFileName"],
+                        "status": "Offline",
+                        "message": "Python runtime stopped",
+                    }
+                    for item in profile_payload
+                ],
+            }
+        )
+    return 0
 
 
 def main() -> int:
@@ -217,6 +505,10 @@ def main() -> int:
     jobs = _prepare_jobs(args)
     if not jobs:
         raise SystemExit("No CCTV jobs to run.")
+
+    runtime_client = ModelRuntimeClient.from_environment()
+    if runtime_client is not None:
+        return _run_remote_controlled(jobs, runtime_client, args)
 
     print("\n=== ACTIVE CCTV WORKERS ===")
     for job in jobs:

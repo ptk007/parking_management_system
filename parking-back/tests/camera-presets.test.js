@@ -68,6 +68,15 @@ test("floor and camera schemas expose the revised fields and title-case statuses
   ]);
   assert.equal(cameraSchema.path("cameraNo").instance, "String");
   assert.equal(cameraSchema.path("sourceCameraName").instance, "String");
+  assert.equal(cameraSchema.path("modelEnabled").defaultValue, false);
+  assert.deepEqual(cameraSchema.path("modelRuntimeStatus").enumValues, [
+    "Offline",
+    "Starting",
+    "Online",
+    "Stopping",
+    "Error",
+  ]);
+  assert.equal(cameraSchema.path("modelRuntimeUpdatedAt").instance, "Date");
   assert.equal(cameraSchema.path("createAt").instance, "Date");
   assert.equal(cameraSchema.path("updateAt").instance, "Date");
   assert.equal(cameraSchema.options.timestamps.createdAt, "createAt");

@@ -31,5 +31,13 @@ set "PARKING_DEVICE=cuda:0"
 set "PARKING_ALLOW_CPU=0"
 set "PYTHONDONTWRITEBYTECODE=1"
 
+if not defined PARKING_MODEL_RUNTIME_URL (
+  echo [WARN] PARKING_MODEL_RUNTIME_URL is not set. YOLO status will not sync to the backend.
+  echo        Set it in this command window before running run.bat to enable remote YOLO control.
+)
+if defined PARKING_MODEL_RUNTIME_URL if not defined PARKING_MODEL_API_KEY (
+  echo [WARN] PARKING_MODEL_API_KEY is not set. Remote YOLO control requires the backend key.
+)
+
 "%VENV_PATH%\Scripts\python.exe" launcher.py
 exit /b %errorlevel%

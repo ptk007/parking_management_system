@@ -5,6 +5,7 @@ const multer = require("multer");
 const userController = require("../controllers/userController");
 const floorController = require("../controllers/parkingFloorController");
 const cctvSourceController = require("../controllers/cctvSourceController");
+const modelPreviewController = require("../controllers/modelPreviewController");
 
 const router = express.Router();
 const fileDirectory = path.resolve(
@@ -90,6 +91,11 @@ router.post(
   floorController.saveCameraPreset,
 );
 router.patch("/:id/cameras/:cameraId/status", floorController.updateCameraPresetStatus);
+router.patch("/:id/cameras/:cameraId/model", floorController.updateCameraModelState);
+router.get(
+  "/:id/cameras/:cameraId/model-preview",
+  modelPreviewController.getCameraFrame,
+);
 router.get(
   "/:id/cameras/:cameraId/parking-slot-categories",
   floorController.listCameraParkingSlotCategories,

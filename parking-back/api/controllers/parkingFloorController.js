@@ -676,12 +676,35 @@ exports.saveCameraPreset = async (req, res) => {
       ? data.status
       : "Unknown";
     if (existingCamera) {
+      const previousIdentity = [
+        existingCamera.cameraNo || existingCamera.cameraSelector || "",
+        existingCamera.cctvFileName || "",
+        existingCamera.parkingSlotFileId || "",
+        JSON.stringify(existingCamera.parkingSlotData?.categories || []),
+      ]
+        .map((value) => String(value).trim().toLowerCase())
+        .join("\0");
+      const nextIdentity = [
+        preset.cameraNo || preset.cameraSelector || "",
+        preset.cctvFileName || "",
+        preset.parkingSlotFileId || "",
+        JSON.stringify(preset.parkingSlotData?.categories || []),
+      ]
+        .map((value) => String(value).trim().toLowerCase())
+        .join("\0");
       Object.assign(existingCamera, {
         ...preset,
         status: existingCamera.status === "Disable"
           ? "Disable"
           : connectionStatus,
       });
+      if (previousIdentity !== nextIdentity) {
+        existingCamera.modelEnabled = false;
+        existingCamera.modelRuntimeStatus = "Offline";
+        existingCamera.modelRuntimeMessage = "";
+        existingCamera.modelRuntimeUpdatedAt = new Date();
+        existingCamera.modelRuntimeId = "";
+      }
     } else {
       floor.camera_presets.push({ ...preset, status: connectionStatus });
     }
@@ -725,6 +748,118 @@ exports.updateCameraPresetStatus = async (req, res) => {
       return res.status(404).json({ message: "Camera preset not found" });
 
     camera.status = status;
+    if (status === "Disable") {
+      camera.modelEnabled = false;
+      camera.modelRuntimeStatus = "Offline";
+      camera.modelRuntimeMessage = "";
+      camera.modelRuntimeUpdatedAt = new Date();
+      camera.modelRuntimeId = "";
+    }
+    Object.assign(floor, getUpdatedAt());
+    await floor.save();
+    await floor.populate("building", BUILDING_FIELDS);
+    return res.json({ success: true, floor });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.updateCameraModelState = async (req, res) => {
+  try {
+    const { id, cameraId } = req.params;
+    const { enabled } = req.body || {};
+    if (!isValidId(id) || !isValidId(cameraId))
+      return res.status(400).json({ message: "Invalid floor or camera id" });
+    if (typeof enabled !== "boolean")
+      return res.status(400).json({ message: "Model enabled must be a boolean" });
+
+    const floor = await ParkingFloor.findById(id);
+    if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const camera = floor.camera_presets.id(cameraId);
+    if (!camera)
+      return res.status(404).json({ message: "Camera preset not found" });
+    if (enabled && camera.status === "Disable")
+      return res.status(409).json({
+        message: "Enable this CCTV preset before starting YOLO",
+      });
+    if (enabled) {
+      const cameraNo = String(camera.cameraNo || camera.cameraSelector || "").trim();
+      const cctvFileName = String(camera.cctvFileName || "").trim();
+      if (!cameraNo || !cctvFileName)
+        return res.status(400).json({
+          message: "Camera number and original CCTV source filename are required to run YOLO",
+        });
+
+      const sourcePattern = new RegExp(
+        `^${cctvFileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+        "i",
+      );
+      const otherPresets = await ParkingFloor.find({
+        _id: { $ne: floor._id },
+        "camera_presets.cctvFileName": sourcePattern,
+      }).select("camera_presets");
+      const sameFloorMatches = Array.from(floor.camera_presets || []).filter(
+        (preset) =>
+          String(preset._id) !== String(camera._id) &&
+          String(preset.cameraNo || preset.cameraSelector || "").trim().toLowerCase() ===
+            cameraNo.toLowerCase() &&
+          String(preset.cctvFileName || "").trim().toLowerCase() ===
+            cctvFileName.toLowerCase(),
+      );
+      const otherMatches = otherPresets.flatMap((item) =>
+        Array.from(item.camera_presets || []).filter(
+          (preset) =>
+            String(preset.cameraNo || preset.cameraSelector || "").trim().toLowerCase() ===
+              cameraNo.toLowerCase() &&
+            String(preset.cctvFileName || "").trim().toLowerCase() ===
+              cctvFileName.toLowerCase(),
+        ),
+      );
+      if (sameFloorMatches.length || otherMatches.length)
+        return res.status(409).json({
+          message: "This camera number and CCTV source filename match multiple presets",
+        });
+
+      let categories;
+      try {
+        categories = getParkingSlotNames(camera.parkingSlotData);
+      } catch {
+        return res.status(400).json({
+          message: "A valid parking-slot JSON is required before starting YOLO",
+        });
+      }
+      const mappedSlots = (floor.parking_map?.slots || []).filter(
+        (slot) => String(slot.cameraPresetId) === String(camera._id),
+      );
+      if (!mappedSlots.length)
+        return res.status(400).json({
+          message: "Assign this CCTV preset's parking slots on the parking map before starting YOLO",
+        });
+      const invalidSlot = mappedSlots.find(
+        (slot) => !slot.parkingSlotName || !categories.includes(slot.parkingSlotName),
+      );
+      if (invalidSlot)
+        return res.status(400).json({
+          message: "A parking map slot uses a category missing from this CCTV preset",
+        });
+
+      camera.modelEnabled = true;
+      camera.modelRuntimeStatus = "Starting";
+      camera.modelRuntimeMessage = "Waiting for the local Python runtime";
+      camera.modelRuntimeId = "";
+    } else {
+      camera.modelEnabled = false;
+      const lastRuntimeUpdate = camera.modelRuntimeUpdatedAt
+        ? new Date(camera.modelRuntimeUpdatedAt).getTime()
+        : 0;
+      const runtimeWasActive =
+        ["Starting", "Online"].includes(camera.modelRuntimeStatus) &&
+        Date.now() - lastRuntimeUpdate <= 20000;
+      camera.modelRuntimeStatus = runtimeWasActive ? "Stopping" : "Offline";
+      camera.modelRuntimeMessage = runtimeWasActive ? "Stopping the Python worker" : "";
+      camera.modelRuntimeId = "";
+    }
+    camera.modelRuntimeUpdatedAt = new Date();
     Object.assign(floor, getUpdatedAt());
     await floor.save();
     await floor.populate("building", BUILDING_FIELDS);

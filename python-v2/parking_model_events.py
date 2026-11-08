@@ -13,6 +13,82 @@ from urllib.request import Request, urlopen
 from typing import Any, Dict, Optional
 
 
+class ModelRuntimeClient:
+    def __init__(self, endpoint: str, api_key: str) -> None:
+        self.endpoint = endpoint
+        self.api_key = api_key
+        self._last_error_at = 0.0
+
+    @classmethod
+    def from_environment(cls) -> Optional["ModelRuntimeClient"]:
+        endpoint = os.environ.get("PARKING_MODEL_RUNTIME_URL", "").strip()
+        api_key = os.environ.get("PARKING_MODEL_API_KEY", "").strip()
+        if not endpoint:
+            print(
+                "[YOLO control] Remote ON/OFF is disabled. Set "
+                "PARKING_MODEL_RUNTIME_URL to enable it."
+            )
+            return None
+        if not api_key:
+            raise ValueError(
+                "PARKING_MODEL_API_KEY must be configured when remote YOLO control is enabled."
+            )
+        return cls(endpoint, api_key)
+
+    def sync(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = Request(
+            self.endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-model-api-key": self.api_key,
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=6.0) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                if response.status < 200 or response.status >= 300:
+                    raise RuntimeError(f"backend returned HTTP {response.status}")
+                if not isinstance(result, dict) or not isinstance(
+                    result.get("commands"), list
+                ):
+                    raise ValueError("backend returned an invalid runtime command response")
+                self._last_error_at = 0.0
+                return result
+        except HTTPError as error:
+            details = error.read().decode("utf-8", errors="replace").strip()
+            message = f"HTTP {error.code}: {details or 'no error details returned'}"
+        except (URLError, TimeoutError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+            message = str(error)
+
+        now = time.monotonic()
+        if now - self._last_error_at >= 30.0:
+            print(f"[YOLO control] Runtime sync failed: {message}")
+            self._last_error_at = now
+        return None
+
+
+def write_worker_status(status: str, message: str = "") -> None:
+    status_path = os.environ.get("PARKING_RUNTIME_STATUS_FILE", "").strip()
+    if not status_path:
+        return
+    path = os.path.abspath(status_path)
+    temporary_path = f"{path}.{os.getpid()}.tmp"
+    payload = {
+        "status": status,
+        "message": str(message)[:500],
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False)
+        os.replace(temporary_path, path)
+    except OSError as error:
+        print(f"[YOLO control] Could not write worker status: {error}")
+
+
 class ParkingModelEventPublisher:
     def __init__(
         self,
@@ -42,15 +118,15 @@ class ParkingModelEventPublisher:
     ) -> Optional["ParkingModelEventPublisher"]:
         endpoint = os.environ.get("PARKING_MODEL_EVENTS_URL", "").strip()
         api_key = os.environ.get("PARKING_MODEL_API_KEY", "").strip()
-        if not endpoint and not api_key:
+        if not endpoint:
             print(
-                "[Parking API] Sync disabled. Set PARKING_MODEL_EVENTS_URL and "
-                "PARKING_MODEL_API_KEY to update parking maps and logs."
+                "[Parking API] Event sync is disabled. Set PARKING_MODEL_EVENTS_URL "
+                "to update parking maps and logs."
             )
             return None
-        if not endpoint or not api_key:
+        if not api_key:
             raise ValueError(
-                "PARKING_MODEL_EVENTS_URL and PARKING_MODEL_API_KEY must both be configured."
+                "PARKING_MODEL_API_KEY must be configured when model event sync is enabled."
             )
         if not camera_no:
             raise ValueError(

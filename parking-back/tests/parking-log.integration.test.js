@@ -1,7 +1,10 @@
 const { before, after, test } = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const fs = require("node:fs/promises");
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
+const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
 process.env.JWT_SECRET = "parking-log-integration-test-only";
@@ -142,8 +145,11 @@ after(async () => {
   await mongoose.disconnect();
 });
 
-async function request(path, { method = "GET", actor, modelKey, body } = {}) {
-  const response = await fetch(origin + path, {
+async function request(
+  path,
+  { method = "GET", actor, modelKey, body, baseUrl = origin, raw = false } = {},
+) {
+  const response = await fetch(baseUrl + path, {
     method,
     headers: {
       ...(actor ? { Authorization: `Bearer ${actorTokens[actor]}` } : {}),
@@ -152,6 +158,13 @@ async function request(path, { method = "GET", actor, modelKey, body } = {}) {
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  if (raw) {
+    return {
+      status: response.status,
+      headers: response.headers,
+      body: Buffer.from(await response.arrayBuffer()),
+    };
+  }
   return {
     status: response.status,
     body: response.status === 204 ? null : await response.json(),
@@ -421,4 +434,113 @@ test("model events reject ambiguous camera/source bindings", async () => {
   });
   assert.equal(ambiguous.status, 409);
   assert.match(ambiguous.body.message, /ambiguous/i);
+});
+
+test("admin YOLO control persists the desired state and the Python runtime reports actual status", async () => {
+  await ParkingFloor.deleteMany({ building: building._id, floor: 5 });
+  const floorsOrigin = origin.replace(/\/api\/parking-logs$/, "/api/admin/system/floors");
+  const control = await request(`/${floor._id}/cameras/${cameraId}/model`, {
+    method: "PATCH",
+    actor: "admin",
+    body: { enabled: true },
+    baseUrl: floorsOrigin,
+  });
+  assert.equal(control.status, 200);
+  const enabledFloor = control.body.floor;
+  assert.equal(enabledFloor.camera_presets[0].modelEnabled, true);
+  assert.equal(enabledFloor.camera_presets[0].modelRuntimeStatus, "Starting");
+
+  const runtimeOrigin = origin.replace(/\/api\/parking-logs$/, "/api/model-runtime");
+  const sync = (workers, parkingSlotNames = ["zoneA_slot01"]) =>
+    request("/sync", {
+      method: "POST",
+      modelKey: process.env.PARKING_MODEL_API_KEY,
+      baseUrl: runtimeOrigin,
+      body: {
+        runtimeId: "test-runtime",
+        profiles: [
+          {
+            cameraNo: "CAM-1",
+            cctvFileName: "camera-source.json",
+            profileName: "test-profile",
+            parkingEnabled: true,
+            parkingSlotNames,
+          },
+        ],
+        workers,
+      },
+    });
+
+  const starting = await sync([
+    {
+      cameraNo: "CAM-1",
+      cctvFileName: "camera-source.json",
+      status: "Starting",
+    },
+  ]);
+  assert.equal(starting.status, 200);
+  assert.equal(starting.body.commands[0].enabled, true);
+  assert.equal(starting.body.commands[0].runnable, true, starting.body.commands[0].message);
+  let updatedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(updatedFloor.camera_presets[0].modelRuntimeStatus, "Starting");
+
+  const incompatibleProfile = await sync([], ["zoneB_slot99"]);
+  assert.equal(incompatibleProfile.body.commands[0].runnable, false);
+  assert.match(incompatibleProfile.body.commands[0].message, /missing mapped parking categories/i);
+  updatedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(updatedFloor.camera_presets[0].modelRuntimeStatus, "Error");
+
+  const online = await sync([
+    {
+      cameraNo: "CAM-1",
+      cctvFileName: "camera-source.json",
+      status: "Online",
+    },
+  ]);
+  assert.equal(online.status, 200);
+  updatedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(updatedFloor.camera_presets[0].modelRuntimeStatus, "Online");
+
+  const identity = "cam-1\0camera-source.json";
+  const frameName = `${crypto.createHash("sha256").update(identity, "utf8").digest("hex")}.jpg`;
+  const framePath = path.resolve(
+    __dirname,
+    "../../python-v2/results/runtime_frames",
+    frameName,
+  );
+  await fs.mkdir(path.dirname(framePath), { recursive: true });
+  const testFrame = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+  await fs.writeFile(framePath, testFrame);
+  try {
+    const previewResponse = await request(
+      `/${floor._id}/cameras/${cameraId}/model-preview`,
+      { actor: "admin", baseUrl: floorsOrigin, raw: true },
+    );
+    assert.equal(previewResponse.status, 200);
+    assert.equal(previewResponse.headers.get("content-type"), "image/jpeg");
+    assert.deepEqual(previewResponse.body, testFrame);
+  } finally {
+    await fs.unlink(framePath);
+  }
+
+  const disabled = await request(`/${floor._id}/cameras/${cameraId}/model`, {
+    method: "PATCH",
+    actor: "admin",
+    body: { enabled: false },
+    baseUrl: floorsOrigin,
+  });
+  assert.equal(disabled.status, 200);
+  const disabledFloor = disabled.body.floor;
+  assert.equal(disabledFloor.camera_presets[0].modelEnabled, false);
+  assert.equal(disabledFloor.camera_presets[0].modelRuntimeStatus, "Stopping");
+  const stopped = await sync([
+    {
+      cameraNo: "CAM-1",
+      cctvFileName: "camera-source.json",
+      status: "Offline",
+    },
+  ]);
+  assert.equal(stopped.status, 200);
+  const stoppedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(stoppedFloor.camera_presets[0].modelRuntimeStatus, "Offline");
 });

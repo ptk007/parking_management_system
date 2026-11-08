@@ -171,6 +171,21 @@ export const floorService = {
       { keys, status },
     ),
   catalog: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors/catalog'),
+  get: (id: string) => apiClient.get<{ floor: ParkingFloor }>(`/admin/system/floors/${id}`),
+  setCameraModelEnabled: (floorId: string, cameraId: string, enabled: boolean) =>
+    apiClient.patch<{ floor: ParkingFloor }>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}/model`,
+      { enabled },
+    ),
+  getCameraModelFrame: (
+    floorId: string,
+    cameraId: string,
+    signal?: AbortSignal,
+  ) =>
+    apiClient.get<Blob>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}/model-preview`,
+      { responseType: 'blob', signal },
+    ),
   saveMap: (id: string, map: unknown) => apiClient.put(`/admin/system/floors/${id}/map`, map),
   saveCamera: (
     id: string,

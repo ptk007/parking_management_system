@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const FLOOR_STATUSES = ["Available", "Disable"];
 const VEHICLE_TYPES = ["car", "motorcycle"];
 const CAMERA_PRESET_STATUSES = ["Online", "Offline", "Disable", "Unknown"];
+const MODEL_RUNTIME_STATUSES = ["Offline", "Starting", "Online", "Stopping", "Error"];
 
 const cameraPresetSchema = new mongoose.Schema(
   {
@@ -18,6 +19,15 @@ const cameraPresetSchema = new mongoose.Schema(
       enum: CAMERA_PRESET_STATUSES,
       default: "Unknown",
     },
+    modelEnabled: { type: Boolean, default: false },
+    modelRuntimeStatus: {
+      type: String,
+      enum: MODEL_RUNTIME_STATUSES,
+      default: "Offline",
+    },
+    modelRuntimeMessage: { type: String, default: "" },
+    modelRuntimeUpdatedAt: { type: Date, default: null },
+    modelRuntimeId: { type: String, default: "" },
     parkingSlotFileId: String,
     parkingSlotData: mongoose.Schema.Types.Mixed,
   },
@@ -81,3 +91,4 @@ module.exports = mongoose.model("ParkingFloor", parkingFloorSchema);
 module.exports.FLOOR_STATUSES = FLOOR_STATUSES;
 module.exports.VEHICLE_TYPES = VEHICLE_TYPES;
 module.exports.CAMERA_PRESET_STATUSES = CAMERA_PRESET_STATUSES;
+module.exports.MODEL_RUNTIME_STATUSES = MODEL_RUNTIME_STATUSES;

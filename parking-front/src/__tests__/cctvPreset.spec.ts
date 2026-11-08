@@ -12,6 +12,9 @@ vi.mock('@/services/api', () => ({
     searchCctvSource: vi.fn(),
     probeCctvSource: vi.fn(),
     streamCctvPreview: vi.fn(),
+    get: vi.fn(),
+    setCameraModelEnabled: vi.fn(),
+    getCameraModelFrame: vi.fn(),
   },
 }))
 let wrapper: VueWrapper
@@ -434,5 +437,110 @@ describe('shared CCTV source library and per-floor presets', () => {
     await wrapper.find('[aria-label="Stop live preview for Floor1 E4"]').trigger('click')
     expect(signal.aborted).toBe(true)
     expect(wrapper.find('.cctv-live-frame').exists()).toBe(false)
+  })
+
+  it('shows annotated Python YOLO frames for an enabled preset', async () => {
+    const camera = {
+      _id: 'camera-yolo-preview',
+      name: 'North entrance',
+      cameraSelector: '344',
+      cameraNo: '344',
+      ipAddress: '192.0.2.34',
+      rtspLink: '',
+      cctvFileName: 'original.json',
+      parkingSlotFileId: null,
+      status: 'Online' as const,
+      modelEnabled: true,
+      modelRuntimeStatus: 'Online' as const,
+      modelRuntimeUpdatedAt: new Date().toISOString(),
+    }
+    vi.mocked(floorService.getCameraModelFrame).mockResolvedValue({
+      data: new Blob(['annotated-frame'], { type: 'image/jpeg' }),
+    } as never)
+    wrapper = mount(CCTVSetupList, {
+      props: { selectedFloor: { ...floor, camera_presets: [camera] } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Show YOLO preview for North entrance"]').trigger('click')
+    await flushPromises()
+
+    expect(floorService.getCameraModelFrame).toHaveBeenCalledWith(
+      floor._id,
+      camera._id,
+      expect.any(AbortSignal),
+    )
+    expect(floorService.streamCctvPreview).not.toHaveBeenCalled()
+    expect(wrapper.get('.cctv-live-frame').attributes('src')).toBe('blob:live-preview')
+    expect(wrapper.find('[aria-label="Stop YOLO preview for North entrance"]').exists()).toBe(true)
+  })
+
+  it('starts YOLO from the CCTV preset card and displays the persisted runtime status', async () => {
+    const camera = {
+      _id: 'camera-yolo',
+      name: 'North entrance',
+      cameraSelector: '344',
+      cameraNo: '344',
+      ipAddress: '192.0.2.34',
+      rtspLink: '',
+      cctvFileName: 'original.json',
+      parkingSlotFileId: null,
+      status: 'Online' as const,
+      modelEnabled: false,
+      modelRuntimeStatus: 'Offline' as const,
+    }
+    const startedCamera = {
+      ...camera,
+      modelEnabled: true,
+      modelRuntimeStatus: 'Starting' as const,
+      modelRuntimeUpdatedAt: new Date().toISOString(),
+    }
+    vi.mocked(floorService.setCameraModelEnabled).mockResolvedValue({
+      data: { floor: { ...floor, camera_presets: [startedCamera] } },
+    } as never)
+    wrapper = mount(CCTVSetupList, {
+      props: { selectedFloor: { ...floor, camera_presets: [camera] } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Turn YOLO on for North entrance"]').trigger('click')
+    await flushPromises()
+    await wrapper.setProps({ selectedFloor: { ...floor, camera_presets: [startedCamera] } })
+
+    expect(floorService.setCameraModelEnabled).toHaveBeenCalledWith(
+      floor._id,
+      camera._id,
+      true,
+    )
+    expect(wrapper.get('.cctv-model-toggle').text()).toContain('YOLO ON')
+    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('enabled')
+    expect(wrapper.get('.cctv-model-status').text()).toBe('Starting')
+    expect(wrapper.find('.cctv-edit').element.previousElementSibling).not.toBeNull()
+  })
+
+  it('explains that CCTV Online and YOLO worker status are independent', async () => {
+    const camera = {
+      _id: 'camera-yolo',
+      name: 'North entrance',
+      cameraSelector: '344',
+      cameraNo: '344',
+      ipAddress: '192.0.2.34',
+      rtspLink: '',
+      cctvFileName: 'original.json',
+      parkingSlotFileId: null,
+      status: 'Online' as const,
+      modelEnabled: true,
+      modelRuntimeStatus: 'Offline' as const,
+    }
+    wrapper = mount(CCTVSetupList, {
+      props: { selectedFloor: { ...floor, camera_presets: [camera] } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.cctv-model-status').text()).toBe('Offline')
+    expect(wrapper.get('.model-runtime-hint').text()).toContain(
+      'CCTV Online only confirms camera connectivity',
+    )
+    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('enabled')
   })
 })

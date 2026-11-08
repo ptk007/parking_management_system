@@ -10,6 +10,10 @@ export interface CctvFormCamera {
   cctvFileName: string
   parkingSlotFileId: string | null
   status?: 'Online' | 'Offline' | 'Disable' | 'Unknown'
+  modelEnabled?: boolean
+  modelRuntimeStatus?: 'Offline' | 'Starting' | 'Online' | 'Stopping' | 'Error'
+  modelRuntimeMessage?: string
+  modelRuntimeUpdatedAt?: string | null
 }
 
 export interface CctvSourceMatch {

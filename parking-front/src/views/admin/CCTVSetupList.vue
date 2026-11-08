@@ -19,6 +19,9 @@
         Go to parking map <ArrowRight :size="19" />
       </button>
     </header>
+    <p v-if="modelStatusRefreshError" class="model-runtime-error" role="status">
+      {{ modelStatusRefreshError }}
+    </p>
 
     <p v-if="!selectedFloor" class="preset-empty">
       Open CCTV from a floor in Parking Setup to manage its preset.
@@ -92,7 +95,7 @@
           v-if="activePreviewCameraId === camera._id && previewFrame"
           class="cctv-live-frame"
           :src="previewFrame"
-          :alt="`Live CCTV preview for ${camera.name}`"
+          :alt="`${camera.modelEnabled ? 'YOLO output' : 'Live CCTV preview'} for ${camera.name}`"
         />
         <template v-else>
           <Video :size="36" aria-hidden="true" />
@@ -110,10 +113,18 @@
         <button
           class="cctv-preview-toggle"
           type="button"
-          :aria-label="`${activePreviewCameraId === camera._id ? 'Stop' : 'Show'} live preview for ${camera.name}`"
+          :aria-label="`${activePreviewCameraId === camera._id ? 'Stop' : 'Show'} ${camera.modelEnabled ? 'YOLO' : 'live'} preview for ${camera.name}`"
           @click="toggleCameraPreview(camera)"
         >
-          {{ activePreviewCameraId === camera._id ? 'Stop preview' : 'Show live preview' }}
+          {{
+            activePreviewCameraId === camera._id
+              ? camera.modelEnabled
+                ? 'Stop YOLO preview'
+                : 'Stop preview'
+              : camera.modelEnabled
+                ? 'Show YOLO preview'
+                : 'Show live preview'
+          }}
         </button>
         <span
           v-if="activePreviewCameraId === camera._id && previewMessage"
@@ -151,7 +162,46 @@
         </div>
       </dl>
       <div class="cctv-card-actions">
-        <button class="cctv-edit" aria-label="Edit Camera" @click="$emit('edit-cctv', camera)">
+        <div class="cctv-model-control">
+          <button
+            type="button"
+            class="cctv-model-toggle"
+            :class="{ enabled: camera.modelEnabled }"
+            :disabled="!camera._id || modelBusyCameraIds.length > 0"
+            :aria-label="`${camera.modelEnabled ? 'Turn YOLO off' : 'Turn YOLO on'} for ${camera.name}`"
+            @click="toggleModel(camera)"
+          >
+            <Power :size="17" />
+            {{ modelBusyCameraIds.includes(camera._id || '') ? 'Saving...' : camera.modelEnabled ? 'YOLO ON' : 'YOLO OFF' }}
+          </button>
+          <span
+            class="cctv-model-status"
+            :class="`status-${modelStatusLabel(camera).toLowerCase()}`"
+            :title="camera.modelRuntimeMessage || modelStatusLabel(camera)"
+            role="status"
+          >
+            {{ modelStatusLabel(camera) }}
+          </span>
+          <small
+            v-if="camera.modelEnabled && modelStatusLabel(camera) === 'Offline'"
+            class="model-runtime-hint"
+          >
+            No recent Python worker heartbeat. CCTV Online only confirms camera connectivity;
+            check the runtime URL/key and Python supervisor output.
+          </small>
+          <small v-if="modelControlErrors[camera._id || '']" role="alert">
+            {{ modelControlErrors[camera._id || ''] }}
+          </small>
+          <small v-else-if="camera.modelRuntimeMessage && camera.modelRuntimeStatus === 'Error'" role="alert">
+            {{ camera.modelRuntimeMessage }}
+          </small>
+        </div>
+        <button
+          type="button"
+          class="cctv-edit"
+          aria-label="Edit Camera"
+          @click="$emit('edit-cctv', camera)"
+        >
           <SquarePen :size="29" />
         </button>
       </div>
@@ -177,7 +227,7 @@
             v-if="previewFrame"
             class="cctv-expanded-frame"
             :src="previewFrame"
-            :alt="`Expanded live CCTV preview for ${activePreviewCamera.name}`"
+            :alt="`Expanded ${activePreviewCamera.modelEnabled ? 'YOLO output' : 'live CCTV preview'} for ${activePreviewCamera.name}`"
           />
           <p v-else class="cctv-expanded-message" role="status">
             {{ previewMessage || 'Waiting for camera frame...' }}
@@ -196,6 +246,7 @@ import {
   ArrowRight,
   Video,
   SquarePen,
+  Power,
   Upload,
   FileJson,
   Download,
@@ -205,7 +256,7 @@ import { floorService, type ParkingFloor, type ParkingSlotFile } from '@/service
 import { MAX_IMPORT_BYTES } from '@/components/parking/parkingMapJson'
 import { consumeMjpegPreview } from './cctvMjpeg'
 
-defineEmits<{
+const emit = defineEmits<{
   'add-cctv': []
   'edit-cctv': [camera: CctvFormCamera]
   'view-map': []
@@ -222,6 +273,12 @@ const activePreviewCameraId = ref('')
 const previewFrame = ref('')
 const previewMessage = ref('')
 const expandedPreview = ref(false)
+const modelBusyCameraIds = ref<string[]>([])
+const modelControlErrors = ref<Record<string, string>>({})
+const modelStatusRefreshError = ref('')
+let modelRefreshTimer: ReturnType<typeof setInterval> | undefined
+let modelRefreshPending = false
+let modelStateVersion = 0
 const activePreviewCamera = computed(() =>
   props.selectedFloor?.camera_presets?.find(
     (camera) => camera._id === activePreviewCameraId.value,
@@ -245,7 +302,15 @@ async function loadSourceFiles() {
   }
 }
 onMounted(loadSourceFiles)
-onUnmounted(stopCameraPreview)
+onMounted(() => {
+  modelRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') void refreshModelStatus()
+  }, 4000)
+})
+onUnmounted(() => {
+  stopCameraPreview()
+  if (modelRefreshTimer) clearInterval(modelRefreshTimer)
+})
 watch(
   () => props.selectedFloor?._id,
   () => stopCameraPreview(),
@@ -256,6 +321,67 @@ const downloading = ref('')
 const importError = ref('')
 const importMessage = ref('')
 const formatSize = (size: number) => (size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`)
+
+function modelStatusLabel(camera: CctvFormCamera) {
+  if (!camera.modelEnabled)
+    return camera.modelRuntimeStatus === 'Stopping' ? 'Stopping' : 'Off'
+  const updatedAt = camera.modelRuntimeUpdatedAt
+    ? new Date(camera.modelRuntimeUpdatedAt).getTime()
+    : 0
+  if (!updatedAt || Date.now() - updatedAt > 20000) return 'Offline'
+  return camera.modelRuntimeStatus || 'Starting'
+}
+
+async function refreshModelStatus() {
+  const floorId = props.selectedFloor?._id
+  if (!floorId || modelRefreshPending || modelBusyCameraIds.value.length) return
+  modelRefreshPending = true
+  const version = modelStateVersion
+  try {
+    const response = await floorService.get(floorId)
+    if (props.selectedFloor?._id === floorId && modelStateVersion === version) {
+      modelStatusRefreshError.value = ''
+      emit('floor-updated', response.data.floor)
+    }
+  } catch (cause) {
+    modelStatusRefreshError.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Unable to refresh YOLO runtime status.'
+      : cause instanceof Error
+        ? cause.message
+        : 'Unable to refresh YOLO runtime status.'
+  } finally {
+    modelRefreshPending = false
+  }
+}
+
+async function toggleModel(camera: CctvFormCamera) {
+  const floorId = props.selectedFloor?._id
+  const cameraId = camera._id
+  if (!floorId || !cameraId || modelBusyCameraIds.value.includes(cameraId)) return
+  modelStateVersion += 1
+  modelBusyCameraIds.value = [...modelBusyCameraIds.value, cameraId]
+  modelControlErrors.value = { ...modelControlErrors.value, [cameraId]: '' }
+  try {
+    const response = await floorService.setCameraModelEnabled(
+      floorId,
+      cameraId,
+      !camera.modelEnabled,
+    )
+    emit('floor-updated', response.data.floor)
+    modelStatusRefreshError.value = ''
+  } catch (cause) {
+    modelControlErrors.value = {
+      ...modelControlErrors.value,
+      [cameraId]: isAxiosError<{ message?: string }>(cause)
+        ? cause.response?.data?.message || 'Unable to change YOLO model state.'
+        : cause instanceof Error
+          ? cause.message
+          : 'Unable to change YOLO model state.',
+    }
+  } finally {
+    modelBusyCameraIds.value = modelBusyCameraIds.value.filter((id) => id !== cameraId)
+  }
+}
 
 function stopCameraPreview() {
   closeExpandedPreview()
@@ -294,6 +420,14 @@ async function toggleCameraPreview(camera: CctvFormCamera) {
     previewMessage.value = 'This CCTV preset has no camera ID.'
     return
   }
+  if (camera.modelEnabled) {
+    const controller = new AbortController()
+    previewController = controller
+    previewMessage.value = 'Waiting for an annotated YOLO frame...'
+    void consumeModelPreview(camera, controller)
+    return
+  }
+
   const source = availableCctvSourceFiles.value.find(
     (file) => file.original_name === camera.cctvFileName,
   )
@@ -387,6 +521,69 @@ async function toggleCameraPreview(camera: CctvFormCamera) {
   } catch (cause) {
     if (controller.signal.aborted || previewController !== controller) return
     previewMessage.value = cause instanceof Error ? cause.message : 'Unable to open the live preview.'
+  }
+}
+
+function waitForModelFrame(signal: AbortSignal, delay: number) {
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, delay)
+    signal.addEventListener('abort', finish, { once: true })
+  })
+}
+
+async function modelPreviewErrorMessage(cause: unknown) {
+  if (!isAxiosError(cause)) {
+    return cause instanceof Error ? cause.message : 'YOLO preview is unavailable.'
+  }
+  const responseData: unknown = cause.response?.data
+  if (responseData instanceof Blob) {
+    try {
+      const payload: unknown = JSON.parse(await responseData.text())
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'message' in payload &&
+        typeof payload.message === 'string'
+      )
+        return payload.message
+    } catch {
+      return 'YOLO preview returned an invalid response.'
+    }
+  }
+  return cause.response?.status
+    ? `YOLO preview request failed (${cause.response.status}).`
+    : cause.message || 'YOLO preview is unavailable.'
+}
+
+async function consumeModelPreview(camera: CctvFormCamera, controller: AbortController) {
+  const floorId = props.selectedFloor?._id
+  const cameraId = camera._id
+  if (!floorId || !cameraId) return
+  while (!controller.signal.aborted && previewController === controller) {
+    try {
+      const response = await floorService.getCameraModelFrame(
+        floorId,
+        cameraId,
+        controller.signal,
+      )
+      if (controller.signal.aborted || previewController !== controller) return
+      const nextObjectUrl = URL.createObjectURL(response.data)
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
+      previewObjectUrl = nextObjectUrl
+      previewFrame.value = nextObjectUrl
+      previewMessage.value = ''
+      await waitForModelFrame(controller.signal, 200)
+    } catch (cause) {
+      if (controller.signal.aborted || previewController !== controller) return
+      previewMessage.value = await modelPreviewErrorMessage(cause)
+      if (isAxiosError(cause) && cause.response?.status !== 503) return
+      await waitForModelFrame(controller.signal, 1000)
+    }
   }
 }
 
@@ -777,7 +974,73 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 24px;
+  gap: 14px;
+}
+.cctv-model-control {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  max-width: 120px;
+  text-align: center;
+}
+.cctv-model-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 96px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+}
+.cctv-model-toggle.enabled {
+  border-color: #15803d;
+  background: #16a34a;
+  color: #fff;
+}
+.cctv-model-toggle:not(:disabled):hover {
+  filter: brightness(0.96);
+}
+.cctv-model-status {
+  font-size: 12px;
+  font-weight: 600;
+}
+.cctv-model-status.status-online {
+  color: #16803c;
+}
+.cctv-model-status.status-error {
+  color: #b42318;
+}
+.cctv-model-status.status-starting,
+.cctv-model-status.status-stopping,
+.cctv-model-status.status-waiting {
+  color: #9a6700;
+}
+.cctv-model-status.status-off {
+  color: #64748b;
+}
+.cctv-model-status.status-offline {
+  color: #64748b;
+}
+.cctv-model-control small,
+.model-runtime-error {
+  color: #b42318;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.cctv-model-control .model-runtime-hint {
+  color: #64748b;
+}
+.model-runtime-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 5px;
+  background: #fef2f2;
+  font-size: 13px;
 }
 .cctv-online-status {
   display: inline-flex;

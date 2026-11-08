@@ -2,6 +2,9 @@
 
 This template should help get you started developing with Vue 3 in Vite.
 
+For the current backend routes and the CCTV preset/YOLO annotated-preview
+integration, see [API_INTEGRATION.md](./API_INTEGRATION.md).
+
 ## Recommended IDE Setup
 
 [VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
