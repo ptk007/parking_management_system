@@ -8,6 +8,7 @@ export interface PreviewSlot {
   number: number
   zone: string
   status: SlotStatus
+  licensePlateDetected?: boolean
   cameraPresetId?: string
   parkingSlotName?: string
 }

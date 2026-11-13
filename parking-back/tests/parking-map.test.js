@@ -99,6 +99,7 @@ test("saves slot-to-camera category assignments only when they belong to the flo
   };
   const floor = {
     _id: id,
+    status: "Available",
     status: "Disable",
     parking_map: null,
     camera_presets: [camera],
@@ -185,4 +186,79 @@ test("staff slot changes preserve camera occupancy; users cannot call the same w
   const slots = update.mock.calls[0].arguments[1].$set.parking_map.slots;
   assert.equal(slots[0].status, "available");
   assert.equal(slots[1].status, "occupied");
+});
+
+test("reset slot statuses requires every preset disabled and resets every map status", async (t) => {
+  let role = "admin";
+  t.mock.method(User, "findById", () => ({
+    select: async () => ({ role, status: "online" }),
+  }));
+  const floor = {
+    _id: id,
+    parking_map: map(),
+    camera_presets: [{ status: "Disable" }, { status: "Disable" }],
+  };
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  const update = t.mock.method(ParkingFloor, "findOneAndUpdate", async (_filter, updateDoc) => {
+    floor.parking_map = updateDoc.$set.parking_map;
+    return floor;
+  });
+
+  const blocked = response();
+  floor.camera_presets[1].status = "Enable";
+  await controller.resetSlotStatuses({ auth: { userId: id }, params: { id } }, blocked);
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(update.mock.callCount(), 0);
+
+  floor.camera_presets[1].status = "Disable";
+  const reset = response();
+  await controller.resetSlotStatuses({ auth: { userId: id }, params: { id } }, reset);
+  assert.equal(reset.statusCode, 200);
+  assert.deepEqual(reset.body.map.slots.map((slot) => slot.status), ["available", "available"]);
+  assert.equal(update.mock.callCount(), 1);
+});
+
+test("manual slot refresh queues a status update for enabled Detection presets", async (t) => {
+  t.mock.method(User, "findById", () => ({
+    select: async () => ({ role: "admin", status: "online" }),
+  }));
+  const cameraId = "507f1f77bcf86cd799439012";
+  const floor = {
+    _id: id,
+    status: "Available",
+    parking_map: {
+      ...map(),
+      slots: [
+        {
+          number: 1,
+          zone: "default",
+          status: "available",
+          cameraPresetId: cameraId,
+          parkingSlotName: "zoneA_slot01",
+        },
+      ],
+    },
+    camera_presets: [
+      { _id: cameraId, status: "Enable", modelEnabled: true, slotStatusRefreshVersion: 0 },
+      { _id: "507f1f77bcf86cd799439013", status: "Enable", modelEnabled: false, slotStatusRefreshVersion: 0 },
+    ],
+    async save() {},
+  };
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+
+  const responseOk = response();
+  await controller.refreshModelSlotStatuses({ auth: { userId: id }, params: { id } }, responseOk);
+  assert.equal(responseOk.statusCode, 200);
+  assert.equal(responseOk.body.requestedSlots, 1);
+  assert.equal(floor.camera_presets[0].slotStatusRefreshVersion, 1);
+  assert.equal(floor.camera_presets[1].slotStatusRefreshVersion, 0);
+
+  floor.status = "Disable";
+  const unavailableFloorUpdate = response();
+  await controller.refreshModelSlotStatuses(
+    { auth: { userId: id }, params: { id } },
+    unavailableFloorUpdate,
+  );
+  assert.equal(unavailableFloorUpdate.statusCode, 200);
+  assert.equal(floor.camera_presets[0].slotStatusRefreshVersion, 2);
 });

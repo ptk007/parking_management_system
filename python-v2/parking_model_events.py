@@ -8,6 +8,7 @@ import queue
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from typing import Any, Dict, Optional
@@ -69,6 +70,35 @@ class ModelRuntimeClient:
             self._last_error_at = now
         return None
 
+    def fetch_profiles(self) -> Dict[str, Any]:
+        runtime_endpoint = self.endpoint.rstrip("/")
+        profiles_url = (
+            runtime_endpoint[:-5] + "/profiles"
+            if runtime_endpoint.endswith("/sync")
+            else runtime_endpoint + "/profiles"
+        )
+        request = Request(
+            profiles_url,
+            headers={"x-model-api-key": self.api_key},
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=10.0) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                if response.status < 200 or response.status >= 300:
+                    raise RuntimeError(f"backend returned HTTP {response.status}")
+                if not isinstance(result, dict) or not isinstance(result.get("profiles"), list):
+                    raise ValueError("backend returned an invalid CCTV profile response")
+                return result
+        except HTTPError as error:
+            details = error.read().decode("utf-8", errors="replace").strip()
+            raise RuntimeError(
+                f"Could not load backend CCTV presets (HTTP {error.code}): "
+                f"{details or 'no error details returned'}"
+            ) from error
+        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError(f"Could not load backend CCTV presets: {error}") from error
+
 
 def write_worker_status(status: str, message: str = "") -> None:
     status_path = os.environ.get("PARKING_RUNTIME_STATUS_FILE", "").strip()
@@ -98,9 +128,29 @@ class ParkingModelEventPublisher:
         cctv_file_name: str,
     ) -> None:
         self.endpoint = endpoint
+        self.slot_status_endpoint = (
+            endpoint.rsplit("/", 1)[0] + "/model-slot-status"
+        )
         self.api_key = api_key
         self.camera_no = camera_no
         self.cctv_file_name = cctv_file_name
+        raw_mapped_slots = os.environ.get("PARKING_RUNTIME_MAPPED_SLOT_NAMES")
+        self.mapped_slot_state_file = os.environ.get(
+            "PARKING_RUNTIME_DISABLED_SLOT_FILE", ""
+        ).strip()
+        self.mapped_parking_slots = None
+        if raw_mapped_slots is not None:
+            try:
+                mapped_slots = json.loads(raw_mapped_slots)
+                if isinstance(mapped_slots, list):
+                    self.mapped_parking_slots = {
+                        str(name).strip() for name in mapped_slots if str(name).strip()
+                    }
+                else:
+                    self.mapped_parking_slots = set()
+            except json.JSONDecodeError:
+                self.mapped_parking_slots = set()
+        self._unmapped_slot_notices = set()
         self._events: queue.Queue[Optional[Dict[str, Any]]] = queue.Queue(maxsize=128)
         self._closing = threading.Event()
         self._worker = threading.Thread(
@@ -109,6 +159,21 @@ class ParkingModelEventPublisher:
             daemon=True,
         )
         self._worker.start()
+
+    def _refresh_mapped_parking_slots(self) -> None:
+        if not self.mapped_slot_state_file:
+            return
+        try:
+            payload = json.loads(
+                Path(self.mapped_slot_state_file).read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            return
+        names = payload.get("mappedParkingSlotNames", [])
+        if isinstance(names, list):
+            self.mapped_parking_slots = {
+                str(name).strip() for name in names if str(name).strip()
+            }
 
     @classmethod
     def from_environment(
@@ -152,9 +217,31 @@ class ParkingModelEventPublisher:
         parking_slot_name: str = "",
         occurred_at: str = "",
     ) -> None:
+        self._refresh_mapped_parking_slots()
         plate = license_plate.strip()
         if not plate:
             print(f"[Parking API] Cannot send {event}: license plate is not available.")
+            return
+        if self.mapped_parking_slots is not None and not self.mapped_parking_slots:
+            notice_key = "__no_mapped_parking_slots__"
+            if notice_key not in self._unmapped_slot_notices:
+                print(
+                    "[Parking API] No parking-map slots are assigned to this preset; "
+                    "parking-log sync is disabled."
+                )
+                self._unmapped_slot_notices.add(notice_key)
+            return
+        if (
+            event in {"Parking", "Exited"}
+            and self.mapped_parking_slots is not None
+            and parking_slot_name not in self.mapped_parking_slots
+        ):
+            if parking_slot_name not in self._unmapped_slot_notices:
+                print(
+                    f"[Parking API] Slot {parking_slot_name or '-'} has no backend map assignment; "
+                    f"{event} events for it will not be sent."
+                )
+                self._unmapped_slot_notices.add(parking_slot_name)
             return
 
         payload: Dict[str, Any] = {
@@ -175,6 +262,44 @@ class ParkingModelEventPublisher:
         except queue.Full:
             print(f"[Parking API] Event queue full; {event} event was not sent.")
 
+    def publish_slot_status(
+        self,
+        slot_status: str,
+        parking_slot_name: str,
+        occurred_at: str = "",
+        license_plate_detected: Optional[bool] = None,
+    ) -> None:
+        self._refresh_mapped_parking_slots()
+        parking_slot_name = str(parking_slot_name or "").strip()
+        if slot_status not in {"incoming", "occupied", "available"} or not parking_slot_name:
+            return
+        if (
+            self.mapped_parking_slots is not None
+            and parking_slot_name not in self.mapped_parking_slots
+        ):
+            if parking_slot_name not in self._unmapped_slot_notices:
+                print(
+                    f"[Parking API] Slot {parking_slot_name} has no backend map assignment; "
+                    "slot status was not sent."
+                )
+                self._unmapped_slot_notices.add(parking_slot_name)
+            return
+
+        payload: Dict[str, Any] = {
+            "slotStatus": slot_status,
+            "parkingSlotName": parking_slot_name,
+            "occurredAt": occurred_at or datetime.now(timezone.utc).isoformat(),
+            "cameraNo": self.camera_no,
+            "cctvFileName": self.cctv_file_name,
+            "_endpoint": self.slot_status_endpoint,
+        }
+        if isinstance(license_plate_detected, bool):
+            payload["licensePlateDetected"] = license_plate_detected
+        try:
+            self._events.put_nowait(payload)
+        except queue.Full:
+            print("[Parking API] Event queue full; slot status was not sent.")
+
     def close(self, timeout: float = 10.0) -> None:
         self._closing.set()
         self._worker.join(timeout=max(0.0, timeout))
@@ -182,9 +307,13 @@ class ParkingModelEventPublisher:
             print("[Parking API] Event publisher is still retrying; pending events may not be sent.")
 
     def _post(self, payload: Dict[str, Any]) -> None:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        endpoint = payload.get("_endpoint", self.endpoint)
+        body = json.dumps(
+            {key: value for key, value in payload.items() if key != "_endpoint"},
+            ensure_ascii=False,
+        ).encode("utf-8")
         request = Request(
-            self.endpoint,
+            endpoint,
             data=body,
             headers={
                 "Content-Type": "application/json",
@@ -198,6 +327,7 @@ class ParkingModelEventPublisher:
             response.read()
 
     def _send_with_retry(self, payload: Dict[str, Any]) -> None:
+        label = payload.get("event", "Slot status")
         for attempt in range(3):
             try:
                 self._post(payload)
@@ -206,7 +336,7 @@ class ParkingModelEventPublisher:
                 if 400 <= error.code < 500:
                     details = error.read().decode("utf-8", errors="replace").strip()
                     print(
-                        f"[Parking API] {payload['event']} event rejected "
+                        f"[Parking API] {label} event rejected "
                         f"(HTTP {error.code}): {details or 'no error details returned'}"
                     )
                     return
@@ -217,7 +347,7 @@ class ParkingModelEventPublisher:
             if attempt < 2:
                 time.sleep(0.5 * (2**attempt))
         print(
-            f"[Parking API] Could not send {payload['event']} event after 3 attempts "
+            f"[Parking API] Could not send {label} event after 3 attempts "
             f"({status})."
         )
 

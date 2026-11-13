@@ -42,6 +42,19 @@
           >
             {{ isShowingSampleLogs ? 'Hide sample logs' : 'View sample logs' }}
           </button>
+          <button
+            type="button"
+            class="export-log-button"
+            :disabled="
+              !isSelectedLocation ||
+              (selectedLocation?.isSample && !sampleLogsForSelectedLocation.length) ||
+              isExporting ||
+              isLoadingLogs
+            "
+            @click="exportParkingLogs"
+          >
+            {{ isExporting ? 'Exporting...' : 'Export log' }}
+          </button>
           <span v-if="isShowingSampleLogs" class="sample-log-note">
             Sample preview only. These logs are not saved to the database.
           </span>
@@ -49,6 +62,11 @@
         <div class="warning-banner">
           <span>Exited and Not Parking</span> logs are shown for 24 hours; records remain in the
           database.
+        </div>
+        <div class="undetected-parking-banner" role="status" aria-live="polite">
+          {{ undetectedOccupiedCount }}
+          <strong>Parking</strong>
+          with undetected license plate and province
         </div>
         <p v-if="!isShowingSampleLogs && isLoadingLogs" class="logs-state" role="status">
           Loading parking logs...
@@ -71,11 +89,20 @@
         />
       </div>
     </section>
+    <div
+      v-if="exportNotification"
+      :class="['export-log-notification', exportNotificationType]"
+      role="status"
+      aria-live="polite"
+    >
+      {{ exportNotification }}
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { isAxiosError } from 'axios'
 import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/ParkingLogCard.vue'
 import DashboardMap from '@/components/parking/DashboardMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
@@ -121,10 +148,14 @@ const staffCameras = [
 
 const parkingLogs = ref<ParkingLogDisplay[]>([])
 const isShowingSampleLogs = ref(false)
+const isExporting = ref(false)
+const exportNotification = ref('')
+const exportNotificationType = ref<'success' | 'error'>('success')
 const isLoadingLogs = ref(false)
 const logsError = ref('')
 const selectedLocation = ref<{ floor: ParkingFloor; isSample: boolean } | null>(null)
 let logRequestSequence = 0
+let exportNotificationTimeout: ReturnType<typeof setTimeout> | undefined
 const isSelectedLocation = computed(() => Boolean(selectedLocation.value))
 const sampleLogsForSelectedLocation = computed(() => {
   const location = selectedLocation.value
@@ -138,6 +169,12 @@ const sampleLogsForSelectedLocation = computed(() => {
 })
 const displayedParkingLogs = computed(() =>
   isShowingSampleLogs.value ? sampleLogsForSelectedLocation.value : parkingLogs.value,
+)
+const undetectedOccupiedCount = computed(
+  () =>
+    selectedLocation.value?.floor.parking_map?.slots.filter(
+      (slot) => slot.status === 'occupied' && slot.licensePlateDetected === false,
+    ).length || 0,
 )
 
 const mapParkingLog = (log: ParkingLogRecord): ParkingLogDisplay => ({
@@ -202,6 +239,85 @@ async function loadParkingLogs() {
     if (requestSequence === logRequestSequence) isLoadingLogs.value = false
   }
 }
+
+function showExportNotification(message: string, type: 'success' | 'error') {
+  exportNotification.value = message
+  exportNotificationType.value = type
+  if (exportNotificationTimeout) clearTimeout(exportNotificationTimeout)
+  exportNotificationTimeout = setTimeout(() => {
+    exportNotification.value = ''
+    exportNotificationTimeout = undefined
+  }, 4500)
+}
+
+async function exportParkingLogs() {
+  const location = selectedLocation.value
+  const floor = location?.floor
+  if (!floor || isExporting.value) return
+  isExporting.value = true
+  exportNotification.value = ''
+  try {
+    const response = location.isSample
+      ? await parkingLogService.exportSamples(
+          sampleLogsForSelectedLocation.value.map((log) => ({
+            owner: !String(log.id).startsWith('sample-guest'),
+            name: log.name || '',
+            building: log.building || '',
+            floor: log.floor || floor.floor,
+            veh_type: log.vehType || floor.veh_type,
+            parkingSlotName: null,
+            brand: log.brand || '',
+            model: log.model || '',
+            color: log.color || '',
+            license_num: log.licenseNumber || '',
+            province: log.province || '',
+            date_enter: log.date || '',
+            park_time: log.parkingTime || '',
+            date_exit: log.exitDate && log.exitDate !== '-' ? log.exitDate : '',
+            exit_time: log.exitTime && log.exitTime !== '-' ? log.exitTime : '',
+            park_slot: log.parkingSlot && log.parkingSlot !== '-' ? Number(log.parkingSlot) : null,
+            park_status: log.status === 'Not Parking' ? 'Not parking' : log.status,
+            createdAt: log.date || '',
+            updatedAt: log.date || '',
+          })),
+        )
+      : await parkingLogService.export({
+          buildingId: floor.building!._id,
+          floorId: floor._id,
+          veh_type: floor.veh_type,
+        })
+    const disposition = response.headers['content-disposition'] || ''
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filenameMatch?.[1] || 'parking-logs.xlsx'
+    document.body.append(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    showExportNotification('Parking log exported', 'success')
+  } catch (cause) {
+    let message = 'Unable to export parking logs.'
+    if (isAxiosError(cause) && cause.response?.data instanceof Blob) {
+      try {
+        const errorPayload = JSON.parse(await cause.response.data.text()) as { message?: string }
+        message = errorPayload.message || message
+      } catch {
+        // Keep the fallback notification for non-JSON responses.
+      }
+    } else if (isAxiosError<{ message?: string }>(cause)) {
+      message = cause.response?.data?.message || message
+    }
+    showExportNotification(message, 'error')
+  } finally {
+    isExporting.value = false
+  }
+}
+
+onUnmounted(() => {
+  if (exportNotificationTimeout) clearTimeout(exportNotificationTimeout)
+})
 </script>
 
 <style scoped>
@@ -357,6 +473,40 @@ async function loadParkingLogs() {
   font-weight: 700;
   cursor: pointer;
 }
+.export-log-button {
+  border: 1px solid #15803d;
+  border-radius: 5px;
+  background: #e5e7eb;
+  color: #166534;
+  padding: 9px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.export-log-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.export-log-notification {
+  position: fixed;
+  z-index: 1000;
+  top: 22px;
+  right: 22px;
+  max-width: min(420px, calc(100vw - 44px));
+  padding: 12px 18px;
+  border: 1px solid;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-weight: 700;
+}
+.export-log-notification.success {
+  border-color: #16a34a;
+  color: #166534;
+}
+.export-log-notification.error {
+  border-color: #dc2626;
+  color: #991b1b;
+}
 
 .sample-log-note {
   color: #555;
@@ -376,6 +526,22 @@ async function loadParkingLogs() {
 
 .warning-banner span {
   color: #c7352c;
+}
+.undetected-parking-banner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+}
+.undetected-parking-banner strong {
+  color: #15803d;
 }
 
 .log-card {

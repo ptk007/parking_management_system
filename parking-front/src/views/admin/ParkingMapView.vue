@@ -117,7 +117,27 @@
               <h2>Floor overview</h2>
               <p>Select a slot to see its name and status.</p>
             </div>
-            <span>{{ slots.length }} slots</span>
+            <div class="panel-heading-actions">
+              <span>{{ slots.length }} slots</span>
+              <button
+                type="button"
+                class="update-status-button"
+                :disabled="!canUpdateModelSlotStatuses"
+                @click="updateModelSlotStatuses"
+              >
+                {{ updatingModelSlotStatuses ? 'Updating...' : 'Update slot status' }}
+              </button>
+              <button
+                type="button"
+                class="reset-status-button"
+                :disabled="!canResetSlotStatuses"
+                title="Disable every CCTV preset on this floor before resetting slots"
+                @click="resetConfirmationOpen = true"
+              >
+                <RotateCcw :size="16" />
+                {{ resettingSlots ? 'Resetting...' : 'Reset parking slot status' }}
+              </button>
+            </div>
           </div>
           <div class="map-toolbar">
             <div class="view-mode" aria-label="Parking map view">
@@ -268,6 +288,27 @@
         </aside>
       </div>
     </template>
+    <div v-if="resetConfirmationOpen" class="dialog-backdrop">
+      <section
+        class="leave-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="reset-slots-title"
+      >
+        <h2 id="reset-slots-title">Are you sure to reset all slot status</h2>
+        <div>
+          <button type="button" @click="resetConfirmationOpen = false">Cancel</button>
+          <button
+            type="button"
+            class="primary"
+            :disabled="resettingSlots"
+            @click="confirmResetParkingSlotStatuses"
+          >
+            Confirm
+          </button>
+        </div>
+      </section>
+    </div>
     <div v-if="leaveTarget" class="dialog-backdrop">
       <section
         class="leave-dialog"
@@ -308,6 +349,7 @@ import {
   LockKeyhole,
   ParkingSquare,
   PencilRuler,
+  RotateCcw,
   Search,
   Upload,
   Video,
@@ -442,6 +484,41 @@ const selectedParkingSlotName = computed({
 const selectedSlots = computed(() =>
   slots.value.filter((slot) => selected.value.has(slotKey(slot))),
 )
+const resettingSlots = ref(false)
+const updatingModelSlotStatuses = ref(false)
+const resetConfirmationOpen = ref(false)
+const canResetSlotStatuses = computed(() => {
+  const presets = floor.value?.camera_presets || []
+  return (
+    auth.isAdmin &&
+    presets.length > 0 &&
+    presets.every((camera) => camera.status === 'Disable') &&
+    !dirty.value &&
+    !saving.value &&
+    !importing.value &&
+    !resettingSlots.value
+  )
+})
+const canUpdateModelSlotStatuses = computed(() => {
+  const currentFloor = floor.value
+  if (!currentFloor?.parking_map) return false
+  const enabledPresetIds = new Set(
+    (currentFloor.camera_presets || [])
+      .filter((camera) => camera.status === 'Enable' && camera.modelEnabled)
+      .map((camera) => camera._id),
+  )
+  return (
+    enabledPresetIds.size > 0 &&
+    currentFloor.parking_map.slots.some(
+      (slot) => enabledPresetIds.has(slot.cameraPresetId || '') && Boolean(slot.parkingSlotName),
+    ) &&
+    !dirty.value &&
+    !saving.value &&
+    !importing.value &&
+    !resettingSlots.value &&
+    !updatingModelSlotStatuses.value
+  )
+})
 const canEnable = computed(
   () =>
     auth.isAdmin &&
@@ -559,7 +636,7 @@ async function loadFloor() {
     }
     if (version !== loadVersion) return
     layout.value = withPositions(slots.value, layout.value)
-  } catch {
+  } catch (cause) {
     if (version === loadVersion)
       error.value = 'Unable to load this floor and its map. Please try again.'
   } finally {
@@ -616,11 +693,16 @@ async function persistDraft(): Promise<boolean> {
       saveMessage.value = 'Map saved and shared with dashboards'
     }
     return true
-  } catch {
+  } catch (cause) {
     if (key === draftKey.value && revision === saveRevision) {
       dirty.value = true
       storageError.value = true
-      saveMessage.value = 'Could not save to server. Retry Save now or export your map.'
+      const serverMessage = isAxiosError<{ message?: string }>(cause)
+        ? cause.response?.data?.message
+        : undefined
+      saveMessage.value = serverMessage
+        ? `Could not save map: ${serverMessage}. Retry Save now or export your map.`
+        : 'Could not save to server. Retry Save now or export your map.'
     }
     return false
   } finally {
@@ -679,6 +761,60 @@ async function setFloorStatus(status: ParkingFloor['status']) {
   } finally {
     updatingFloorStatus.value = false
   }
+}
+async function resetParkingSlotStatuses() {
+  const currentFloor = floor.value
+  if (!currentFloor || !canResetSlotStatuses.value) return
+  resettingSlots.value = true
+  try {
+    const response = await floorService.resetSlotStatuses(currentFloor._id)
+    const map = response.data.map
+    currentFloor.parking_map = map
+    slots.value = map.slots
+    selected.value.clear()
+    inspectedKey.value = null
+    saveMessage.value = 'All parking slot statuses reset to Available.'
+    showAssignmentNotification('Parking slot statuses reset to Available.')
+  } catch (cause) {
+    showAssignmentNotification(
+      isAxiosError<{ message?: string }>(cause)
+        ? cause.response?.data?.message || 'Unable to reset parking slot statuses.'
+        : cause instanceof Error
+          ? cause.message
+          : 'Unable to reset parking slot statuses.',
+    )
+  } finally {
+    resettingSlots.value = false
+  }
+}
+async function updateModelSlotStatuses() {
+  const currentFloor = floor.value
+  if (!currentFloor || !canUpdateModelSlotStatuses.value) return
+  updatingModelSlotStatuses.value = true
+  try {
+    const response = await floorService.refreshModelSlotStatuses(currentFloor._id)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    const refreshedFloor = await floorService.get(currentFloor._id)
+    floor.value = refreshedFloor.data.floor
+    slots.value = refreshedFloor.data.floor.parking_map?.slots || []
+    showAssignmentNotification(
+      `${response.data.message} (${response.data.requestedSlots} slots).`,
+    )
+  } catch (cause) {
+    showAssignmentNotification(
+      isAxiosError<{ message?: string }>(cause)
+        ? cause.response?.data?.message || 'Unable to update parking slot statuses.'
+        : cause instanceof Error
+          ? cause.message
+          : 'Unable to update parking slot statuses.',
+    )
+  } finally {
+    updatingModelSlotStatuses.value = false
+  }
+}
+async function confirmResetParkingSlotStatuses() {
+  resetConfirmationOpen.value = false
+  await resetParkingSlotStatuses()
 }
 function updateInspectedSlot(
   assignment: Pick<PreviewSlot, 'cameraPresetId' | 'parkingSlotName'>,
@@ -1121,10 +1257,17 @@ h2 {
   color: #64748b;
   margin-top: 5px;
 }
-.panel-heading > span {
+.panel-heading-actions > span {
   font-size: 11px;
   color: #94a3b8;
   white-space: nowrap;
+}
+.panel-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .map-toolbar {
   padding: 0 18px 16px;
@@ -1309,6 +1452,12 @@ dd {
 }
 .disable-button {
   color: #b42318;
+}
+.reset-status-button {
+  color: #7c2d12;
+  border-color: #c2410c;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 16%);
 }
 .selection-section .failed {
   color: #b42318;

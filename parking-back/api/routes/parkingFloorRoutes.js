@@ -37,6 +37,8 @@ const upload = multer({
 router.use(userController.requireAuth);
 router.get("/catalog", floorController.dashboardCatalog);
 router.patch("/catalog/:id/slot-statuses", floorController.setSlotStatuses);
+router.post("/catalog/:id/reset-slot-statuses", floorController.resetSlotStatuses);
+router.post("/catalog/:id/update-slot-statuses", floorController.refreshModelSlotStatuses);
 router.use(userController.requireAdmin);
 
 // Admin-only parking_floor collection CRUD API routes.

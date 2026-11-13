@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -27,6 +28,10 @@ from project_paths import (
 )
 
 PROJECT_DIR = Path(__file__).resolve().parent
+_BACKEND_PROFILE_TEMP = None
+_NO_PROFILE_NOTICE_SHOWN = False
+_INVALID_PROFILE_NOTICES = set()
+BACKEND_PROFILE_REFRESH_SECONDS = 2.0
 
 
 def _safe_component(value: str) -> str:
@@ -48,6 +53,11 @@ def parse_args() -> argparse.Namespace:
         "--active",
         action="store_true",
         help="Run confirmed profile(s) from cctv/parking-cam/active.json.",
+    )
+    parser.add_argument(
+        "--backend-presets",
+        action="store_true",
+        help="Use CCTV presets configured in the parking-management backend.",
     )
     parser.add_argument(
         "--profiles",
@@ -224,8 +234,8 @@ def _profile_parking_inventory(
     return bool(names), names
 
 
-def _prepare_jobs(args: argparse.Namespace):
-    profiles = _load_jobs(args)
+def _prepare_jobs(args: argparse.Namespace, profiles: List[Dict[str, Any]] | None = None):
+    profiles = profiles if profiles is not None else _load_jobs(args)
     prepared = []
     seen = set()
     for order, profile in enumerate(profiles, 1):
@@ -244,10 +254,12 @@ def _prepare_jobs(args: argparse.Namespace):
                 "camera": camera,
                 "command": _build_command(args, profile, cctv_path, camera),
                 "status_file": export_dir / "model-runtime-status.json",
+                "disabled_slot_file": export_dir / "disabled-parking-slots.json",
+                "slot_status_refresh_file": export_dir / "refresh-parking-slot-status.json",
                 "runtime_frame_file": _runtime_frame_path(
                     str(camera.get("NO", "")).strip()
                     or str(profile.get("camera", "")).strip(),
-                    cctv_path.name,
+                    str(profile.get("cctvFileName") or cctv_path.name),
                 ),
                 "parking_enabled": parking_enabled,
                 "parking_slot_names": parking_slot_names,
@@ -257,9 +269,104 @@ def _prepare_jobs(args: argparse.Namespace):
                 "desired_enabled": None,
                 "runtime_status": "Offline",
                 "runtime_message": "",
+                "slot_status_refresh_version": int(profile.get("slotStatusRefreshVersion") or 0),
             }
         )
     return prepared
+
+
+def _load_backend_profiles(client: ModelRuntimeClient) -> List[Dict[str, Any]]:
+    global _BACKEND_PROFILE_TEMP, _NO_PROFILE_NOTICE_SHOWN
+    remote_profiles = client.fetch_profiles()["profiles"]
+    if _BACKEND_PROFILE_TEMP is None:
+        _BACKEND_PROFILE_TEMP = tempfile.TemporaryDirectory(
+            prefix="parking_backend_presets_"
+        )
+    runtime_dir = Path(_BACKEND_PROFILE_TEMP.name)
+    profiles = []
+
+    for item in remote_profiles:
+        camera_no = str(item.get("cameraNo") or "").strip()
+        source_name = str(item.get("cctvFileName") or "").strip()
+        stream_url = str(item.get("rtspLink") or "").strip()
+        slot_data = item.get("parkingSlotData")
+        if isinstance(slot_data, str):
+            try:
+                slot_data = json.loads(slot_data)
+            except json.JSONDecodeError:
+                slot_data = None
+        categories = slot_data.get("categories") if isinstance(slot_data, dict) else None
+        annotations = slot_data.get("annotations") if isinstance(slot_data, dict) else None
+        if (
+            not camera_no
+            or not source_name
+            or not stream_url
+            or not isinstance(slot_data, dict)
+            or not isinstance(categories, list)
+            or not isinstance(annotations, list)
+            or not annotations
+        ):
+            if item.get("modelEnabled"):
+                notice = (
+                    f"[YOLO control] Preset {item.get('name') or camera_no or '-'} "
+                    "is missing its camera number, CCTV source, RTSP link, or parking-slot JSON."
+                )
+                if notice not in _INVALID_PROFILE_NOTICES:
+                    print(notice)
+                    _INVALID_PROFILE_NOTICES.add(notice)
+            continue
+
+        source_filename = "cctv-source.json"
+        folder = runtime_dir / (
+            f"{_safe_component(item.get('floorId', 'floor'))}_"
+            f"{_safe_component(item.get('cameraPresetId', camera_no))}"
+        )
+        folder.mkdir(parents=True, exist_ok=True)
+        cctv_path = folder / source_filename
+        parking_path = folder / "parking-slots.json"
+        cctv_record = {
+            "NO": camera_no,
+            "IP ADDRESS": str(item.get("ipAddress") or ""),
+            "CAMERA NAME_NEW": str(item.get("sourceCameraName") or item.get("name") or camera_no),
+            "Location": str(item.get("name") or ""),
+            "ANPR&PTZ RTSP": stream_url,
+        }
+        cctv_path.write_text(json.dumps([cctv_record], ensure_ascii=False), encoding="utf-8")
+        parking_path.write_text(json.dumps(slot_data, ensure_ascii=False), encoding="utf-8")
+        mapped_names = [
+            str(name).strip()
+            for name in item.get("mappedParkingSlotNames", [])
+            if str(name).strip()
+        ]
+        profile_name = str(item.get("name") or f"camera_{camera_no}")
+        profiles.append(
+            {
+                "name": profile_name,
+                "camera": camera_no,
+                "cctv_json": str(cctv_path),
+                "cctvFileName": source_name,
+                "parking": "on",
+                "parking_json": str(parking_path),
+                "parking_slots": [],
+                "mapped_parking_slots": mapped_names,
+                "floorId": str(item.get("floorId") or ""),
+                "cameraPresetId": str(item.get("cameraPresetId") or ""),
+                "slotStatusRefreshVersion": int(item.get("slotStatusRefreshVersion") or 0),
+            }
+        )
+
+    if not profiles and not _NO_PROFILE_NOTICE_SHOWN:
+        if remote_profiles:
+            print(
+                "[YOLO control] No usable backend CCTV presets yet; "
+                "waiting for valid camera and parking-slot data."
+            )
+        else:
+            print("[YOLO control] No backend CCTV presets yet; waiting for preset creation.")
+        _NO_PROFILE_NOTICE_SHOWN = True
+    elif profiles:
+        _NO_PROFILE_NOTICE_SHOWN = False
+    return profiles
 
 
 def _start_job(
@@ -281,8 +388,18 @@ def _start_job(
         frame_file.parent.mkdir(parents=True, exist_ok=True)
         frame_file.unlink(missing_ok=True)
         environment["PARKING_RUNTIME_STATUS_FILE"] = str(status_file)
+        environment["PARKING_RUNTIME_DISABLED_SLOT_FILE"] = str(job["disabled_slot_file"])
+        environment["PARKING_RUNTIME_SLOT_STATUS_REFRESH_FILE"] = str(job["slot_status_refresh_file"])
         environment["PARKING_RUNTIME_ID"] = runtime_id
         environment["PARKING_RUNTIME_FRAME_FILE"] = str(frame_file)
+        if profile.get("cctvFileName"):
+            environment["PARKING_RUNTIME_CCTV_FILE_NAME"] = str(profile["cctvFileName"])
+        if "mapped_parking_slots" in profile:
+            environment["PARKING_RUNTIME_MAPPED_SLOT_NAMES"] = json.dumps(
+                profile["mapped_parking_slots"], ensure_ascii=False
+            )
+        else:
+            environment.pop("PARKING_RUNTIME_MAPPED_SLOT_NAMES", None)
     job["process"] = subprocess.Popen(
         job["command"],
         cwd=PROJECT_DIR,
@@ -342,38 +459,104 @@ def _runtime_identity(camera_no: str, cctv_file_name: str) -> Tuple[str, str]:
     return camera_no.strip().lower(), cctv_file_name.strip().lower()
 
 
+def _write_disabled_slot_state(
+    path: Path,
+    disabled_names: List[str],
+    mapped_names: List[str] | None = None,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
+    temporary_path.write_text(
+        json.dumps(
+            {
+                "disabledParkingSlotNames": disabled_names,
+                "mappedParkingSlotNames": mapped_names or [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    temporary_path.replace(path)
+
+
 def _run_remote_controlled(
     jobs: List[Dict[str, Any]],
     client: ModelRuntimeClient,
     args: argparse.Namespace,
 ) -> int:
     runtime_id = uuid.uuid4().hex
-    profile_payload = []
-    for job in jobs:
+    if not jobs:
+        try:
+            jobs = _prepare_jobs(args, _load_backend_profiles(client))
+        except RuntimeError as error:
+            print(f"[YOLO control] Initial preset load failed; entering standby: {error}")
+            jobs = []
+
+    def runtime_profile(job: Dict[str, Any]) -> Dict[str, Any]:
         camera = job["camera"]
         cctv_path, _ = _resolve_camera(job["profile"])
-        profile_payload.append(
-            {
-                "cameraNo": str(camera.get("NO", "")).strip()
-                or str(job["profile"].get("camera", "")).strip(),
-                "cctvFileName": cctv_path.name,
-                "profileName": str(job["profile"].get("name", "")),
-                "parkingEnabled": job["parking_enabled"],
-                "parkingSlotNames": job["parking_slot_names"],
-            }
-        )
+        return {
+            "cameraNo": str(camera.get("NO", "")).strip()
+            or str(job["profile"].get("camera", "")).strip(),
+            "cctvFileName": str(job["profile"].get("cctvFileName") or cctv_path.name),
+            "profileName": str(job["profile"].get("name", "")),
+            "parkingEnabled": job["parking_enabled"],
+            "parkingSlotNames": job["parking_slot_names"],
+        }
 
     identities = {
-        _runtime_identity(item["cameraNo"], item["cctvFileName"]): job
-        for item, job in zip(profile_payload, jobs)
+        _runtime_identity(
+            runtime_profile(job)["cameraNo"], runtime_profile(job)["cctvFileName"]
+        ): job
+        for job in jobs
     }
+    last_inventory_refresh = time.monotonic()
     next_sync = 0.0
-    print("\nYOLO remote control is enabled. Waiting for backend camera commands.")
+    print("\nYOLO runtime is online and waiting for backend CCTV presets.")
 
     try:
         while True:
             now = time.monotonic()
             if now >= next_sync:
+                if now - last_inventory_refresh >= BACKEND_PROFILE_REFRESH_SECONDS:
+                    try:
+                        previous_keys = set(identities)
+                        refreshed_jobs = _prepare_jobs(
+                            args, _load_backend_profiles(client)
+                        )
+                        refreshed_by_identity = {}
+                        for refreshed in refreshed_jobs:
+                            profile = runtime_profile(refreshed)
+                            key = _runtime_identity(
+                                profile["cameraNo"], profile["cctvFileName"]
+                            )
+                            existing = identities.get(key)
+                            if existing is not None:
+                                for field in (
+                                    "profile",
+                                    "camera",
+                                    "parking_enabled",
+                                    "parking_slot_names",
+                                ):
+                                    existing[field] = refreshed[field]
+                                refreshed_by_identity[key] = existing
+                            else:
+                                refreshed_by_identity[key] = refreshed
+
+                        for key, old_job in identities.items():
+                            if key not in refreshed_by_identity:
+                                _stop_job(old_job)
+                        identities = refreshed_by_identity
+                        jobs = list(identities.values())
+                        if set(identities) != previous_keys:
+                            print(
+                                f"[YOLO control] Backend preset inventory refreshed: {len(jobs)} usable preset(s)."
+                            )
+                    except (RuntimeError, OSError, ValueError) as error:
+                        print(f"[YOLO control] Could not refresh backend presets: {error}")
+                    last_inventory_refresh = now
+
+                profile_payload = [runtime_profile(job) for job in jobs]
                 workers = []
                 for profile in profile_payload:
                     job = identities[
@@ -416,6 +599,37 @@ def _run_remote_controlled(
                         else:
                             desired = bool(command.get("enabled") and command.get("runnable"))
                             command_message = str(command.get("message", ""))
+                        if command is not None:
+                            try:
+                                disabled_names = command.get("disabledParkingSlotNames", [])
+                                if not isinstance(disabled_names, list):
+                                    disabled_names = []
+                                mapped_names = command.get("mappedParkingSlotNames", [])
+                                if not isinstance(mapped_names, list):
+                                    mapped_names = []
+                                _write_disabled_slot_state(
+                                    Path(job["disabled_slot_file"]),
+                                    [str(name).strip() for name in disabled_names if str(name).strip()],
+                                    [str(name).strip() for name in mapped_names if str(name).strip()],
+                                )
+                            except OSError as error:
+                                print(
+                                    f"[YOLO control] Could not update disabled parking slots: {error}"
+                                )
+                            try:
+                                refresh_version = int(command.get("slotStatusRefreshVersion") or 0)
+                                if refresh_version > job.get("slot_status_refresh_version", 0):
+                                    marker = Path(job["slot_status_refresh_file"])
+                                    marker.parent.mkdir(parents=True, exist_ok=True)
+                                    temporary_marker = marker.with_suffix(marker.suffix + ".tmp")
+                                    temporary_marker.write_text(
+                                        json.dumps({"version": refresh_version}),
+                                        encoding="utf-8",
+                                    )
+                                    temporary_marker.replace(marker)
+                                    job["slot_status_refresh_version"] = refresh_version
+                            except (OSError, TypeError, ValueError) as error:
+                                print(f"[YOLO control] Could not request slot-status refresh: {error}")
                         if desired and previous_desired is not True:
                             job["restarts"] = 0
                             job["next_start"] = 0.0
@@ -429,7 +643,7 @@ def _run_remote_controlled(
                                 job["runtime_message"] = command_message
                         elif job.get("process") is None and job.get("next_start", 0.0) != float("inf"):
                             job["next_start"] = min(job.get("next_start", 0.0), now)
-                next_sync = now + 3.0
+                next_sync = now + 0.5
 
             now = time.monotonic()
             for job in jobs:
@@ -502,11 +716,16 @@ def _run_remote_controlled(
 
 def main() -> int:
     args = parse_args()
+    runtime_client = ModelRuntimeClient.from_environment()
+    if args.backend_presets and runtime_client is None:
+        raise SystemExit("Backend CCTV mode requires PARKING_MODEL_API_KEY and API URLs.")
+    if args.backend_presets:
+        return _run_remote_controlled([], runtime_client, args)
+
     jobs = _prepare_jobs(args)
     if not jobs:
         raise SystemExit("No CCTV jobs to run.")
 
-    runtime_client = ModelRuntimeClient.from_environment()
     if runtime_client is not None:
         return _run_remote_controlled(jobs, runtime_client, args)
 

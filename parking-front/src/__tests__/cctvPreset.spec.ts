@@ -14,6 +14,7 @@ vi.mock('@/services/api', () => ({
     streamCctvPreview: vi.fn(),
     get: vi.fn(),
     setCameraModelEnabled: vi.fn(),
+    setCameraPresetStatus: vi.fn(),
     getCameraModelFrame: vi.fn(),
   },
 }))
@@ -152,7 +153,8 @@ describe('shared CCTV source library and per-floor presets', () => {
       cctvFileName: camera.cctvFileName,
       parkingSlotFileId: camera.parkingSlotFileId,
       name: 'Updated entrance',
-      status: 'Unknown',
+      status: 'Enable',
+      sourceStatus: 'Unknown',
     }, null)
     expect(wrapper.emitted('saved')?.[0]).toEqual([floor])
   })
@@ -449,7 +451,8 @@ describe('shared CCTV source library and per-floor presets', () => {
       rtspLink: '',
       cctvFileName: 'original.json',
       parkingSlotFileId: null,
-      status: 'Online' as const,
+      status: 'Enable' as const,
+      sourceStatus: 'Online' as const,
       modelEnabled: true,
       modelRuntimeStatus: 'Online' as const,
       modelRuntimeUpdatedAt: new Date().toISOString(),
@@ -485,7 +488,8 @@ describe('shared CCTV source library and per-floor presets', () => {
       rtspLink: '',
       cctvFileName: 'original.json',
       parkingSlotFileId: null,
-      status: 'Online' as const,
+      status: 'Enable' as const,
+      sourceStatus: 'Online' as const,
       modelEnabled: false,
       modelRuntimeStatus: 'Offline' as const,
     }
@@ -503,7 +507,7 @@ describe('shared CCTV source library and per-floor presets', () => {
     })
     await flushPromises()
 
-    await wrapper.get('[aria-label="Turn YOLO on for North entrance"]').trigger('click')
+    await wrapper.get('[aria-label="Enable Detection for North entrance"]').trigger('click')
     await flushPromises()
     await wrapper.setProps({ selectedFloor: { ...floor, camera_presets: [startedCamera] } })
 
@@ -512,9 +516,10 @@ describe('shared CCTV source library and per-floor presets', () => {
       camera._id,
       true,
     )
-    expect(wrapper.get('.cctv-model-toggle').text()).toContain('YOLO ON')
-    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('enabled')
+    expect(wrapper.get('.cctv-model-toggle').text()).toContain('Disable Detection')
+    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('is-disable')
     expect(wrapper.get('.cctv-model-status').text()).toBe('Starting')
+    expect(wrapper.get('.cctv-model-status').classes()).toContain('status-starting')
     expect(wrapper.find('.cctv-edit').element.previousElementSibling).not.toBeNull()
   })
 
@@ -528,7 +533,8 @@ describe('shared CCTV source library and per-floor presets', () => {
       rtspLink: '',
       cctvFileName: 'original.json',
       parkingSlotFileId: null,
-      status: 'Online' as const,
+      status: 'Enable' as const,
+      sourceStatus: 'Online' as const,
       modelEnabled: true,
       modelRuntimeStatus: 'Offline' as const,
     }
@@ -541,6 +547,6 @@ describe('shared CCTV source library and per-floor presets', () => {
     expect(wrapper.get('.model-runtime-hint').text()).toContain(
       'CCTV Online only confirms camera connectivity',
     )
-    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('enabled')
+    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('is-disable')
   })
 })

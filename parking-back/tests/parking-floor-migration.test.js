@@ -118,7 +118,8 @@ test("migrates legacy floor fields and camera file meanings without duplicating 
   const camera = cameraUpdates[0].updateOne.update.$set.camera_presets[0];
   assert.equal(camera.cctvFileName, "camera-north.json");
   assert.equal(camera.parkingSlotFileId, String(migratedSlotId));
-  assert.equal(camera.status, "Unknown");
+  assert.equal(camera.status, "Enable");
+  assert.equal(camera.sourceStatus, "Unknown");
   assert.ok(camera.createAt instanceof Date);
   assert.ok(camera.updateAt instanceof Date);
   assert.deepEqual(

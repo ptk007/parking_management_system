@@ -284,6 +284,19 @@ describe('Parking Map workspace', () => {
     await flushPromises()
     expect(wrapper.get('.save-message.failed').text()).toContain('Could not save')
   })
+  it('shows the backend reason when a parking map save is rejected', async () => {
+    const { wrapper } = await createPage()
+    vi.mocked(floorService.saveMap).mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { message: 'Disable this floor before editing its layout' } },
+    })
+    await select(wrapper, 1)
+    await wrapper.get('.enable-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.save-message.failed').text()).toContain(
+      'Disable this floor before editing its layout',
+    )
+  })
   it('blocks layout editing and importing while the floor is Available', async () => {
     vi.mocked(floorService.list).mockResolvedValue({
       data: { floors: [{ ...floors[0], status: 'Available' }] },

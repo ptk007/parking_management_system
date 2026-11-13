@@ -13,7 +13,47 @@
       </button>
       <div class="location" role="status">{{ location }}</div>
       <span v-if="isSample" class="sample-badge">Sample map</span>
-      <button v-else @click="showSample">View sample map</button>
+      <div class="map-header-actions">
+        <button v-if="!isSample" @click="showSample">View sample map</button>
+        <button
+          v-if="auth.canManageParking && selectedFloor?.parking_map"
+          type="button"
+          aria-label="Update slot status"
+          :disabled="!canUpdateSlotStatuses || updatingSlotStatuses"
+          @click="updateSlotStatuses"
+        >
+          {{ updatingSlotStatuses ? 'Updating...' : 'Update slot status' }}
+        </button>
+        <button
+          v-if="auth.canManageParking && selectedFloor?.parking_map"
+          class="reset-status-button"
+          type="button"
+          aria-label="Reset parking slot status"
+          :disabled="!canResetSlotStatuses || resettingSlots"
+          @click="showResetConfirmation = true"
+        >
+          {{ resettingSlots ? 'Resetting...' : 'Reset parking slot status' }}
+        </button>
+      </div>
+    </div>
+    <p v-if="slotResetNotification" class="slot-reset-notification" role="status">
+      {{ slotResetNotification }}
+    </p>
+    <div v-if="showResetConfirmation" class="map-confirm-backdrop">
+      <section
+        class="map-confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="dashboard-reset-title"
+      >
+        <h2 id="dashboard-reset-title">Are you sure to reset all slot status</h2>
+        <div>
+          <button type="button" @click="showResetConfirmation = false">Cancel</button>
+          <button type="button" :disabled="resettingSlots" @click="confirmResetSlotStatuses">
+            Confirm
+          </button>
+        </div>
+      </section>
     </div>
     <p v-if="syncError && !headerOnly" class="refresh-error" role="status">
       Live parking updates are temporarily unavailable. <button @click="load(true)">Retry</button>
@@ -132,6 +172,11 @@ const building = ref(''),
 expanded = ref(false)
 const selection = ref<string[]>([]),
   saving = ref(false)
+const resettingSlots = ref(false),
+  updatingSlotStatuses = ref(false),
+  slotResetNotification = ref(''),
+  showResetConfirmation = ref(false)
+let slotResetTimeout: ReturnType<typeof setTimeout> | undefined
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let loadPending = false
 const buildings = computed(() => [
@@ -162,6 +207,22 @@ const selectedFloor = computed(() =>
     : undefined,
 )
 const isSample = computed(() => selectedFloor.value?._id === 'sample-e4-floor4')
+const canResetSlotStatuses = computed(() => {
+  const presets = selectedFloor.value?.camera_presets || []
+  return presets.length > 0 && presets.every((camera) => camera.status === 'Disable')
+})
+const canUpdateSlotStatuses = computed(() => {
+  const floor = selectedFloor.value
+  if (!floor?.parking_map) return false
+  const enabledPresetIds = new Set(
+    (floor.camera_presets || [])
+      .filter((camera) => camera.status === 'Enable' && camera.modelEnabled)
+      .map((camera) => camera._id),
+  )
+  return floor.parking_map.slots.some(
+    (slot) => enabledPresetIds.has(slot.cameraPresetId || '') && Boolean(slot.parkingSlotName),
+  )
+})
 const slots = computed<PreviewSlot[]>(() => selectedFloor.value?.parking_map?.slots || [])
 const layout = computed(() =>
   restoreParkingLayout(selectedFloor.value?.parking_map?.layout || emptyParkingLayout()),
@@ -328,6 +389,50 @@ async function setStatus(status: 'available' | 'disabled') {
     saving.value = false
   }
 }
+async function confirmResetSlotStatuses() {
+  showResetConfirmation.value = false
+  await resetSlotStatuses()
+}
+async function updateSlotStatuses() {
+  const floor = selectedFloor.value
+  if (!floor || isSample.value || !auth.canManageParking || !canUpdateSlotStatuses.value || updatingSlotStatuses.value)
+    return
+  updatingSlotStatuses.value = true
+  slotResetNotification.value = ''
+  try {
+    const response = await floorService.refreshModelSlotStatuses(floor._id)
+    slotResetNotification.value = `${response.data.message} (${response.data.requestedSlots} slots).`
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await load(true)
+  } catch (cause) {
+    slotResetNotification.value =
+      cause instanceof Error ? cause.message : 'Unable to update parking slot statuses.'
+  } finally {
+    updatingSlotStatuses.value = false
+    if (slotResetTimeout) clearTimeout(slotResetTimeout)
+    slotResetTimeout = setTimeout(() => (slotResetNotification.value = ''), 5000)
+  }
+}
+async function resetSlotStatuses() {
+  const floor = selectedFloor.value
+  if (!floor || isSample.value || !auth.canManageParking || !canResetSlotStatuses.value || resettingSlots.value)
+    return
+  resettingSlots.value = true
+  slotResetNotification.value = ''
+  try {
+    const response = await floorService.resetSlotStatuses(floor._id)
+    floor.parking_map = response.data.map
+    selection.value = []
+    slotResetNotification.value = 'Parking slot statuses reset to Available.'
+  } catch (cause) {
+    slotResetNotification.value =
+      cause instanceof Error ? cause.message : 'Unable to reset parking slot statuses.'
+  } finally {
+    resettingSlots.value = false
+    if (slotResetTimeout) clearTimeout(slotResetTimeout)
+    slotResetTimeout = setTimeout(() => (slotResetNotification.value = ''), 4000)
+  }
+}
 onMounted(() => {
   void load()
   refreshTimer = setInterval(() => {
@@ -336,6 +441,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  if (slotResetTimeout) clearTimeout(slotResetTimeout)
 })
 </script>
 <style scoped>
@@ -372,6 +478,52 @@ onUnmounted(() => {
   gap: 12px;
   padding: 10px 16px;
   border-bottom: 1px solid #e5e7eb;
+}
+.map-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.reset-status-button {
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 16%);
+}
+.map-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #15223866;
+}
+.map-confirm-dialog {
+  width: min(100%, 420px);
+  padding: 24px;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 18px 50px #15223833;
+}
+.map-confirm-dialog h2 {
+  margin: 0 0 22px;
+  color: #172033;
+  font-size: 18px;
+}
+.map-confirm-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.slot-reset-notification {
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  color: #166534;
+  background: #f0fdf4;
+  font-size: 13px;
 }
 .filter-toggle {
   width: 40px;

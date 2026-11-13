@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
@@ -27,8 +27,8 @@ vi.mock('@/services/api', () => ({
             brand: 'Unknown',
             model: 'Unknown',
             color: 'Unknown',
-            license_num: 'กข 1234',
-            province: 'เชียงราย',
+            license_num: '?? 1234',
+            province: '????????',
             date_enter: '2026-11-04',
             park_time: '10:00:00',
             date_exit: null,
@@ -118,8 +118,8 @@ beforeEach(() => {
           brand: 'Unknown',
           model: 'Unknown',
           color: 'Unknown',
-          license_num: 'กข 1234',
-          province: 'เชียงราย',
+          license_num: '?? 1234',
+          province: '????????',
           date_enter: '2026-11-04',
           park_time: '10:00:00',
           date_exit: null,
@@ -297,8 +297,8 @@ describe('dashboard parking locations and permissions', () => {
         'Parking Status',
       ])
         expect(text).toContain(label)
-      expect(text).not.toContain('Province')
-      expect(text).toContain('กข 1234')
+      expect(text).toContain('Province')
+      expect(text).toContain('?? 1234')
       expect(text).not.toContain('Face Driver')
     },
   )

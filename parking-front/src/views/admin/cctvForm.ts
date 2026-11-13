@@ -9,7 +9,8 @@ export interface CctvFormCamera {
   rtspLink: string
   cctvFileName: string
   parkingSlotFileId: string | null
-  status?: 'Online' | 'Offline' | 'Disable' | 'Unknown'
+  status?: 'Enable' | 'Disable'
+  sourceStatus?: 'Online' | 'Offline' | 'Unknown'
   modelEnabled?: boolean
   modelRuntimeStatus?: 'Offline' | 'Starting' | 'Online' | 'Stopping' | 'Error'
   modelRuntimeMessage?: string

@@ -28,6 +28,11 @@ from cctv_viewer import load_cameras, open_capture, select_camera, redact_stream
 from parking_config import add_runtime_arguments
 from parking_export import export_results
 from parking_model_events import ParkingModelEventPublisher, write_worker_status
+from parking_slot_status import (
+    consume_slot_status_refresh_request,
+    read_disabled_parking_slot_names,
+    resolve_slot_display,
+)
 from project_paths import (
     PROJECT_ROOT,
     DEFAULT_CCTV_JSON,
@@ -68,7 +73,8 @@ CAMERA_ID = (
 )
 MODEL_EVENT_PUBLISHER = ParkingModelEventPublisher.from_environment(
     CAMERA_ID,
-    Path(RUNTIME_ARGS.cctv_json).name if selected_camera is not None else '',
+    os.environ.get('PARKING_RUNTIME_CCTV_FILE_NAME', '').strip()
+    or (Path(RUNTIME_ARGS.cctv_json).name if selected_camera is not None else ''),
 )
 RUN_STARTED_AT = datetime.now(timezone.utc)
 RUN_STARTED_AT_ISO = RUN_STARTED_AT.isoformat()
@@ -437,6 +443,7 @@ def load_parking_slots_from_json(
                 video_h
             ),
             'disabled': disabled,
+            'map_disabled': False,
             'status': (
                 'disable'
                 if disabled
@@ -929,8 +936,29 @@ def prepare_display_frame(frame):
 
 
 RUNTIME_FRAME_FILE = os.environ.get('PARKING_RUNTIME_FRAME_FILE', '').strip()
+RUNTIME_DISABLED_SLOT_FILE = os.environ.get(
+    'PARKING_RUNTIME_DISABLED_SLOT_FILE', ''
+).strip()
 _last_runtime_frame_at = 0.0
 _last_runtime_frame_error_at = 0.0
+
+
+def _refresh_map_disabled_slots():
+    if not RUNTIME_DISABLED_SLOT_FILE:
+        return
+
+    try:
+        disabled_names = read_disabled_parking_slot_names(
+            RUNTIME_DISABLED_SLOT_FILE
+        )
+    except FileNotFoundError:
+        disabled_names = set()
+    except (OSError, json.JSONDecodeError) as error:
+        print(f'[Parking API] Could not read disabled parking-slot state: {error}')
+        return
+
+    for slot in parking_slots:
+        slot['map_disabled'] = slot['name'] in disabled_names
 
 
 def publish_runtime_frame(frame):
@@ -3623,7 +3651,51 @@ def _clear_slot_to_available(state, frame_idx):
     })
 
 
+def _publish_slot_map_status(state, previous_status, slot_name):
+    status = state.get('status')
+    if status == previous_status or not MODEL_EVENT_PUBLISHER:
+        return
+    map_status = {
+        'available': 'available',
+        'occupied': 'incoming',
+        'parking': 'occupied',
+    }.get(status)
+    if map_status:
+        license_plate_detected = None
+        if map_status == 'occupied':
+            license_plate_detected = bool(
+                str(state.get('model_event_plate') or '').strip()
+            )
+        MODEL_EVENT_PUBLISHER.publish_slot_status(
+            map_status,
+            slot_name,
+            license_plate_detected=license_plate_detected,
+        )
+
+
+_last_slot_status_refresh_version = 0
+
+
+def _publish_requested_slot_status_refresh():
+    global _last_slot_status_refresh_version
+    request_file = os.environ.get("PARKING_RUNTIME_SLOT_STATUS_REFRESH_FILE", "").strip()
+    if not request_file or not MODEL_EVENT_PUBLISHER:
+        return
+    version = consume_slot_status_refresh_request(
+        request_file, _last_slot_status_refresh_version
+    )
+    if version is None:
+        return
+    _last_slot_status_refresh_version = version
+    for slot in parking_slots:
+        state = parking_state.get(slot["name"], {})
+        if slot.get("disabled") or state.get("status") not in {"available", "occupied", "parking"}:
+            continue
+        _publish_slot_map_status(state, None, slot["name"])
+
+
 def update_parking_states(car_boxes, frame_idx):
+    _refresh_map_disabled_slots()
     assignments, lock_reasons = match_cars_to_slots(car_boxes)
 
     for slot in parking_slots:
@@ -3696,6 +3768,7 @@ def update_parking_states(car_boxes, frame_idx):
                         _clear_slot_to_available(state, frame_idx)
 
                 slot['status'] = state['status']
+                _publish_slot_map_status(state, previous_status, name)
                 continue
 
             # =================================================
@@ -3745,10 +3818,12 @@ def update_parking_states(car_boxes, frame_idx):
                     state['status'] = 'occupied'
 
                 slot['status'] = state['status']
+                _publish_slot_map_status(state, previous_status, name)
                 continue
 
             _clear_slot_to_available(state, frame_idx)
             slot['status'] = state['status']
+            _publish_slot_map_status(state, previous_status, name)
             continue
 
         # ----------------------------------------------------
@@ -3820,6 +3895,7 @@ def update_parking_states(car_boxes, frame_idx):
 
         state.update({
             'car_id': car_id,
+            'parking_slot_name': slot['name'],
             'overlap_score': assigned['overlap_score'],
             'slot_coverage': assigned['slot_coverage'],
             'car_coverage': assigned['car_coverage'],
@@ -3860,6 +3936,9 @@ def update_parking_states(car_boxes, frame_idx):
                 state['status'] = 'occupied'
 
         slot['status'] = state['status']
+        _publish_slot_map_status(state, previous_status, name)
+
+    _publish_requested_slot_status_refresh()
 
     return assignments
 
@@ -3873,7 +3952,9 @@ def draw_parking_slots(frame):
         name = slot['name']
         state = parking_state[name]
         status = state['status']
-        color = PARKING_STATUS_COLORS[status]
+        map_disabled = bool(slot.get('map_disabled'))
+        display_status, visual_status = resolve_slot_display(status, map_disabled)
+        color = PARKING_STATUS_COLORS[visual_status]
 
         x1, y1, x2, y2 = slot['bbox']
         polygon = slot.get('polygon')
@@ -3913,7 +3994,7 @@ def draw_parking_slots(frame):
                 lineType=cv2.LINE_AA
             )
 
-        label = f'{name} | {status}'
+        label = f'{name} | {display_status}'
 
         if state.get('car_id') is not None:
             label += f" | Car {state['car_id']}"
@@ -3947,8 +4028,10 @@ def parking_status_counts():
         'disable': 0
     }
 
-    for state in parking_state.values():
-        counts[state['status']] += 1
+    for slot in parking_slots:
+        state = parking_state[slot['name']]
+        status = 'disable' if slot.get('map_disabled') else state['status']
+        counts[status] += 1
 
     return counts
 

@@ -14,7 +14,7 @@ Production-oriented Windows runtime for:
 
 ```text
 parking_runtime_v2/
-├─ run.bat                    # primary interactive entry point
+├─ run.bat                    # starts backend-configured CCTV presets
 ├─ run_multi_camera.bat       # direct runner for confirmed active CCTV(s)
 ├─ install.bat
 ├─ launcher.py
@@ -58,8 +58,8 @@ not depend on `..\yolo_models`, `..\json_file`, or another repository folder.
 ## First install
 
 1. Copy the two trained `.pt` files into `models/`.
-2. Copy parking-slot COCO JSON files into `parking_slots/`.
-3. Confirm the CCTV source JSON files under `cctv/sources/`.
+2. Configure CCTV presets in the frontend admin setup, including their RTSP source and parking-slot JSON.
+3. Set `PARKING_MODEL_API_KEY` in `parking-back/.env` to the same private key as the backend.
 4. Run:
 
 ```bat
@@ -72,53 +72,63 @@ can be overridden with `PARKING_TORCH_INDEX_URL` before running `install.bat`.
 
 ## Normal startup sequence
 
-Run:
+On Windows, starting the backend API automatically launches `run.bat` after the
+API is listening. The supervisor stays open in standby even when there are no
+CCTV presets, and refreshes the preset list every two seconds. Create a CCTV
+preset, then use **Enable Detection** as needed; the supervisor starts the
+worker when the backend reports the preset is enabled and its source and
+parking-slot annotation data are valid. Parking-map assignment is optional.
+Without assignments, the preview still works but the model does not update the
+map or create parking logs/history.
+
+To start the supervisor manually for debugging, run:
 
 ```bat
 run.bat
 ```
 
-The setup menu is:
+`run.bat` starts the backend-driven supervisor directly. It fetches CCTV presets
+and their stream and parking-slot data from the backend; no local profile
+selection or confirmation is needed. When all detections are OFF, camera workers
+stop and the supervisor remains in standby for a later ON command or new preset.
+The backend stops the supervisor when the backend process shuts down.
 
-```text
-1. Create CCTV profile
-2. Edit saved CCTV profile
-3. Load / select saved CCTV profile(s)
-4. Confirm selected CCTV profile(s)
-5. Start confirmed CCTV profile(s)
-0. Exit
-```
-
-### Optional parking-management API sync and YOLO control
+### Backend-controlled YOLO and parking-log sync
 
 The Python supervisor can accept per-camera YOLO ON/OFF commands from the
 backend, and workers can send stable plate detections and parking/exit
 transitions. Set these environment variables in the same Windows environment
 that starts `run.bat` (child camera workers inherit them):
 
-```bat
-set "PARKING_MODEL_RUNTIME_URL=http://localhost:5000/api/model-runtime/sync"
-set "PARKING_MODEL_EVENTS_URL=http://localhost:5000/api/parking-logs/model-events"
-set "PARKING_MODEL_API_KEY=replace-with-the-same-private-value-as-the-backend"
-```
+`run.bat` now defaults both API URLs to the backend at `http://localhost:3000`
+(or the `PORT` in `parking-back/.env`) and reads `PARKING_MODEL_API_KEY` from
+that private backend `.env` when it is not already set in the environment.
+You can override the URLs or key in the command environment before starting.
+Keep the key private; do not commit it or place it in frontend configuration.
+If the key is missing, backend preset startup stops with a clear notice.
 
-`PARKING_MODEL_API_KEY` must match the backend's private environment value. Do
-not commit the key or place it in frontend configuration. Replace port `5000`
-with the backend's configured port if needed. The confirmed profiles in
-`cctv/parking-cam/active.json` are the only cameras this supervisor can control.
-The backend ON command is remembered in MongoDB, so the supervisor starts
-enabled cameras after `run.bat` starts again. An ON request is rejected if the
-preset is disabled, lacks parking-slot categories/map assignments, or has an
-ambiguous camera identity. If the local confirmed profile is absent or its
-parking JSON does not contain every mapped slot category, the preset reports an
-error instead of starting the wrong worker.
+The backend preset inventory is the camera source of truth. The backend ON
+command is remembered in MongoDB, so the supervisor starts enabled cameras
+after `run.bat` starts again. An ON request is rejected if the preset is
+disabled, lacks parking-slot categories/map assignments, or has an ambiguous
+camera identity. If a preset has no RTSP source or usable parking-slot JSON,
+the runtime reports it and does not start that worker.
 
 When `PARKING_MODEL_RUNTIME_URL` is configured, `multi_camera.py` waits for
-backend commands and starts/stops each worker independently. If it is not
-configured, the existing behavior remains: every confirmed profile starts.
-`PARKING_MODEL_EVENTS_URL` enables database event updates; configure both URLs
-for YOLO control plus parking map/history updates. Events are queued and retried
-outside the frame-processing thread; API/configuration failures are printed to
+backend commands and starts/stops each worker independently. Backend preset
+mode requires this URL and the private API key. The supervisor checks for state
+changes about twice per second.
+`PARKING_MODEL_EVENTS_URL` enables database event updates; `run.bat` configures
+both URLs by default so YOLO control and parking map/history updates share the
+backend contract. The runtime fetches each preset's `cameraNo`, `cctvFileName`,
+RTSP source, and full parking-slot COCO JSON directly from the backend. The model
+loads all annotated slots in that file; only parking and exit events for categories
+assigned to the backend parking map are sent to the log API. Model slot-state transitions
+also update map status without writing history: model `occupied` (car entering) becomes
+map `incoming`, model `parking` (settled) becomes map `occupied`, and model `available`
+becomes map `available`. Existing `Parking` and `Exited` events continue to create and
+close history records. Events are queued and retried outside the frame-processing thread;
+API/configuration failures are printed to
 the worker or supervisor console. Worker status is written under that camera's
 results directory and reported to the backend on each supervisor heartbeat.
 When remote control is enabled, `multi_camera.py` gives each worker a
@@ -131,21 +141,20 @@ frame. The backend serves the latest frame to the authenticated admin CCTV
 preset preview; it includes car boxes/tracks, detected license-plate
 boxes/confidence, OCR labels, and parking-slot overlays. The browser preview
 displays actual worker output; the separate raw RTSP preview is used when YOLO
-is off. This frame publishing is enabled only in remote-control mode; without
-`PARKING_MODEL_RUNTIME_URL`, existing local `run.bat` operation remains
-unchanged and does not report YOLO frames to the frontend.
+is off. Frame publishing is enabled in backend preset mode, which is the
+`run.bat` startup mode.
 
-The top of the menu always displays the currently confirmed CCTV selection.
-Saved profiles are numbered by sorted profile filename. The selected source
-index is stored in `cctv/parking-cam/active.json` after confirmation.
+The interactive local profile menu remains available through
+`parking_profiles.py` for standalone local runs. `run.bat` does not use that
+menu; it reads configured presets from the backend.
 
 ### One camera and many cameras use the same runtime
 
 There is no separate single-camera runtime anymore.
 
-- One confirmed profile -> `multi_camera.py` starts one worker.
-- Multiple confirmed profiles -> `multi_camera.py` starts one isolated worker
-  per camera.
+- One backend preset with YOLO ON -> `multi_camera.py` starts one worker.
+- Multiple backend presets with YOLO ON -> `multi_camera.py` starts one
+  isolated worker per camera.
 
 For direct service/runtime start without opening the setup menu:
 
@@ -229,7 +238,7 @@ The clean package does not include:
 - `__pycache__/` — generated automatically.
 - `run_parking.bat` — redundant; single and multi CCTV now use the same
   `multi_camera.py` path.
-- `parking_profiles.bat` — redundant; profile setup is available from `run.bat`.
+- `parking_profiles.bat` — optional local profile setup for standalone runs.
 - Timestamped result files — replaced by persistent stable files.
 
 `cctv_viewer.py` is kept because it is both a useful diagnostic tool and the

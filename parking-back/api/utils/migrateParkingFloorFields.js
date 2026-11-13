@@ -97,15 +97,20 @@ async function migrateCameraPresets(floors) {
         camera.parkingSlotFileId = String(cctvSource._id);
       }
 
-      const currentStatus = String(camera.status || "Unknown").toLowerCase();
+      const legacyStatus = String(camera.status || "Unknown").toLowerCase();
+      const currentSourceStatus = String(camera.sourceStatus || "").toLowerCase();
       camera.status =
-        currentStatus === "disable" || currentStatus === "disabled"
+        legacyStatus === "disable" || legacyStatus === "disabled"
           ? "Disable"
-          : currentStatus === "online"
-            ? "Online"
-            : currentStatus === "offline"
-              ? "Offline"
-              : "Unknown";
+          : legacyStatus === "enable" || legacyStatus === "enabled"
+            ? "Enable"
+            : "Enable";
+      camera.sourceStatus =
+        currentSourceStatus === "online" || legacyStatus === "online"
+          ? "Online"
+          : currentSourceStatus === "offline" || legacyStatus === "offline"
+            ? "Offline"
+            : "Unknown";
       const now = new Date();
       camera.createAt = getTimestamp(
         camera.createAt || cctvSource?.createdAt,

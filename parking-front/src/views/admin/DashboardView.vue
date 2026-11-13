@@ -132,6 +132,7 @@
             :error="buildingError || floorError"
             :expand-building-id="expandBuildingId"
             :camera-summaries="cameraSummaries"
+            :floor-camera-summaries="floorCameraSummaries"
             :is-loading-cameras="isLoadingCameras"
             :camera-error="cameraError"
             @reload-cameras="loadCameraSummaries"
@@ -334,6 +335,7 @@ const isLoadingFloors = ref(false)
 const buildingError = ref('')
 const floorError = ref('')
 const cameraSummaries = ref<Record<string, CameraSummary>>({})
+const floorCameraSummaries = ref<Record<string, CameraSummary>>({})
 const isLoadingCameras = ref(false)
 const cameraError = ref('')
 const editingBuilding = ref<ParkingBuilding | null>(null)
@@ -388,6 +390,7 @@ async function loadCameraSummaries() {
   try {
     const response = await buildingService.cameraSummaries()
     cameraSummaries.value = response.data.summaries
+    floorCameraSummaries.value = response.data.floorSummaries || {}
   } catch {
     cameraError.value = 'Failed to load camera summaries.'
   } finally {
@@ -755,6 +758,10 @@ const ParkingSetupList = defineComponent({
     error: { type: String, required: true },
     expandBuildingId: { type: String as () => string | null, default: null },
     cameraSummaries: { type: Object as () => Record<string, CameraSummary>, required: true },
+    floorCameraSummaries: {
+      type: Object as () => Record<string, CameraSummary>,
+      required: true,
+    },
     isLoadingCameras: { type: Boolean, required: true },
     cameraError: { type: String, required: true },
   },
@@ -772,6 +779,13 @@ const ParkingSetupList = defineComponent({
   setup(props, { emit }) {
     const expandedBuildingId = ref<string | null>(props.expandBuildingId)
     const auth = useAuthStore()
+    const emptyCameraSummary: CameraSummary = {
+      total: 0,
+      online: 0,
+      offline: 0,
+      disabled: 0,
+      unknown: 0,
+    }
     const hasParkingMap = (floor: ParkingFloor) => {
       if (
         floor.parking_map &&
@@ -808,6 +822,13 @@ const ParkingSetupList = defineComponent({
           h('p', `Date Updated : ${floor.date_updated}`),
           h('p', `Time Updated : ${floor.time_updated}`),
         ]),
+        h(BuildingCameraSummary, {
+          class: 'floor-camera-summary',
+          summary: props.floorCameraSummaries[floor._id] || emptyCameraSummary,
+          loading: props.isLoadingCameras,
+          error: props.cameraError,
+          onRetry: () => emit('reload-cameras'),
+        }),
         h('p', { class: 'floor-status' }, [
           'Status : ',
           h(
@@ -1756,7 +1777,8 @@ const ParkingSetupList = defineComponent({
 }
 
 .floor-row {
-  grid-template-columns: 46px minmax(140px, 1fr) 90px minmax(0, auto);
+  grid-template-columns: 46px minmax(140px, 1fr) minmax(220px, 0.9fr) 90px minmax(0, auto);
+  grid-template-areas: 'icon details cameras status actions';
   min-height: 100px;
   padding: 12px 20px;
   gap: 18px;
@@ -1764,12 +1786,21 @@ const ParkingSetupList = defineComponent({
   border-radius: 11px;
 }
 
+.floor-row .floor-icon {
+  grid-area: icon;
+}
+
 .floor-row .setup-copy {
+  grid-area: details;
   gap: 4px;
 }
 
-.floor-row .setup-copy p,
-.floor-row .floor-status {
+.floor-row .building-camera-summary {
+  grid-area: cameras;
+  align-self: center;
+}
+
+.floor-row .setup-copy p {
   font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -1783,6 +1814,7 @@ const ParkingSetupList = defineComponent({
 }
 
 .floor-row .floor-status {
+  grid-area: status;
   display: grid;
   justify-items: start;
   gap: 9px;
@@ -1805,6 +1837,7 @@ const ParkingSetupList = defineComponent({
 }
 
 .floor-actions {
+  grid-area: actions;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2303,7 +2336,8 @@ const ParkingSetupList = defineComponent({
   }
 
   .floor-row {
-    grid-template-columns: 46px minmax(120px, 1fr) 85px minmax(0, auto);
+    grid-template-columns: 46px minmax(120px, 1fr) minmax(200px, 0.8fr) 85px minmax(0, auto);
+    grid-template-areas: 'icon details cameras status actions';
     gap: 16px;
     padding: 12px 16px;
   }
@@ -2356,6 +2390,7 @@ const ParkingSetupList = defineComponent({
 
   .floor-row {
     grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-areas: 'icon details' 'icon cameras' 'status status' 'actions actions';
     gap: 14px;
     padding: 16px;
   }
@@ -2371,9 +2406,8 @@ const ParkingSetupList = defineComponent({
   }
 
   .floor-row .floor-status,
-  .floor-row .floor-parking-map,
-  .floor-row .edit-floor-button {
-    grid-column: 2;
+  .floor-row .floor-camera-summary {
+    grid-column: 1 / -1;
   }
 
   .floor-row .floor-status {

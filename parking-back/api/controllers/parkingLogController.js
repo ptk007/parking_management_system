@@ -1,4 +1,7 @@
 const mongoose = require("mongoose");
+const fs = require("fs/promises");
+const path = require("path");
+const ExcelJS = require("exceljs");
 const ParkingBuilding = require("../models/parkingBuildingModel");
 const ParkingFloor = require("../models/parkingFloorModel");
 const ParkingLogCounter = require("../models/parkingLogCounterModel");
@@ -9,6 +12,7 @@ const { getBangkokDateTime } = require("../utils/dateTime");
 
 const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MODEL_EVENTS = ["Parking", "Exited", "Not parking"];
+const EXPORT_DIRECTORY = path.resolve(__dirname, "../../../logs");
 
 function isValidId(id) {
   return mongoose.Types.ObjectId.isValid(id);
@@ -16,6 +20,77 @@ function isValidId(id) {
 
 function fail(res, status, message) {
   return res.status(status).json({ success: false, message });
+}
+
+function buildParkingLogWorkbook(logs, presetNames = new Map()) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Parking Management System";
+  workbook.created = new Date();
+  const sheet = workbook.addWorksheet("Parking Logs");
+  sheet.columns = [
+    { header: "No", key: "no", width: 8 },
+    { header: "Owner", key: "owner", width: 24 },
+    { header: "Name", key: "name", width: 24 },
+    { header: "Building", key: "building", width: 26 },
+    { header: "Floor", key: "floor", width: 10 },
+    { header: "Vehicle type", key: "vehicleType", width: 16 },
+    { header: "CCTV preset", key: "cameraPreset", width: 24 },
+    { header: "Parking slot name", key: "parkingSlotName", width: 22 },
+    { header: "Brand", key: "brand", width: 18 },
+    { header: "Model", key: "model", width: 18 },
+    { header: "Color", key: "color", width: 16 },
+    { header: "License number", key: "licenseNumber", width: 20 },
+    { header: "Province", key: "province", width: 22 },
+    { header: "Entry date", key: "entryDate", width: 16 },
+    { header: "Entry time", key: "entryTime", width: 16 },
+    { header: "Exit date", key: "exitDate", width: 16 },
+    { header: "Exit time", key: "exitTime", width: 16 },
+    { header: "Parking slot number", key: "slotNumber", width: 20 },
+    { header: "Parking status", key: "parkingStatus", width: 18 },
+    { header: "Created at", key: "createdAt", width: 24 },
+    { header: "Updated at", key: "updatedAt", width: 24 },
+  ];
+  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sheet.getRow(1).fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF7F1D1D" },
+  };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: "A1", to: "U1" };
+  logs.forEach((log, index) => {
+    sheet.addRow({
+      no: index + 1,
+      owner: log.owner ? log.name : "",
+      name: log.name,
+      building: log.building,
+      floor: log.floor,
+      vehicleType: log.veh_type,
+      cameraPreset: presetNames.get(String(log.cameraPresetId)) || "",
+      parkingSlotName: log.parkingSlotName,
+      brand: log.brand,
+      model: log.model,
+      color: log.color,
+      licenseNumber: log.license_num,
+      province: log.province,
+      entryDate: log.date_enter,
+      entryTime: log.park_time,
+      exitDate: log.date_exit,
+      exitTime: log.exit_time,
+      slotNumber: log.park_slot,
+      parkingStatus: log.park_status,
+      createdAt: log.createdAt,
+      updatedAt: log.updatedAt,
+    });
+  });
+  return workbook;
+}
+
+async function saveAndDownloadWorkbook(res, workbook, filename) {
+  await fs.mkdir(EXPORT_DIRECTORY, { recursive: true });
+  const filePath = path.join(EXPORT_DIRECTORY, filename);
+  await workbook.xlsx.writeFile(filePath);
+  return res.download(filePath, filename);
 }
 
 function getEventTime(value) {
@@ -39,19 +114,38 @@ function getSlot(floor, cameraPresetId, parkingSlotName) {
   return { slot: matches[0] };
 }
 
-async function updateMapSlot(floor, targetSlot, status, eventTime) {
+async function updateMapSlot(
+  floor,
+  targetSlot,
+  status,
+  eventTime,
+  licensePlateDetected,
+) {
   if (targetSlot.status === "disabled") return true;
-  if (targetSlot.status === status) return true;
 
   const currentMap = floor.parking_map;
   const nextMap = {
     ...currentMap,
-    slots: currentMap.slots.map((slot) =>
-      slot.number === targetSlot.number && slot.zone === targetSlot.zone
-        ? { ...slot, status }
-        : slot,
-    ),
+    slots: currentMap.slots.map((slot) => {
+      if (slot.number !== targetSlot.number || slot.zone !== targetSlot.zone)
+        return slot;
+      const updated = { ...slot, status };
+      if (status === "available") {
+        delete updated.licensePlateDetected;
+      } else if (typeof licensePlateDetected === "boolean") {
+        updated.licensePlateDetected = licensePlateDetected;
+      }
+      return updated;
+    }),
   };
+  const nextSlot = nextMap.slots.find(
+    (slot) => slot.number === targetSlot.number && slot.zone === targetSlot.zone,
+  );
+  if (
+    targetSlot.status === status &&
+    targetSlot.licensePlateDetected === nextSlot?.licensePlateDetected
+  )
+    return true;
   const timestamp = getBangkokDateTime(eventTime);
   const updated = await ParkingFloor.findOneAndUpdate(
     { _id: floor._id, parking_map: currentMap },
@@ -294,6 +388,104 @@ exports.listParkingLogs = async (req, res) => {
   }
 };
 
+exports.exportParkingLogs = async (req, res) => {
+  try {
+    const user = await currentUser(req);
+    if (!user) return fail(res, 401, "Invalid user");
+    if (!["admin", "staff"].includes(user.role))
+      return fail(res, 403, "Parking log access required");
+
+    const { buildingId, floorId, veh_type: vehicleType } = req.query;
+    if (!isValidId(buildingId) || !isValidId(floorId))
+      return fail(res, 400, "Select a valid building and floor");
+    if (!["car", "motorcycle"].includes(vehicleType))
+      return fail(res, 400, "Select a valid vehicle type");
+
+    const floor = await ParkingFloor.findById(floorId)
+      .select("building floor veh_type camera_presets")
+      .populate("building", "building_name")
+      .lean();
+    if (
+      !floor ||
+      String(floor.building?._id) !== String(buildingId) ||
+      floor.veh_type !== vehicleType
+    )
+      return fail(res, 404, "No parking logs found for this building, floor, and vehicle");
+
+    const logs = await ParkingLog.find({
+      buildingId,
+      floorId,
+      veh_type: vehicleType,
+    }).sort({ updatedAt: -1 }).lean();
+    if (!logs.length)
+      return fail(res, 404, "No parking logs found for this building, floor, and vehicle");
+
+    const presetNames = new Map(
+      (floor.camera_presets || []).map((camera) => [
+        String(camera._id),
+        camera.name || "",
+      ]),
+    );
+    const workbook = buildParkingLogWorkbook(logs, presetNames);
+
+    const safeBuilding = String(floor.building.building_name || "building")
+      .replace(/[^a-z0-9_-]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "building";
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `parking-log-${safeBuilding}-floor-${floor.floor}-${vehicleType}-${timestamp}.xlsx`;
+    return saveAndDownloadWorkbook(res, workbook, filename);
+  } catch (error) {
+    console.error("Failed to export parking logs:", error);
+    return fail(res, 500, "Failed to export parking logs");
+  }
+};
+
+exports.exportSampleParkingLogs = async (req, res) => {
+  try {
+    const user = await currentUser(req);
+    if (!user) return fail(res, 401, "Invalid user");
+    if (!["admin", "staff"].includes(user.role))
+      return fail(res, 403, "Parking log access required");
+
+    const sampleRows = req.body?.logs;
+    if (!Array.isArray(sampleRows) || sampleRows.length < 1 || sampleRows.length > 500)
+      return fail(res, 400, "Provide between 1 and 500 sample logs");
+    const textFields = [
+      "name", "building", "veh_type", "parkingSlotName", "brand", "model",
+      "color", "license_num", "province", "date_enter", "park_time",
+      "date_exit", "exit_time", "park_status", "createdAt", "updatedAt",
+    ];
+    const logs = [];
+    for (const row of sampleRows) {
+      if (!row || typeof row !== "object" || Array.isArray(row))
+        return fail(res, 400, "Invalid sample log");
+      for (const field of textFields) {
+        if (row[field] !== undefined && row[field] !== null && typeof row[field] !== "string")
+          return fail(res, 400, "Invalid sample log");
+      }
+      if (!Number.isInteger(row.floor) || !["car", "motorcycle"].includes(row.veh_type))
+        return fail(res, 400, "Invalid sample log");
+      if (row.park_slot !== null && row.park_slot !== undefined && !Number.isFinite(row.park_slot))
+        return fail(res, 400, "Invalid sample log");
+      logs.push({
+        ...Object.fromEntries(textFields.map((field) => [field, row[field] || ""])),
+        floor: row.floor,
+        park_slot: row.park_slot ?? null,
+        owner: row.owner ? "sample-owner" : null,
+      });
+    }
+
+    const workbook = buildParkingLogWorkbook(logs);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `parking-log-sample-${timestamp}.xlsx`;
+    return saveAndDownloadWorkbook(res, workbook, filename);
+  } catch (error) {
+    console.error("Failed to export sample parking logs:", error);
+    return fail(res, 500, "Failed to export sample parking logs");
+  }
+};
+
 exports.createModelEvent = async (req, res) => {
   try {
     const {
@@ -385,7 +577,7 @@ exports.createModelEvent = async (req, res) => {
           existing.parkingSlotName !== parkingSlotName
         )
           return fail(res, 409, "Vehicle already has an active parking session");
-        if (!(await updateMapSlot(floor, slot, "occupied", eventTime)))
+        if (!(await updateMapSlot(floor, slot, "occupied", eventTime, true)))
           return fail(res, 409, "Parking map changed; retry the event");
         return res.json({
           success: true,
@@ -394,7 +586,7 @@ exports.createModelEvent = async (req, res) => {
           created: false,
         });
       }
-      if (!(await updateMapSlot(floor, slot, "occupied", eventTime)))
+      if (!(await updateMapSlot(floor, slot, "occupied", eventTime, true)))
         return fail(res, 409, "Parking map changed; retry the event");
 
       const fields = getLogFields({
@@ -527,5 +719,71 @@ exports.createModelEvent = async (req, res) => {
       return fail(res, 409, "Vehicle already has an active parking session");
     console.error("Failed to process parking model event:", error);
     return fail(res, 500, "Failed to process parking model event");
+  }
+};
+
+exports.updateModelSlotStatus = async (req, res) => {
+  try {
+    const {
+      floorId,
+      cameraPresetId,
+      cameraNo,
+      cctvFileName,
+      parkingSlotName,
+      slotStatus,
+      licensePlateDetected,
+    } = req.body || {};
+    if (Boolean(floorId) !== Boolean(cameraPresetId))
+      return fail(res, 400, "Provide both floor and CCTV preset ids");
+    if (
+      !["incoming", "occupied", "available"].includes(slotStatus) ||
+      typeof parkingSlotName !== "string" ||
+      !parkingSlotName.trim() ||
+      (licensePlateDetected !== undefined && typeof licensePlateDetected !== "boolean")
+    )
+      return fail(res, 400, "Invalid model parking-slot status");
+
+    const eventTime = getEventTime(req.body.occurredAt);
+    if (!eventTime) return fail(res, 400, "Invalid event time");
+    const binding = await resolveCameraPreset({
+      floorId,
+      cameraPresetId,
+      cameraNo,
+      cctvFileName,
+    });
+    if (binding.error) return fail(res, binding.error.status, binding.error.message);
+    const { floor, camera } = binding;
+    const categoryExists = (camera.parkingSlotData?.categories || []).some(
+      (category) =>
+        category?.supercategory === "parking-slot" &&
+        category.name === parkingSlotName,
+    );
+    if (!categoryExists)
+      return fail(res, 400, "Parking slot category does not belong to this CCTV preset");
+    const result = getSlot(floor, String(camera._id), parkingSlotName);
+    if (result.error) return fail(res, 404, result.error);
+    if (
+      !(await updateMapSlot(
+        floor,
+        result.slot,
+        slotStatus,
+        eventTime,
+        licensePlateDetected,
+      ))
+    )
+      return fail(res, 409, "Parking map changed; retry the slot status update");
+
+    return res.json({
+      success: true,
+      parkingSlotName,
+      slotStatus: result.slot.status === "disabled" ? "disabled" : slotStatus,
+      licensePlateDetected:
+        slotStatus === "occupied" && typeof licensePlateDetected === "boolean"
+          ? licensePlateDetected
+          : undefined,
+    });
+  } catch (error) {
+    console.error("Failed to update model parking-slot status:", error);
+    return fail(res, 500, "Failed to update parking-slot status");
   }
 };

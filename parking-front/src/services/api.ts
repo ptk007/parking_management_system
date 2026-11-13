@@ -78,6 +78,13 @@ export interface ParkingLogRecord {
 export const parkingLogService = {
     list: (filters?: { buildingId?: string; floorId?: string; veh_type?: 'car' | 'motorcycle' }) =>
       apiClient.get<{ logs: ParkingLogRecord[] }>('/parking-logs', { params: filters }),
+    export: (filters: { buildingId: string; floorId: string; veh_type: 'car' | 'motorcycle' }) =>
+      apiClient.get<Blob>('/parking-logs/export', {
+        params: filters,
+        responseType: 'blob',
+      }),
+    exportSamples: (logs: Record<string, unknown>[]) =>
+      apiClient.post<Blob>('/parking-logs/export-sample', { logs }, { responseType: 'blob' }),
     myHistory: () => apiClient.get<{ logs: ParkingLogRecord[] }>('/parking-logs/me'),
 }
 
@@ -96,6 +103,11 @@ export interface BuildingCameraSummary {
   unknown: number
 }
 
+export interface CameraSummaryResponse {
+  summaries: Record<string, BuildingCameraSummary>
+  floorSummaries: Record<string, BuildingCameraSummary>
+}
+
 export interface ParkingBuilding {
   _id: string
   building_name: string
@@ -106,7 +118,7 @@ export interface ParkingBuilding {
 
 export const buildingService = {
   cameraSummaries: () =>
-    apiClient.get<{ summaries: Record<string, BuildingCameraSummary> }>(
+    apiClient.get<CameraSummaryResponse>(
       '/admin/system/buildings/camera-summary',
     ),
   list: () => apiClient.get<{ buildings: ParkingBuilding[] }>('/admin/system/buildings'),
@@ -176,6 +188,19 @@ export const floorService = {
     apiClient.patch<{ floor: ParkingFloor }>(
       `/admin/system/floors/${floorId}/cameras/${cameraId}/model`,
       { enabled },
+    ),
+  setCameraPresetStatus: (floorId: string, cameraId: string, status: 'Enable' | 'Disable') =>
+    apiClient.patch<{ floor: ParkingFloor }>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}/status`,
+      { status },
+    ),
+  resetSlotStatuses: (id: string) =>
+    apiClient.post<{ map: NonNullable<ParkingFloor['parking_map']> }>(
+      `/admin/system/floors/catalog/${id}/reset-slot-statuses`,
+    ),
+  refreshModelSlotStatuses: (id: string) =>
+    apiClient.post<{ success: boolean; message: string; requestedSlots: number }>(
+      `/admin/system/floors/catalog/${id}/update-slot-statuses`,
     ),
   getCameraModelFrame: (
     floorId: string,

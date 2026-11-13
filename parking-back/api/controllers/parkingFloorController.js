@@ -5,6 +5,7 @@ const ParkingBuilding = require("../models/parkingBuildingModel");
 const ParkingFloor = require("../models/parkingFloorModel");
 const ParkingSourceFile = require("../models/parkingSourceFileModel");
 const { getBangkokDateTime } = require("../utils/dateTime");
+const pythonModelRuntime = require("../services/pythonModelRuntime");
 
 const FILE_ROOT = path.resolve(__dirname, "../../../json_file/parking_slots");
 const BUILDING_FIELDS = "_id building_name building_image date_updated time_updated";
@@ -482,6 +483,21 @@ exports.saveMap = async (req, res) => {
     }
     const floor = await ParkingFloor.findById(req.params.id);
     if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const plateDetectionBySlot = new Map(
+      (floor.parking_map?.slots || []).map((slot) => [
+        JSON.stringify([slot.zone, slot.number]),
+        slot.licensePlateDetected,
+      ]),
+    );
+    map.slots = map.slots.map((slot) => {
+      const { licensePlateDetected: _untrustedDetection, ...cleanSlot } = slot;
+      const previousDetection = plateDetectionBySlot.get(
+        JSON.stringify([slot.zone, slot.number]),
+      );
+      return slot.status === "occupied" && typeof previousDetection === "boolean"
+        ? { ...cleanSlot, licensePlateDetected: previousDetection }
+        : cleanSlot;
+    });
     for (const slot of map.slots) {
       const hasCameraPreset = slot.cameraPresetId !== undefined;
       const hasParkingSlot = slot.parkingSlotName !== undefined;
@@ -670,11 +686,16 @@ exports.saveCameraPreset = async (req, res) => {
       parkingSlotData,
     };
 
-    const connectionStatus = ["Online", "Offline", "Unknown"].includes(
-      data.status,
+    const sourceStatus = ["Online", "Offline", "Unknown"].includes(
+      data.sourceStatus,
     )
+      ? data.sourceStatus
+      : existingCamera?.sourceStatus || "Unknown";
+    const presetStatus = ["Enable", "Disable"].includes(data.status)
       ? data.status
-      : "Unknown";
+      : existingCamera?.status || "Enable";
+    const autoEnableModel =
+      !existingCamera && presetStatus === "Enable" && sourceStatus === "Online";
     if (existingCamera) {
       const previousIdentity = [
         existingCamera.cameraNo || existingCamera.cameraSelector || "",
@@ -694,10 +715,15 @@ exports.saveCameraPreset = async (req, res) => {
         .join("\0");
       Object.assign(existingCamera, {
         ...preset,
-        status: existingCamera.status === "Disable"
-          ? "Disable"
-          : connectionStatus,
+        status: presetStatus,
+        sourceStatus,
       });
+      if (presetStatus === "Disable") {
+        existingCamera.modelEnabled = false;
+        existingCamera.modelRuntimeStatus = "Offline";
+        existingCamera.modelRuntimeMessage = "";
+        existingCamera.modelRuntimeId = "";
+      }
       if (previousIdentity !== nextIdentity) {
         existingCamera.modelEnabled = false;
         existingCamera.modelRuntimeStatus = "Offline";
@@ -706,11 +732,32 @@ exports.saveCameraPreset = async (req, res) => {
         existingCamera.modelRuntimeId = "";
       }
     } else {
-      floor.camera_presets.push({ ...preset, status: connectionStatus });
+      floor.camera_presets.push({
+        ...preset,
+        status: presetStatus,
+        sourceStatus,
+        modelEnabled: autoEnableModel,
+        modelRuntimeStatus: autoEnableModel ? "Starting" : "Offline",
+        modelRuntimeMessage: autoEnableModel
+          ? "Waiting for the Python runtime"
+          : "",
+        modelRuntimeUpdatedAt: autoEnableModel ? new Date() : null,
+      });
     }
 
     Object.assign(floor, getUpdatedAt());
     await floor.save();
+    if (autoEnableModel) {
+      try {
+        pythonModelRuntime.start();
+      } catch (runtimeError) {
+        const createdCamera = floor.camera_presets[floor.camera_presets.length - 1];
+        createdCamera.modelRuntimeStatus = "Error";
+        createdCamera.modelRuntimeMessage = runtimeError.message.slice(0, 500);
+        createdCamera.modelRuntimeUpdatedAt = new Date();
+        await floor.save();
+      }
+    }
     await floor.populate("building", BUILDING_FIELDS);
     saved = true;
     return res.json({ success: true, floor });
@@ -736,9 +783,9 @@ exports.updateCameraPresetStatus = async (req, res) => {
     const { status } = req.body || {};
     if (!isValidId(id) || !isValidId(cameraId))
       return res.status(400).json({ message: "Invalid floor or camera id" });
-    if (!["Disable", "Unknown"].includes(status))
+    if (!["Enable", "Disable"].includes(status))
       return res.status(400).json({
-        message: "Camera preset status must be Disable or Unknown",
+        message: "Camera preset status must be Enable or Disable",
       });
 
     const floor = await ParkingFloor.findById(id);
@@ -748,13 +795,9 @@ exports.updateCameraPresetStatus = async (req, res) => {
       return res.status(404).json({ message: "Camera preset not found" });
 
     camera.status = status;
-    if (status === "Disable") {
-      camera.modelEnabled = false;
-      camera.modelRuntimeStatus = "Offline";
-      camera.modelRuntimeMessage = "";
-      camera.modelRuntimeUpdatedAt = new Date();
-      camera.modelRuntimeId = "";
-    }
+    // Keep the Detection preference while the preset is disabled. Runtime sync
+    // gates the worker on both switches, so re-enabling the preset restores it.
+    camera.modelRuntimeUpdatedAt = new Date();
     Object.assign(floor, getUpdatedAt());
     await floor.save();
     await floor.populate("building", BUILDING_FIELDS);
@@ -778,9 +821,9 @@ exports.updateCameraModelState = async (req, res) => {
     const camera = floor.camera_presets.id(cameraId);
     if (!camera)
       return res.status(404).json({ message: "Camera preset not found" });
-    if (enabled && camera.status === "Disable")
+    if (enabled && camera.status !== "Enable")
       return res.status(409).json({
-        message: "Enable this CCTV preset before starting YOLO",
+        message: "Enable this CCTV preset before starting detection",
       });
     if (enabled) {
       const cameraNo = String(camera.cameraNo || camera.cameraSelector || "").trim();
@@ -831,10 +874,6 @@ exports.updateCameraModelState = async (req, res) => {
       const mappedSlots = (floor.parking_map?.slots || []).filter(
         (slot) => String(slot.cameraPresetId) === String(camera._id),
       );
-      if (!mappedSlots.length)
-        return res.status(400).json({
-          message: "Assign this CCTV preset's parking slots on the parking map before starting YOLO",
-        });
       const invalidSlot = mappedSlots.find(
         (slot) => !slot.parkingSlotName || !categories.includes(slot.parkingSlotName),
       );
@@ -845,7 +884,7 @@ exports.updateCameraModelState = async (req, res) => {
 
       camera.modelEnabled = true;
       camera.modelRuntimeStatus = "Starting";
-      camera.modelRuntimeMessage = "Waiting for the local Python runtime";
+      camera.modelRuntimeMessage = "Waiting for the Python runtime";
       camera.modelRuntimeId = "";
     } else {
       camera.modelEnabled = false;
@@ -862,6 +901,22 @@ exports.updateCameraModelState = async (req, res) => {
     camera.modelRuntimeUpdatedAt = new Date();
     Object.assign(floor, getUpdatedAt());
     await floor.save();
+    if (enabled) {
+      try {
+        pythonModelRuntime.start();
+      } catch (runtimeError) {
+        camera.modelEnabled = false;
+        camera.modelRuntimeStatus = "Error";
+        camera.modelRuntimeMessage = runtimeError.message;
+        camera.modelRuntimeUpdatedAt = new Date();
+        await floor.save();
+        return res.status(503).json({
+          success: false,
+          message: runtimeError.message,
+          floor,
+        });
+      }
+    }
     await floor.populate("building", BUILDING_FIELDS);
     return res.json({ success: true, floor });
   } catch (error) {
@@ -1035,7 +1090,11 @@ exports.setSlotStatuses = async (req, res) => {
     const slots = floor.parking_map.slots.map((slot) =>
       selected.has(JSON.stringify([slot.zone, slot.number])) &&
       ["available", "disabled"].includes(slot.status)
-        ? { ...slot, status }
+        ? (() => {
+            const updatedSlot = { ...slot, status };
+            delete updatedSlot.licensePlateDetected;
+            return updatedSlot;
+          })()
         : slot,
     );
     const map = { ...floor.parking_map, slots };
@@ -1049,6 +1108,93 @@ exports.setSlotStatuses = async (req, res) => {
         .status(409)
         .json({ message: "Map changed. Reload and try again." });
     res.json({ map });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.resetSlotStatuses = async (req, res) => {
+  try {
+    const user = await require("../models/userModel")
+      .findById(req.auth.userId)
+      .select("role status");
+    if (
+      !user ||
+      user.status === "disable" ||
+      !["admin", "staff"].includes(user.role)
+    )
+      return res.status(403).json({ message: "Parking management access required" });
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid floor id" });
+
+    const floor = await ParkingFloor.findById(req.params.id);
+    if (!floor?.parking_map)
+      return res.status(404).json({ message: "Parking map not found" });
+    const presets = floor.camera_presets || [];
+    if (!presets.length || presets.some((camera) => camera.status !== "Disable"))
+      return res.status(409).json({
+        message: "Disable every CCTV preset on this floor before resetting parking slots",
+      });
+
+    const map = {
+      ...floor.parking_map,
+      slots: floor.parking_map.slots.map((slot) => {
+        const updatedSlot = { ...slot, status: "available" };
+        delete updatedSlot.licensePlateDetected;
+        return updatedSlot;
+      }),
+    };
+    const updated = await ParkingFloor.findOneAndUpdate(
+      { _id: floor._id, parking_map: floor.parking_map },
+      { $set: { parking_map: map, ...getUpdatedAt() } },
+      { new: true },
+    );
+    if (!updated)
+      return res.status(409).json({ message: "Map changed. Reload and try again." });
+    return res.json({ map: updated.parking_map });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.refreshModelSlotStatuses = async (req, res) => {
+  try {
+    const user = await require("../models/userModel")
+      .findById(req.auth.userId)
+      .select("role status");
+    if (!user || user.status === "disable" || !["admin", "staff"].includes(user.role))
+      return res.status(403).json({ message: "Parking management access required" });
+    if (!isValidId(req.params.id))
+      return res.status(400).json({ message: "Invalid floor id" });
+
+    const floor = await ParkingFloor.findById(req.params.id);
+    if (!floor?.parking_map)
+      return res.status(404).json({ message: "Parking map not found" });
+    const activePresets = (floor.camera_presets || []).filter(
+      (camera) => camera.status === "Enable" && camera.modelEnabled,
+    );
+    const assignedSlots = (floor.parking_map.slots || []).filter(
+      (slot) =>
+        String(slot.parkingSlotName || "").trim() &&
+        activePresets.some((camera) => String(camera._id) === String(slot.cameraPresetId)),
+    );
+    const assignedCameraIds = new Set(assignedSlots.map((slot) => String(slot.cameraPresetId)));
+    const refreshPresets = activePresets.filter((camera) =>
+      assignedCameraIds.has(String(camera._id)),
+    );
+    if (!refreshPresets.length)
+      return res.status(409).json({
+        message: "Enable Detection and assign its parking-map slots before updating slot status",
+      });
+
+    for (const camera of refreshPresets) camera.slotStatusRefreshVersion += 1;
+    Object.assign(floor, getUpdatedAt());
+    await floor.save();
+    return res.json({
+      success: true,
+      message: "Enabled Detection models will update their assigned parking slots",
+      requestedSlots: assignedSlots.length,
+    });
   } catch (error) {
     return sendError(res, error);
   }

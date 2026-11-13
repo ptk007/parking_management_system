@@ -7,8 +7,8 @@ import { useAuthStore } from '@/stores/auth'
 import { floorService, parkingLogService, vehicleService } from '@/services/api'
 
 vi.mock('@/services/api', () => ({
-  floorService: { catalog: vi.fn(), setSlotStatuses: vi.fn() },
-  parkingLogService: { list: vi.fn(), myHistory: vi.fn() },
+  floorService: { catalog: vi.fn(), setSlotStatuses: vi.fn(), resetSlotStatuses: vi.fn() },
+  parkingLogService: { list: vi.fn(), myHistory: vi.fn(), export: vi.fn(), exportSamples: vi.fn() },
   vehicleService: {
     getByUser: vi.fn(),
     create: vi.fn(),
@@ -143,6 +143,17 @@ describe('parking log displays', () => {
       .trigger('click')
     await flushPromises()
     await wrapper.find('.sample-log-toggle').trigger('click')
+    const createSampleObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:sample-log')
+    vi.mocked(parkingLogService.exportSamples).mockResolvedValue({
+      data: new Blob(['sample-xlsx']),
+      headers: { 'content-disposition': 'attachment; filename="parking-log-sample.xlsx"' },
+    } as never)
+    await wrapper.get('.export-log-button').trigger('click')
+    await flushPromises()
+    expect(parkingLogService.exportSamples).toHaveBeenCalledOnce()
+    expect(vi.mocked(parkingLogService.exportSamples).mock.calls[0]?.[0]).toHaveLength(6)
+    expect(createSampleObjectUrl).toHaveBeenCalledOnce()
+    expect(wrapper.get('.export-log-notification').text()).toBe('Parking log exported')
     expect(wrapper.text()).toContain('Sample preview only')
     expect(wrapper.text()).toContain('Guest 1')
     expect(wrapper.text()).toContain('Guest 2')
@@ -159,6 +170,75 @@ describe('parking log displays', () => {
     await wrapper.get('select[aria-label="Vehicle"]').setValue('car')
     await flushPromises()
     expect(wrapper.text()).toContain('กข 1234')
+  })
+
+  it('exports selected location logs to Excel and displays the success notification', async () => {
+    const wrapper = mount(DashboardView, {
+      global: { plugins: [authenticate('admin')] },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.findAll('.tab-button').find((button) => button.text() === 'Log')!.trigger('click')
+    await wrapper.get('.filter-toggle').trigger('click')
+    await wrapper.get('select[aria-label="Building"]').setValue('building-1')
+    await wrapper.get('select[aria-label="Floor"]').setValue('4')
+    await wrapper.get('select[aria-label="Vehicle"]').setValue('car')
+    await flushPromises()
+
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:parking-log')
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    vi.mocked(parkingLogService.export).mockResolvedValue({
+      data: new Blob(['xlsx']),
+      headers: { 'content-disposition': 'attachment; filename="parking-log.xlsx"' },
+    } as never)
+    await wrapper.get('.export-log-button').trigger('click')
+    await flushPromises()
+
+    expect(parkingLogService.export).toHaveBeenCalledWith({
+      buildingId: 'building-1',
+      floorId: 'floor-1',
+      veh_type: 'car',
+    })
+    expect(createObjectUrl).toHaveBeenCalledOnce()
+    expect(click).toHaveBeenCalledOnce()
+    expect(wrapper.get('.export-log-notification').text()).toBe('Parking log exported')
+  })
+
+  it('counts only occupied map slots where the model reports no readable plate', async () => {
+    vi.mocked(floorService.catalog).mockResolvedValue({
+      data: {
+        floors: [
+          {
+            ...floorCatalog[0],
+            parking_map: {
+              ...floorCatalog[0]!.parking_map!,
+              slots: [
+                { number: 1, zone: 'A', status: 'occupied', licensePlateDetected: false },
+                { number: 2, zone: 'A', status: 'occupied', licensePlateDetected: true },
+                { number: 3, zone: 'A', status: 'occupied' },
+                { number: 4, zone: 'A', status: 'incoming', licensePlateDetected: false },
+              ],
+            },
+          },
+        ],
+      },
+    } as never)
+    const wrapper = mount(DashboardView, {
+      global: { plugins: [authenticate('admin')] },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.findAll('.tab-button').find((button) => button.text() === 'Log')!.trigger('click')
+    await wrapper.get('.filter-toggle').trigger('click')
+    await wrapper.get('select[aria-label="Building"]').setValue('building-1')
+    await wrapper.get('select[aria-label="Floor"]').setValue('4')
+    await wrapper.get('select[aria-label="Vehicle"]').setValue('car')
+    await flushPromises()
+
+    const notice = wrapper.get('.undetected-parking-banner')
+    expect(notice.text()).toContain('1')
+    expect(notice.text()).toContain('Parking')
+    expect(notice.text()).toContain('undetected license plate and province')
   })
 
   it('loads only the authenticated user parking history and shows building and floor', async () => {

@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const mongoose = require("mongoose");
+const ExcelJS = require("exceljs");
 const jwt = require("jsonwebtoken");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -16,6 +17,7 @@ const ParkingBuilding = require("../api/models/parkingBuildingModel");
 const ParkingLogCounter = require("../api/models/parkingLogCounterModel");
 const ParkingFloor = require("../api/models/parkingFloorModel");
 const ParkingLog = require("../api/models/parkingLogModel");
+const pythonModelRuntime = require("../api/services/pythonModelRuntime");
 const database = `parking_log_test_${randomUUID().replaceAll("-", "")}`;
 const actorTokens = {};
 let server;
@@ -436,15 +438,225 @@ test("model events reject ambiguous camera/source bindings", async () => {
   assert.match(ambiguous.body.message, /ambiguous/i);
 });
 
+test("YOLO map-only status updates follow map names without writing parking history", async () => {
+  floor.parking_map.slots[0].status = "available";
+  floor.markModified("parking_map");
+  await floor.save();
+  const before = await ParkingLog.countDocuments({ floorId: floor._id });
+  const updateSlotStatus = (slotStatus, licensePlateDetected) =>
+    request("/model-slot-status", {
+      method: "POST",
+      modelKey: process.env.PARKING_MODEL_API_KEY,
+      body: {
+        floorId: String(floor._id),
+        cameraPresetId: cameraId,
+        parkingSlotName: "zoneA_slot01",
+        slotStatus,
+        ...(licensePlateDetected !== undefined ? { licensePlateDetected } : {}),
+      },
+    });
+
+  const incoming = await updateSlotStatus("incoming");
+  assert.equal(incoming.status, 200);
+  let savedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(savedFloor.parking_map.slots[0].status, "incoming");
+  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before);
+
+  const occupied = await updateSlotStatus("occupied", false);
+  assert.equal(occupied.status, 200);
+  savedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(savedFloor.parking_map.slots[0].status, "occupied");
+  assert.equal(savedFloor.parking_map.slots[0].licensePlateDetected, false);
+  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before);
+
+  const available = await updateSlotStatus("available");
+  assert.equal(available.status, 200);
+  savedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(savedFloor.parking_map.slots[0].status, "available");
+  assert.equal(savedFloor.parking_map.slots[0].licensePlateDetected, undefined);
+  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before);
+
+  const occupiedWithoutPlate = await updateSlotStatus("occupied", false);
+  assert.equal(occupiedWithoutPlate.status, 200);
+  const recognizedPlateEvent = await request("/model-events", {
+    method: "POST",
+    modelKey: process.env.PARKING_MODEL_API_KEY,
+    body: {
+      event: "Parking",
+      floorId: String(floor._id),
+      cameraPresetId: cameraId,
+      license_plate: "IDENTITY-READ-1",
+      province: "à¹€à¸Šà¸µà¸¢à¸‡à¸£à¸²à¸¢",
+      parkingSlotName: "zoneA_slot01",
+    },
+  });
+  assert.equal(recognizedPlateEvent.status, 201);
+  savedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(savedFloor.parking_map.slots[0].licensePlateDetected, true);
+  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before + 1);
+});
+
+test("disabled map slots are sent to Python while normal parking logs are retained", async () => {
+  await ParkingFloor.deleteMany({ building: building._id, floor: 5 });
+  floor.parking_map.slots[0].status = "disabled";
+  floor.markModified("parking_map");
+  await floor.save();
+
+  const runtimeOrigin = origin.replace(/\/api\/parking-logs$/, "/api/model-runtime");
+  const sync = await request("/sync", {
+    method: "POST",
+    modelKey: process.env.PARKING_MODEL_API_KEY,
+    baseUrl: runtimeOrigin,
+    body: {
+      runtimeId: "disabled-slot-test-runtime",
+      profiles: [
+        {
+          cameraNo: "CAM-1",
+          cctvFileName: "camera-source.json",
+          profileName: "test-profile",
+          parkingEnabled: true,
+          parkingSlotNames: ["zoneA_slot01"],
+        },
+      ],
+      workers: [],
+    },
+  });
+  assert.equal(sync.status, 200);
+  assert.deepEqual(sync.body.commands[0].disabledParkingSlotNames, ["zoneA_slot01"]);
+
+  const parked = await request("/model-events", {
+    method: "POST",
+    modelKey: process.env.PARKING_MODEL_API_KEY,
+    body: {
+      event: "Parking",
+      floorId: String(floor._id),
+      cameraPresetId: cameraId,
+      license_plate: "DISABLED-SLOT-1",
+      province: "Unknown",
+      parkingSlotName: "zoneA_slot01",
+    },
+  });
+  assert.equal(parked.status, 201);
+  assert.equal(parked.body.log.park_status, "Parking");
+  let savedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(savedFloor.parking_map.slots[0].status, "disabled");
+
+  const exited = await request("/model-events", {
+    method: "POST",
+    modelKey: process.env.PARKING_MODEL_API_KEY,
+    body: {
+      event: "Exited",
+      floorId: String(floor._id),
+      cameraPresetId: cameraId,
+      license_plate: "DISABLED-SLOT-1",
+      province: "Unknown",
+      parkingSlotName: "zoneA_slot01",
+    },
+  });
+  assert.equal(exited.status, 200);
+  assert.equal(exited.body.log.park_status, "Exited");
+  savedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(savedFloor.parking_map.slots[0].status, "disabled");
+});
+
+test("parking log export writes a no-ID workbook for a selected location and rejects empty locations", async (t) => {
+  const query = `?buildingId=${building._id}&floorId=${floor._id}&veh_type=car`;
+  const exported = await request(`/export${query}`, {
+    actor: "admin",
+    raw: true,
+  });
+  assert.equal(exported.status, 200);
+  assert.match(exported.headers.get("content-type"), /spreadsheetml/);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(exported.body);
+  const sheet = workbook.getWorksheet("Parking Logs");
+  assert.ok(sheet);
+  assert.equal(sheet.getCell("A1").value, "No");
+  assert.equal(sheet.getCell("B1").value, "Owner");
+  assert.equal(sheet.getCell("S1").value, "Parking status");
+  assert.ok(sheet.rowCount > 1);
+  const workbookText = JSON.stringify(sheet.getSheetValues());
+  for (const databaseId of [String(floor._id), String(building._id), cameraId, String(owner._id)])
+    assert.equal(workbookText.includes(databaseId), false);
+
+  const disposition = exported.headers.get("content-disposition");
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  assert.ok(filename?.endsWith(".xlsx"));
+  const storedPath = path.resolve(__dirname, "../../logs", filename);
+  t.after(() => fs.rm(storedPath, { force: true }));
+  await fs.access(storedPath);
+
+  const noData = await request(`/export?buildingId=${building._id}&floorId=${building._id}&veh_type=car`, {
+    actor: "admin",
+  });
+  assert.equal(noData.status, 404);
+  assert.match(noData.body.message, /No parking logs found/i);
+});
+
+test("sample parking logs can be exported to a workbook for testing", async (t) => {
+  const before = await ParkingLog.countDocuments({});
+  const exported = await request("/export-sample", {
+    method: "POST",
+    actor: "admin",
+    body: {
+      logs: [
+        {
+          owner: true,
+          name: "Sample User",
+          building: "E4 (Sample)",
+          floor: 4,
+          veh_type: "car",
+          brand: "Toyota",
+          model: "Corolla",
+          color: "Blue",
+          license_num: "SAMPLE-1001",
+          province: "Sample Province",
+          date_enter: "2026-11-04",
+          park_time: "10:15:00",
+          park_slot: 7,
+          park_status: "Parking",
+        },
+      ],
+    },
+    raw: true,
+  });
+  assert.equal(exported.status, 200);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(exported.body);
+  const sheet = workbook.getWorksheet("Parking Logs");
+  assert.ok(sheet);
+  assert.equal(sheet.getCell("A2").value, 1);
+  assert.equal(sheet.getCell("C2").value, "Sample User");
+  assert.equal(sheet.getCell("R2").value, 7);
+  assert.equal(await ParkingLog.countDocuments({}), before);
+
+  const filename = exported.headers.get("content-disposition").match(/filename="?([^";]+)"?/i)?.[1];
+  const storedPath = path.resolve(__dirname, "../../logs", filename);
+  t.after(() => fs.rm(storedPath, { force: true }));
+  await fs.access(storedPath);
+});
+
 test("admin YOLO control persists the desired state and the Python runtime reports actual status", async () => {
   await ParkingFloor.deleteMany({ building: building._id, floor: 5 });
   const floorsOrigin = origin.replace(/\/api\/parking-logs$/, "/api/admin/system/floors");
-  const control = await request(`/${floor._id}/cameras/${cameraId}/model`, {
-    method: "PATCH",
-    actor: "admin",
-    body: { enabled: true },
-    baseUrl: floorsOrigin,
-  });
+  const originalStart = pythonModelRuntime.start;
+  let runtimeLaunchRequested = false;
+  pythonModelRuntime.start = () => {
+    runtimeLaunchRequested = true;
+    return {};
+  };
+  let control;
+  try {
+    control = await request(`/${floor._id}/cameras/${cameraId}/model`, {
+      method: "PATCH",
+      actor: "admin",
+      body: { enabled: true },
+      baseUrl: floorsOrigin,
+    });
+  } finally {
+    pythonModelRuntime.start = originalStart;
+  }
+  assert.equal(runtimeLaunchRequested, true);
   assert.equal(control.status, 200);
   const enabledFloor = control.body.floor;
   assert.equal(enabledFloor.camera_presets[0].modelEnabled, true);
@@ -501,6 +713,31 @@ test("admin YOLO control persists the desired state and the Python runtime repor
   updatedFloor = await ParkingFloor.findById(floor._id);
   assert.equal(updatedFloor.camera_presets[0].modelRuntimeStatus, "Online");
 
+  const presetStatus = (status) =>
+    request(`/${floor._id}/cameras/${cameraId}/status`, {
+      method: "PATCH",
+      actor: "admin",
+      body: { status },
+      baseUrl: floorsOrigin,
+    });
+  const presetDisabled = await presetStatus("Disable");
+  assert.equal(presetDisabled.status, 200);
+  assert.equal(presetDisabled.body.floor.camera_presets[0].modelEnabled, true);
+  const suspended = await sync([
+    { cameraNo: "CAM-1", cctvFileName: "camera-source.json", status: "Offline" },
+  ]);
+  assert.equal(suspended.body.commands[0].enabled, false);
+
+  const presetEnabled = await presetStatus("Enable");
+  assert.equal(presetEnabled.status, 200);
+  assert.equal(presetEnabled.body.floor.camera_presets[0].modelEnabled, true);
+  const resumed = await sync([
+    { cameraNo: "CAM-1", cctvFileName: "camera-source.json", status: "Online" },
+  ]);
+  assert.equal(resumed.body.commands[0].enabled, true);
+  updatedFloor = await ParkingFloor.findById(floor._id);
+  assert.equal(updatedFloor.camera_presets[0].modelRuntimeStatus, "Online");
+
   const identity = "cam-1\0camera-source.json";
   const frameName = `${crypto.createHash("sha256").update(identity, "utf8").digest("hex")}.jpg`;
   const framePath = path.resolve(
@@ -544,3 +781,80 @@ test("admin YOLO control persists the desired state and the Python runtime repor
   const stoppedFloor = await ParkingFloor.findById(floor._id);
   assert.equal(stoppedFloor.camera_presets[0].modelRuntimeStatus, "Offline");
 });
+
+test("Detection can run without map assignments and becomes runnable for preview", async (t) => {
+  const noMapFloor = await ParkingFloor.create({
+    building: building._id,
+    floor: 6,
+    veh_type: "car",
+    status: "Disable",
+    date_updated: "2026-11-04",
+    time_updated: "12:00:00",
+    camera_presets: [
+      {
+        name: "Preview only camera",
+        cctvFileName: "preview-only-source.json",
+        cameraNo: "CAM-PREVIEW-ONLY",
+        rtspLink: "rtsp://127.0.0.1/preview-only",
+        status: "Enable",
+        sourceStatus: "Online",
+        parkingSlotData: {
+          categories: [
+            { id: 1, name: "zoneA_slot01", supercategory: "parking-slot" },
+          ],
+          annotations: [{ category_id: 1 }],
+        },
+      },
+    ],
+    parking_map: null,
+  });
+  t.after(() => ParkingFloor.deleteOne({ _id: noMapFloor._id }));
+  const noMapCameraId = String(noMapFloor.camera_presets[0]._id);
+  const originalStart = pythonModelRuntime.start;
+  pythonModelRuntime.start = () => ({});
+  try {
+    const floorsOrigin = origin.replace(/\/api\/parking-logs$/, "/api/admin/system/floors");
+    const enabled = await request(`/${noMapFloor._id}/cameras/${noMapCameraId}/model`, {
+      method: "PATCH",
+      actor: "admin",
+      body: { enabled: true },
+      baseUrl: floorsOrigin,
+    });
+    assert.equal(enabled.status, 200);
+    assert.equal(enabled.body.floor.camera_presets[0].modelEnabled, true);
+
+    const runtimeOrigin = origin.replace(/\/api\/parking-logs$/, "/api/model-runtime");
+    const sync = await request("/sync", {
+      method: "POST",
+      modelKey: process.env.PARKING_MODEL_API_KEY,
+      baseUrl: runtimeOrigin,
+      body: {
+        runtimeId: "preview-only-runtime",
+        profiles: [
+          {
+            cameraNo: "CAM-PREVIEW-ONLY",
+            cctvFileName: "preview-only-source.json",
+            profileName: "preview-only",
+            parkingEnabled: true,
+            parkingSlotNames: ["zoneA_slot01"],
+          },
+        ],
+        workers: [],
+      },
+    });
+    assert.equal(sync.status, 200);
+    assert.equal(sync.body.commands[0].enabled, true);
+    assert.equal(sync.body.commands[0].runnable, true);
+    assert.deepEqual(sync.body.commands[0].mappedParkingSlotNames, []);
+  } finally {
+    const floorsOrigin = origin.replace(/\/api\/parking-logs$/, "/api/admin/system/floors");
+    await request(`/${noMapFloor._id}/cameras/${noMapCameraId}/model`, {
+      method: "PATCH",
+      actor: "admin",
+      body: { enabled: false },
+      baseUrl: floorsOrigin,
+    });
+    pythonModelRuntime.start = originalStart;
+  }
+});
+

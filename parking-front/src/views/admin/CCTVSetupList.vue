@@ -91,8 +91,11 @@
       class="cctv-camera-card"
     >
       <div class="cctv-preview" :class="{ 'is-streaming': activePreviewCameraId === camera._id }">
+        <div v-if="camera.status === 'Disable'" class="cctv-disabled-message" role="status">
+          CCTV has disable
+        </div>
         <img
-          v-if="activePreviewCameraId === camera._id && previewFrame"
+          v-else-if="activePreviewCameraId === camera._id && previewFrame"
           class="cctv-live-frame"
           :src="previewFrame"
           :alt="`${camera.modelEnabled ? 'YOLO output' : 'Live CCTV preview'} for ${camera.name}`"
@@ -111,6 +114,7 @@
           Expand
         </button>
         <button
+          v-if="camera.status !== 'Disable'"
           class="cctv-preview-toggle"
           type="button"
           :aria-label="`${activePreviewCameraId === camera._id ? 'Stop' : 'Show'} ${camera.modelEnabled ? 'YOLO' : 'live'} preview for ${camera.name}`"
@@ -160,19 +164,34 @@
           <dt>Camera No/IP</dt>
           <dd>{{ camera.cameraSelector || camera.ipAddress || '-' }}</dd>
         </div>
+        <div>
+          <dt>Source status</dt>
+          <dd>{{ camera.sourceStatus || 'Unknown' }}</dd>
+        </div>
       </dl>
       <div class="cctv-card-actions">
+        <div class="cctv-preset-control">
+          <button
+            type="button"
+            :class="['cctv-preset-toggle', camera.status === 'Disable' ? 'is-enable' : 'is-disable']"
+            :disabled="!camera._id || modelBusyCameraIds.length > 0"
+            :aria-label="`${camera.status === 'Disable' ? 'Enable' : 'Disable'} CCTV preset ${camera.name}`"
+            @click="togglePreset(camera)"
+          >
+            {{ camera.status === 'Disable' ? 'Enable' : 'Disable' }}
+          </button>
+          <small>Preset</small>
+        </div>
         <div class="cctv-model-control">
           <button
             type="button"
             class="cctv-model-toggle"
-            :class="{ enabled: camera.modelEnabled }"
-            :disabled="!camera._id || modelBusyCameraIds.length > 0"
-            :aria-label="`${camera.modelEnabled ? 'Turn YOLO off' : 'Turn YOLO on'} for ${camera.name}`"
+            :class="camera.modelEnabled ? 'is-disable' : 'is-enable'"
+            :disabled="!camera._id || camera.status === 'Disable' || modelBusyCameraIds.length > 0"
+            :aria-label="`${camera.modelEnabled ? 'Disable Detection' : 'Enable Detection'} for ${camera.name}`"
             @click="toggleModel(camera)"
           >
-            <Power :size="17" />
-            {{ modelBusyCameraIds.includes(camera._id || '') ? 'Saving...' : camera.modelEnabled ? 'YOLO ON' : 'YOLO OFF' }}
+            {{ modelBusyCameraIds.includes(camera._id || '') ? 'Saving...' : camera.modelEnabled ? 'Disable Detection' : 'Enable Detection' }}
           </button>
           <span
             class="cctv-model-status"
@@ -246,7 +265,6 @@ import {
   ArrowRight,
   Video,
   SquarePen,
-  Power,
   Upload,
   FileJson,
   Download,
@@ -377,6 +395,34 @@ async function toggleModel(camera: CctvFormCamera) {
         : cause instanceof Error
           ? cause.message
           : 'Unable to change YOLO model state.',
+    }
+  } finally {
+    modelBusyCameraIds.value = modelBusyCameraIds.value.filter((id) => id !== cameraId)
+  }
+}
+
+async function togglePreset(camera: CctvFormCamera) {
+  const floorId = props.selectedFloor?._id
+  const cameraId = camera._id
+  if (!floorId || !cameraId || modelBusyCameraIds.value.includes(cameraId)) return
+  const nextStatus = camera.status === 'Disable' ? 'Enable' : 'Disable'
+  modelStateVersion += 1
+  modelBusyCameraIds.value = [...modelBusyCameraIds.value, cameraId]
+  modelControlErrors.value = { ...modelControlErrors.value, [cameraId]: '' }
+  if (nextStatus === 'Disable' && activePreviewCameraId.value === cameraId)
+    stopCameraPreview()
+  try {
+    const response = await floorService.setCameraPresetStatus(floorId, cameraId, nextStatus)
+    emit('floor-updated', response.data.floor)
+    modelStatusRefreshError.value = ''
+  } catch (cause) {
+    modelControlErrors.value = {
+      ...modelControlErrors.value,
+      [cameraId]: isAxiosError<{ message?: string }>(cause)
+        ? cause.response?.data?.message || 'Unable to change CCTV preset status.'
+        : cause instanceof Error
+          ? cause.message
+          : 'Unable to change CCTV preset status.',
     }
   } finally {
     modelBusyCameraIds.value = modelBusyCameraIds.value.filter((id) => id !== cameraId)
@@ -973,14 +1019,61 @@ button:disabled {
 .cctv-card-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 14px;
+}
+.cctv-preset-control {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  text-align: center;
+}
+.cctv-preset-control small {
+  color: #64748b;
+  font-size: 11px;
+}
+.cctv-preset-toggle,
+.cctv-model-toggle {
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #e5e7eb;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cctv-preset-toggle {
+  min-width: 96px;
+  padding: 8px 12px;
+}
+.cctv-preset-toggle.is-enable,
+.cctv-model-toggle.is-enable {
+  border-color: #15803d;
+}
+.cctv-preset-toggle.is-disable,
+.cctv-model-toggle.is-disable {
+  border-color: #b91c1c;
+}
+.cctv-preset-toggle:hover:not(:disabled),
+.cctv-model-toggle:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+.cctv-disabled-message {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #555;
+  font-weight: 700;
+  background: #e5e7eb;
 }
 .cctv-model-control {
   display: grid;
   justify-items: center;
   gap: 7px;
-  max-width: 120px;
+  max-width: none;
   text-align: center;
 }
 .cctv-model-toggle {
@@ -988,19 +1081,8 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 96px;
-  padding: 8px 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: #f8fafc;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 600;
-}
-.cctv-model-toggle.enabled {
-  border-color: #15803d;
-  background: #16a34a;
-  color: #fff;
+  min-width: 160px;
+  padding: 8px 12px;
 }
 .cctv-model-toggle:not(:disabled):hover {
   filter: brightness(0.96);
@@ -1019,6 +1101,9 @@ button:disabled {
 .cctv-model-status.status-stopping,
 .cctv-model-status.status-waiting {
   color: #9a6700;
+}
+.cctv-model-status.status-starting {
+  color: #f97316;
 }
 .cctv-model-status.status-off {
   color: #64748b;

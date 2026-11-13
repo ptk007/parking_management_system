@@ -226,7 +226,7 @@ const selectedCamera = ref<CctvSourceMatch | null>(
 const selectedRecordIndex = ref('')
 const lookupAttempted = ref(false)
 const connectionStatus = ref<CctvConnectionStatus | 'Disable'>(
-  props.camera?.status || 'Unknown',
+  props.camera?.sourceStatus || 'Unknown',
 )
 const connectionMessage = ref(
   selectedCamera.value ? 'Saved connection details. Search the source to open a live preview.' : '',
@@ -464,7 +464,8 @@ async function save() {
       rtspLink: selectedCamera.value?.rtspLink || '',
       cctvFileName: selectedCctvSource.value.original_name,
       parkingSlotFileId: cctvFile.value ? null : props.camera?.parkingSlotFileId || null,
-      status: connectionStatus.value === 'Disable' ? 'Unknown' : connectionStatus.value,
+      status: props.camera?.status || 'Enable',
+      sourceStatus: connectionStatus.value === 'Disable' ? 'Unknown' : connectionStatus.value,
     }
     const response = await floorService.saveCamera(
       props.selectedFloor._id,

@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
 const ParkingFloor = require("../api/models/parkingFloorModel");
 const ParkingSourceFile = require("../api/models/parkingSourceFileModel");
 const controller = require("../api/controllers/parkingFloorController");
+const pythonModelRuntime = require("../api/services/pythonModelRuntime");
 
 const floorId = "507f1f77bcf86cd799439011";
 const cameraId = "507f1f77bcf86cd799439012";
@@ -60,10 +61,11 @@ test("floor and camera schemas expose the revised fields and title-case statuses
   assert.equal(floorSchema.path("time_add"), undefined);
   assert.deepEqual(floorSchema.path("status").enumValues, ["Available", "Disable"]);
   assert.equal(floorSchema.path("status").defaultValue, "Disable");
-  assert.deepEqual(cameraSchema.path("status").enumValues, [
+  assert.deepEqual(cameraSchema.path("status").enumValues, ["Enable", "Disable"]);
+  assert.equal(cameraSchema.path("status").defaultValue, "Enable");
+  assert.deepEqual(cameraSchema.path("sourceStatus").enumValues, [
     "Online",
     "Offline",
-    "Disable",
     "Unknown",
   ]);
   assert.equal(cameraSchema.path("cameraNo").instance, "String");
@@ -126,7 +128,8 @@ test("camera creation stores the uploaded slot JSON and separates the original C
   assert.equal(camera.cctvFileName, "camera-north.json");
   assert.equal(camera.parkingSlotFileId, String(slotFileId));
   assert.deepEqual(camera.parkingSlotData, categories);
-  assert.equal(camera.status, "Unknown");
+  assert.equal(camera.status, "Enable");
+  assert.equal(camera.sourceStatus, "Unknown");
   assert.equal(
     ParkingSourceFile.create.mock.calls[0].arguments[0].fileType,
     "parking-slot",
@@ -161,7 +164,8 @@ test("camera creation accepts embedded slot JSON without creating a physical fil
         parkingSlotData,
         cameraNo: "CAM-5",
         sourceCameraName: "North entrance",
-        status: "Offline",
+        status: "Disable",
+        sourceStatus: "Offline",
       },
     },
     res,
@@ -172,9 +176,77 @@ test("camera creation accepts embedded slot JSON without creating a physical fil
   assert.deepEqual(floor.camera_presets[0].parkingSlotData, parkingSlotData);
   assert.equal(floor.camera_presets[0].cameraNo, "CAM-5");
   assert.equal(floor.camera_presets[0].sourceCameraName, "North entrance");
-  assert.equal(floor.camera_presets[0].status, "Offline");
+  assert.equal(floor.camera_presets[0].status, "Disable");
+  assert.equal(floor.camera_presets[0].sourceStatus, "Offline");
   assert.equal(createSource.mock.callCount(), 0);
   assert.equal(findSource.mock.callCount(), 0);
+});
+
+test("new online enabled CCTV preset enables YOLO and starts the Python runtime", async (t) => {
+  const parkingSlotData = {
+    categories: [
+      { name: "all", supercategory: "none" },
+      { name: "zoneA_slot01", supercategory: "parking-slot" },
+    ],
+  };
+  const floor = makeFloor();
+  t.mock.method(floor, "save", async () => {});
+  t.mock.method(floor, "populate", async () => floor);
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  const start = t.mock.method(pythonModelRuntime, "start", () => ({}));
+  const res = response();
+
+  await controller.saveCameraPreset(
+    {
+      params: { id: floorId },
+      body: {
+        name: "North camera",
+        cctvFileName: "camera-north.json",
+        cameraNo: "CAM-5",
+        parkingSlotData,
+        status: "Enable",
+        sourceStatus: "Online",
+      },
+    },
+    res,
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(floor.camera_presets[0].modelEnabled, true);
+  assert.equal(floor.camera_presets[0].modelRuntimeStatus, "Starting");
+  assert.equal(start.mock.callCount(), 1);
+});
+
+test("new offline CCTV preset leaves YOLO disabled", async (t) => {
+  const floor = makeFloor();
+  t.mock.method(floor, "save", async () => {});
+  t.mock.method(floor, "populate", async () => floor);
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  const start = t.mock.method(pythonModelRuntime, "start", () => ({}));
+  const res = response();
+
+  await controller.saveCameraPreset(
+    {
+      params: { id: floorId },
+      body: {
+        name: "North camera",
+        cctvFileName: "camera-north.json",
+        parkingSlotData: {
+          categories: [
+            { name: "all", supercategory: "none" },
+            { name: "zoneA_slot01", supercategory: "parking-slot" },
+          ],
+        },
+        status: "Enable",
+        sourceStatus: "Offline",
+      },
+    },
+    res,
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(floor.camera_presets[0].modelEnabled, false);
+  assert.equal(start.mock.callCount(), 0);
 });
 
 test("rejects embedded JSON without a named parking-slot category", async (t) => {
@@ -252,8 +324,8 @@ test("the category endpoint returns only parking-slot category names", async (t)
   });
 });
 
-test("preset status can only be manually disabled or reset to Unknown", async (t) => {
-  const camera = { _id: cameraId, status: "Online" };
+test("preset enable state is separate from the original CCTV source status", async (t) => {
+  const camera = { _id: cameraId, status: "Enable", sourceStatus: "Online", modelEnabled: true };
   const floor = makeFloor(camera);
   t.mock.method(ParkingFloor, "findById", async () => floor);
   const disabled = response();
@@ -263,14 +335,17 @@ test("preset status can only be manually disabled or reset to Unknown", async (t
   );
   assert.equal(disabled.statusCode, 200);
   assert.equal(camera.status, "Disable");
+  assert.equal(camera.modelEnabled, true, "preset disable should preserve Detection preference");
 
   const reset = response();
   await controller.updateCameraPresetStatus(
-    { params: { id: floorId, cameraId }, body: { status: "Unknown" } },
+    { params: { id: floorId, cameraId }, body: { status: "Enable" } },
     reset,
   );
   assert.equal(reset.statusCode, 200);
-  assert.equal(camera.status, "Unknown");
+  assert.equal(camera.status, "Enable");
+  assert.equal(camera.sourceStatus, "Online");
+  assert.equal(camera.modelEnabled, true, "preset re-enable should restore Detection preference");
   assert.equal(typeof floor.date_updated, "string");
   assert.equal(typeof floor.time_updated, "string");
 
