@@ -1314,9 +1314,28 @@ exports.updateOccupiedSlotVehicleDetails = async (req, res) => {
           park_status: "Parking",
         }
       : null;
-    const activeLog = slotLogIdentity
+    let activeLog = slotLogIdentity
       ? await ParkingLog.findOne(slotLogIdentity)
       : null;
+    if (!activeLog) {
+      const candidates = await ParkingLog.find({
+        floorId: floor._id,
+        veh_type: floor.veh_type,
+        park_slot: target.number,
+        park_status: "Parking",
+      }).limit(10);
+      const identityMatches = candidates.filter(
+        (log) =>
+          (!target.cameraPresetId || String(log.cameraPresetId) === String(target.cameraPresetId)) &&
+          (!target.parkingSlotName || log.parkingSlotName === target.parkingSlotName),
+      );
+      if (identityMatches.length === 1) activeLog = identityMatches[0];
+      else if (identityMatches.length > 1 || candidates.length > 1)
+        return res.status(409).json({
+          message: "More than one active parking log matches this slot. Reload the map and try again.",
+        });
+      else if (candidates.length === 1) activeLog = candidates[0];
+    }
     if (
       activeLog &&
       (activeLog.license_num !== license_num.trim() || activeLog.province !== province.trim())

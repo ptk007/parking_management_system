@@ -28,12 +28,13 @@ defineEmits<{
 <style scoped>
 .toggle-switch {
   position: relative;
-  display: inline-flex;
+  display: inline-block;
   flex: 0 0 auto;
-  align-items: center;
-  width: 46px;
-  height: 26px;
-  padding: 2px;
+  box-sizing: border-box;
+  width: 48px;
+  height: 28px;
+  vertical-align: middle;
+  padding: 0;
   border: 1px solid #9ca3af;
   border-radius: 999px;
   background: #9ca3af;
@@ -57,16 +58,20 @@ defineEmits<{
 }
 
 .toggle-switch-thumb {
-  width: 20px;
-  height: 20px;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: block;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgb(15 23 42 / 25%);
-  transform: translateX(0);
-  transition: transform 0.16s ease;
+  transition: left 0.16s ease;
 }
 
 .toggle-switch.checked .toggle-switch-thumb {
-  transform: translateX(20px);
+  left: 22px;
 }
 </style>

@@ -66,15 +66,12 @@
               </p>
             </div>
             <div class="row-actions">
-              <div class="staff-status-control">
-                <span>Enable / Disable</span>
-                <ToggleSwitch
-                  :checked="staff.status !== 'Disable'"
-                  :disabled="staffBusyId === staff._id"
-                  :label="`Enable or disable ${staff.staffName}`"
-                  @toggle="setStaffStatus(staff, staff.status === 'Disable' ? 'Offline' : 'Disable')"
-                />
-              </div>
+              <ToggleSwitch
+                :checked="staff.status !== 'Disable'"
+                :disabled="staffBusyId === staff._id"
+                :label="`Enable or disable ${staff.staffName}`"
+                @toggle="setStaffStatus(staff, staff.status === 'Disable' ? 'Offline' : 'Disable')"
+              />
               <button
                 type="button"
                 aria-label="Edit staff"
@@ -156,7 +153,6 @@
             :floors="parkingFloors"
             :floor="editingFloor"
             @saved="handleFloorSaved"
-            @deleted="handleFloorSaved"
             @cancel="showParkingSetup"
           />
 
@@ -920,6 +916,7 @@ const ParkingSetupList = defineComponent({
         return false
       }
     }
+    const hasCctv = (floor: ParkingFloor) => Boolean(floor.camera_presets?.length)
 
     const renderFloorRow = (floor: ParkingFloor) =>
       h('article', { class: 'floor-row', key: floor._id }, [
@@ -965,7 +962,7 @@ const ParkingSetupList = defineComponent({
           h(
             'button',
             {
-              class: 'edit-floor-button floor-cctv-button',
+              class: ['edit-floor-button', 'floor-cctv-button', { 'has-cctv': hasCctv(floor) }],
               type: 'button',
               'aria-label': `CCTV for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
               onClick: () => emit('view-cctv', floor),
@@ -1999,16 +1996,26 @@ const ParkingSetupList = defineComponent({
   justify-content: center;
   min-height: 36px;
   padding: 6px 10px;
-  border: 1px solid #cf4647;
+  border: 1px solid #333;
   border-radius: 10px;
-  background: #fff1f1;
-  color: #a52f30;
+  background: #fff;
+  color: #1f2937;
   text-align: center;
   font-size: 14px;
 }
 
 .floor-parking-map:hover {
-  background: #ffe1e1;
+  background: #f3f4f6;
+}
+
+.floor-cctv-button.has-cctv {
+  border-color: #219653;
+  background: #e5f5e9;
+  color: #16723b;
+}
+
+.floor-cctv-button.has-cctv:hover {
+  background: #d0edd8;
 }
 
 .edit-floor-button {
@@ -2124,12 +2131,6 @@ const ParkingSetupList = defineComponent({
   align-content: start;
 }
 
-.overlay-card.floor-form {
-  width: 326px;
-  min-height: 353px;
-  gap: 12px;
-}
-
 .overlay-card h2 {
   color: #111;
   font-size: 19px;
@@ -2149,11 +2150,6 @@ const ParkingSetupList = defineComponent({
   color: #222;
   font-size: 16px;
   text-align: left;
-}
-
-.overlay-card.floor-form label {
-  width: 110px;
-  font-size: 16px;
 }
 
 .overlay-card input,
@@ -2771,7 +2767,7 @@ const ParkingSetupList = defineComponent({
 .staff-manager-section .row-actions {
   gap: 8px;
 }
-.staff-manager-section .row-actions > button {
+.staff-manager-section .row-actions > button:not(.toggle-switch) {
   display: grid;
   place-items: center;
   width: 36px;
@@ -2780,17 +2776,9 @@ const ParkingSetupList = defineComponent({
   border-radius: 6px;
   color: #64748b;
 }
-.staff-manager-section .row-actions > button:hover:not(:disabled) {
+.staff-manager-section .row-actions > button:not(.toggle-switch):hover:not(:disabled) {
   background: #f8fafc;
   color: #a52f30;
-}
-.staff-status-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #475569;
-  font-size: 11px;
-  white-space: nowrap;
 }
 .staff-manager-section .staff-form-panel {
   min-height: 0;

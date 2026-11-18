@@ -15,7 +15,6 @@
             v-if="auth.isAdmin && floor"
             class="floor-status-control"
           >
-            <span>Available / Disable</span>
             <ToggleSwitch
               :checked="floor.status === 'Available'"
               :disabled="updatingFloorStatus"
@@ -615,9 +614,9 @@ async function loadFloor() {
   viewMode.value = 'preview'
   try {
     const floorId = String(route.params.floorId)
-    const response = await floorService.list()
+    const response = await floorService.get(floorId)
     if (version !== loadVersion) return
-    floor.value = response.data.floors.find((item) => item._id === floorId) || null
+    floor.value = response.data.floor || null
     if (!floor.value) {
       error.value = 'Floor not found. Return to Parking Setup to choose a floor.'
       return
@@ -662,8 +661,16 @@ async function loadFloor() {
     if (version !== loadVersion) return
     layout.value = withPositions(slots.value, layout.value)
   } catch (cause) {
-    if (version === loadVersion)
-      error.value = 'Unable to load this floor and its map. Please try again.'
+    if (version === loadVersion) {
+      const message = isAxiosError<{ message?: string }>(cause)
+        ? cause.response?.data?.message
+        : cause instanceof Error
+          ? cause.message
+          : undefined
+      error.value = message
+        ? `Unable to load this floor and its map: ${message}`
+        : 'Unable to load this floor and its map. Please try again.'
+    }
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -1079,7 +1086,7 @@ onBeforeUnmount(() => {
   min-height: calc(100vh - 78px);
   color: #334155;
 }
-button {
+button:not(.toggle-switch) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1092,7 +1099,7 @@ button {
   cursor: pointer;
   font-size: 12px;
 }
-button:hover {
+button:not(.toggle-switch):hover {
   background: #f1f5f9;
 }
 button:disabled {
@@ -1132,11 +1139,9 @@ a:focus-visible {
 .floor-status-control {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-left: 12px;
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 28px;
 }
 .floor-status-error {
   color: #b42318;
@@ -1157,12 +1162,12 @@ a:focus-visible {
   padding: 9px 12px;
   border: 1px solid #000;
   border-radius: 7px;
-  background: #2563eb;
-  color: white;
+  background: #fff;
+  color: #000;
   font-size: 12px;
 }
 .cctv-link:hover {
-  background: #1d4ed8;
+  background: #f3f4f6;
 }
 .eyebrow {
   color: #94a3b8;

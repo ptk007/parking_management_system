@@ -23,7 +23,9 @@ describe('admin floor form', () => {
     vi.mocked(floorService.create).mockResolvedValue({} as never)
     const wrapper = mount(FloorFormPanel, { props: { mode: 'add', buildings } })
     wrappers.push(wrapper)
-    expect(wrapper.findAll('select')).toHaveLength(2)
+    expect(wrapper.findAll('select')).toHaveLength(3)
+    expect(wrapper.findAll('select')[2]!.element.value).toBe('Disable')
+    expect(wrapper.findAll('select')[2]!.attributes()).toHaveProperty('disabled')
 
     await wrapper.findAll('select')[0]!.setValue('building-e5')
     await wrapper.findAll('input[type="number"]')[0]!.setValue('4')
@@ -73,7 +75,7 @@ describe('admin floor form', () => {
     expect(floorService.create).toHaveBeenCalledTimes(1)
   })
 
-  it('shows floor status only when editing a floor with a parking map', () => {
+  it('shows floor status in the ordered add and edit forms', () => {
     const floor: ParkingFloor = {
       _id: 'floor-2',
       building: buildings[0]!,
@@ -95,10 +97,14 @@ describe('admin floor form', () => {
 
     expect(wrapper.findAll('select')).toHaveLength(3)
     expect(wrapper.findAll('select')[2]!.element.value).toBe('Disable')
+    const labels = wrapper.findAll('.floor-field span').map((label) => label.text())
+    expect(labels).toEqual(['Building *', 'Floor *', 'Vehicle *', 'Status'])
+    expect(wrapper.get('.floor-field:last-of-type').element.compareDocumentPosition(
+      wrapper.get('.floor-actions').element,
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('deletes an existing floor only after confirmation', async () => {
-    vi.mocked(floorService.remove).mockResolvedValue({} as never)
+  it('closes the edit form immediately when Cancel is clicked', async () => {
     const floor: ParkingFloor = {
       _id: 'floor-2',
       building: buildings[0]!,
@@ -111,15 +117,11 @@ describe('admin floor form', () => {
     }
     const wrapper = mount(FloorFormPanel, { props: { mode: 'edit', buildings, floor } })
     wrappers.push(wrapper)
-    expect(wrapper.findAll('select')).toHaveLength(2)
+    expect(wrapper.findAll('select')).toHaveLength(3)
 
-    await wrapper.get('form .red-button').trigger('click')
+    await wrapper.get('form .cancel-button').trigger('click')
     expect(floorService.remove).not.toHaveBeenCalled()
-    expect(wrapper.get('[role="alertdialog"]').text()).toContain('Delete Floor 2?')
-    await wrapper.get('.floor-delete-dialog .red-button').trigger('click')
-    await flushPromises()
-
-    expect(floorService.remove).toHaveBeenCalledWith('floor-2')
-    expect(wrapper.emitted('deleted')?.[0]).toEqual(['building-e4'])
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false)
+    expect(wrapper.emitted('cancel')).toHaveLength(1)
   })
 })

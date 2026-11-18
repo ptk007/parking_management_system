@@ -56,6 +56,25 @@ test("validates map geometry, unique slot identities and embedded-only images", 
   wide.layout.zoom = 251;
   assert.throws(() => validateParkingMap(wide), /zoom/);
 });
+test("serializes empty parking-map position objects for new layouts", () => {
+  const floor = new ParkingFloor({
+    building: id,
+    floor: 1,
+    veh_type: "car",
+    status: "Disable",
+    date_updated: "2026-11-18",
+    time_updated: "12:00:00",
+    parking_map: {
+      version: 2,
+      sourceName: "New map",
+      slots: [],
+      layout: { background: null, shapes: [], positions: {}, zoom: 100 },
+    },
+  });
+
+  const serialized = JSON.parse(JSON.stringify(floor));
+  assert.deepEqual(serialized.parking_map.layout.positions, {});
+});
 test("rejects layout edits on Available floors at the API and permits status-only changes", async (t) => {
   const floor = { _id: id, status: "Available", parking_map: map() };
   t.mock.method(ParkingFloor, "findById", async () => floor);
@@ -208,6 +227,7 @@ test("manual vehicle details update only occupied parking-map slots", async (t) 
   const update = t.mock.method(ParkingFloor, "findOneAndUpdate", async (_filter, updateDoc) => ({
     parking_map: updateDoc.$set.parking_map,
   }));
+  t.mock.method(ParkingLog, "find", () => ({ limit: async () => [] }));
   const req = {
     auth: { userId: id },
     params: { id },
@@ -232,6 +252,57 @@ test("manual vehicle details update only occupied parking-map slots", async (t) 
   await controller.updateOccupiedSlotVehicleDetails(req, rejected);
   assert.equal(rejected.statusCode, 409);
   assert.equal(update.mock.callCount(), 1);
+});
+
+test("manual details can match an active log by floor and slot when its CCTV assignment changed", async (t) => {
+  t.mock.method(User, "findById", () => ({
+    select: async () => ({ role: "admin", status: "online" }),
+  }));
+  const floor = {
+    _id: id,
+    building: "507f1f77bcf86cd799439014",
+    floor: 4,
+    veh_type: "car",
+    parking_map: map(),
+  };
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  t.mock.method(ParkingFloor, "findOneAndUpdate", async (_filter, updateDoc) => ({
+    parking_map: updateDoc.$set.parking_map,
+  }));
+  const guestLog = {
+    _id: "507f1f77bcf86cd799439016",
+    cameraPresetId: "507f1f77bcf86cd799439015",
+    parkingSlotName: "zoneA_slot02",
+    license_num: "OLD 2",
+    province: "Bangkok",
+    name: "Guest 2",
+    owner: null,
+  };
+  t.mock.method(ParkingLog, "find", () => ({ limit: async () => [guestLog] }));
+  t.mock.method(ParkingLog, "exists", async () => null);
+  t.mock.method(Vehicle, "findOne", () => ({ populate: async () => null }));
+  const updateLog = t.mock.method(
+    ParkingLog,
+    "findOneAndUpdate",
+    async (_filter, updateDoc) => ({ ...guestLog, ...updateDoc.$set }),
+  );
+  const res = response();
+  await controller.updateOccupiedSlotVehicleDetails(
+    {
+      auth: { userId: id },
+      params: { id },
+      body: {
+        key: '["default",2]',
+        license_num: "CORRECTED 2",
+        province: "Chiang Mai",
+      },
+    },
+    res,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.activeLogUpdated, true);
+  assert.equal(String(res.body.log._id), guestLog._id);
+  assert.equal(updateLog.mock.callCount(), 1);
 });
 
 test("manual vehicle details update the matching active parking log", async (t) => {

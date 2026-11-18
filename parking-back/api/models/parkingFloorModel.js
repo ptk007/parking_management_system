@@ -91,6 +91,9 @@ const parkingFloorSchema = new mongoose.Schema(
   {
     collection: "parking_floor",
     versionKey: false,
+    // Keep empty map-layout objects in API JSON (for example positions: {}).
+    // Mongoose's default minimization omits them and the frontend rejects the map.
+    minimize: false,
   },
 );
 
