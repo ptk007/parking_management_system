@@ -18,4 +18,12 @@ function getBangkokDateTime(date = new Date()) {
   };
 }
 
-module.exports = { getBangkokDateTime };
+function getBangkokUpdatedDateTime(date = new Date()) {
+  const timestamp = getBangkokDateTime(date);
+  return {
+    date_updated: timestamp.date_add,
+    time_updated: timestamp.time_add,
+  };
+}
+
+module.exports = { getBangkokDateTime, getBangkokUpdatedDateTime };

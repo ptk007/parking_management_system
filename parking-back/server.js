@@ -59,6 +59,7 @@ async function startServer() {
     await mongoose.connect(MONGODB_URI);
     await require("./api/utils/migrateParkingBuildingFields")();
     await require("./api/utils/migrateParkingFloorFields")();
+    await require("./api/utils/migrateUserFields")();
     console.log("Connected to MongoDB");
 
     const server = app.listen(PORT, () => {

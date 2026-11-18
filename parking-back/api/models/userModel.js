@@ -40,15 +40,13 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    date_add: {
+    date_updated: {
       type: String,
       required: true,
-      immutable: true,
     },
-    time_add: {
+    time_updated: {
       type: String,
       required: true,
-      immutable: true,
     },
     user_image: {
       type: String,

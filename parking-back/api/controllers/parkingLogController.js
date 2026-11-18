@@ -132,6 +132,10 @@ async function updateMapSlot(
       const updated = { ...slot, status };
       if (status === "available") {
         delete updated.licensePlateDetected;
+        delete updated.license_num;
+        delete updated.province;
+        delete updated.date_updated;
+        delete updated.time_updated;
       } else if (typeof licensePlateDetected === "boolean") {
         updated.licensePlateDetected = licensePlateDetected;
       }

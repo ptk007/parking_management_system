@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const mongoose = require("mongoose");
 const ParkingSourceFile = require("../api/models/parkingSourceFileModel");
+const ParkingFloor = require("../api/models/parkingFloorModel");
 const controller = require("../api/controllers/cctvSourceController");
 
 const sourceFileId = new mongoose.Types.ObjectId();
@@ -194,6 +195,39 @@ test("live preview rejects a source record without a valid RTSP URL", async (t) 
 
   assert.equal(res.statusCode, 400);
   assert.match(res.body.message, /no valid RTSP link/);
+});
+
+test("dashboard preview streams the saved preset RTSP link without requiring its source JSON", async (t) => {
+  const floorId = new mongoose.Types.ObjectId();
+  const cameraId = new mongoose.Types.ObjectId();
+  const parkingSlotData = { categories: ["A01"] };
+  const preset = {
+    status: "Enable",
+    modelEnabled: false,
+    rtspLink: "rtsp://camera.example/stream",
+    parkingSlotData,
+  };
+  t.mock.method(ParkingFloor, "findById", async () => ({
+    camera_presets: { id: (id) => (String(id) === String(cameraId) ? preset : null) },
+  }));
+  const sourceLookup = t.mock.method(ParkingSourceFile, "findOne", async () => {
+    throw new Error("Dashboard preview should use the saved RTSP link");
+  });
+  let forwardedRequest;
+  const stream = t.mock.method(controller, "streamCameraPreview", async (req) => {
+    forwardedRequest = req;
+    return "preview started";
+  });
+  const req = { params: { floorId: String(floorId), cameraId: String(cameraId) }, body: {} };
+  const res = response();
+
+  const result = await controller.streamCameraPresetPreview(req, res);
+
+  assert.equal(result, "preview started");
+  assert.deepEqual(req.previewCamera, { rtspLink: preset.rtspLink });
+  assert.deepEqual(req.body.parkingSlotData, parkingSlotData);
+  assert.equal(sourceLookup.mock.callCount(), 0);
+  assert.equal(stream.mock.callCount(), 1);
 });
 
 test("rejects malformed or oversized search requests", async () => {

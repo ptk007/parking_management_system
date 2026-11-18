@@ -14,27 +14,14 @@
           <div
             v-if="auth.isAdmin && floor"
             class="floor-status-control"
-            role="group"
-            aria-label="Floor status"
           >
-            <button
-              type="button"
-              :class="['floor-status-button', 'available', { active: floor.status === 'Available' }]"
-              :aria-pressed="floor.status === 'Available'"
+            <span>Available / Disable</span>
+            <ToggleSwitch
+              :checked="floor.status === 'Available'"
               :disabled="updatingFloorStatus"
-              @click="setFloorStatus('Available')"
-            >
-              Available
-            </button>
-            <button
-              type="button"
-              :class="['floor-status-button', 'disable', { active: floor.status === 'Disable' }]"
-              :aria-pressed="floor.status === 'Disable'"
-              :disabled="updatingFloorStatus"
-              @click="setFloorStatus('Disable')"
-            >
-              Disable
-            </button>
+              label="Set floor Available or Disable"
+              @toggle="setFloorStatus(floor.status === 'Available' ? 'Disable' : 'Available')"
+            />
           </div>
         </div>
         <p v-if="floorStatusError" class="floor-status-error" role="alert">
@@ -245,16 +232,43 @@
                   </select>
                 </template>
               </div>
-              <dl v-if="selectedSlots.length === 1">
-                <div>
-                  <dt>Building</dt>
-                  <dd>{{ floor.building?.building_name || '-' }}</dd>
+              <form
+                v-if="viewMode === 'preview' && selectedSlots.length === 1 && inspectedSlot.status === 'occupied'"
+                class="vehicle-detail-form"
+                @submit.prevent="saveOccupiedSlotVehicleDetails"
+              >
+                <label for="slot-license-plate">License Plate</label>
+                <input
+                  id="slot-license-plate"
+                  v-model.trim="manualLicensePlate"
+                  type="text"
+                  maxlength="100"
+                  autocomplete="off"
+                  required
+                />
+                <label for="slot-province">Province</label>
+                <select id="slot-province" v-model="manualProvince" required>
+                  <option disabled value="">Select Province</option>
+                  <option v-if="hasCustomProvince" :value="manualProvince">
+                    {{ manualProvince }}
+                  </option>
+                  <option v-for="province in thaiProvinces" :key="province" :value="province">
+                    {{ province }}
+                  </option>
+                </select>
+                <p v-if="vehicleDetailsMessage" :class="['vehicle-detail-message', { error: vehicleDetailsError }]" role="status">
+                  {{ vehicleDetailsMessage }}
+                </p>
+                <div class="vehicle-detail-actions">
+                  <div v-if="inspectedSlot.date_updated" class="vehicle-detail-updated">
+                    <span>Date Updated</span><strong>{{ inspectedSlot.date_updated }}</strong>
+                    <span>Time Updated</span><strong>{{ inspectedSlot.time_updated || '-' }}</strong>
+                  </div>
+                  <button class="vehicle-detail-save" type="submit" :disabled="savingVehicleDetails">
+                    {{ savingVehicleDetails ? 'Saving...' : 'Save' }}
+                  </button>
                 </div>
-                <div>
-                  <dt>Floor</dt>
-                  <dd>{{ floor.floor }}</dd>
-                </div>
-              </dl>
+              </form>
               <p
                 v-if="selectedSlots.length === 1 && !isEditableSlot(inspectedSlot)"
                 class="locked-note"
@@ -356,6 +370,8 @@ import {
 } from 'lucide-vue-next'
 import { isAxiosError } from 'axios'
 import { floorService, type ParkingFloor, type ParkingFloorPayload } from '@/services/api'
+import ToggleSwitch from '@/components/ToggleSwitch.vue'
+import { thaiProvinces } from '@/data/thaiProvinces'
 import { useAuthStore } from '@/stores/auth'
 import ParkingLayoutEditor from '@/components/parking/ParkingLayoutEditor.vue'
 import {
@@ -396,6 +412,14 @@ const selected = ref(new Set<string>()),
   inspectedKey = ref<string | null>(null)
 const assignmentNotification = ref('')
 let assignmentNotificationTimeout: ReturnType<typeof setTimeout> | undefined
+const manualLicensePlate = ref('')
+const manualProvince = ref('')
+const savingVehicleDetails = ref(false)
+const vehicleDetailsMessage = ref('')
+const vehicleDetailsError = ref(false)
+const hasCustomProvince = computed(
+  () => Boolean(manualProvince.value) && !thaiProvinces.includes(manualProvince.value),
+)
 const autosave = ref(true),
   dirty = ref(false),
   saving = ref(false),
@@ -413,7 +437,8 @@ const draftKey = computed(
   () => `parking-map-preview:v1:${auth.user?._id || auth.user?.id}:${route.params.floorId}`,
 )
 let loadVersion = 0,
-  importVersion = 0
+  importVersion = 0,
+  lastInspectedKey: string | null = null
 const leaveTarget = ref<RouteLocationRaw | null>(null)
 let allowLeave = false
 const inspectedSlot = computed(() =>
@@ -733,6 +758,47 @@ function setStatus(status: 'available' | 'disabled') {
   )
   changed()
 }
+async function saveOccupiedSlotVehicleDetails() {
+  const currentFloor = floor.value
+  const slot = inspectedSlot.value
+  if (
+    !currentFloor ||
+    !slot ||
+    slot.status !== 'occupied' ||
+    selectedSlots.value.length !== 1 ||
+    viewMode.value !== 'preview' ||
+    savingVehicleDetails.value
+  )
+    return
+  savingVehicleDetails.value = true
+  vehicleDetailsMessage.value = ''
+  vehicleDetailsError.value = false
+  try {
+    const response = await floorService.updateOccupiedSlotVehicleDetails(
+      currentFloor._id,
+      slotKey(slot),
+      manualLicensePlate.value.trim(),
+      manualProvince.value.trim(),
+    )
+    const map = response.data.map
+    currentFloor.parking_map = map
+    slots.value = map.slots
+    vehicleDetailsMessage.value = response.data.activeLogUpdated
+      ? `Vehicle details saved to the slot and active parking log. ${response.data.removedHistoryCount > 0 ? `${response.data.removedHistoryCount} older history record(s) deleted.` : 'No older history records found.'}`
+      : response.data.activeLogFound
+        ? 'Vehicle details saved to the slot, but the active parking log changed before it could be updated.'
+        : 'Vehicle details saved to the slot. No active parking log was found.'
+  } catch (cause) {
+    vehicleDetailsError.value = true
+    vehicleDetailsMessage.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Unable to save vehicle details.'
+      : cause instanceof Error
+        ? cause.message
+        : 'Unable to save vehicle details.'
+  } finally {
+    savingVehicleDetails.value = false
+  }
+}
 async function setFloorStatus(status: ParkingFloor['status']) {
   const currentFloor = floor.value
   if (!auth.isAdmin || !currentFloor || updatingFloorStatus.value || currentFloor.status === status)
@@ -973,7 +1039,20 @@ watch(canEditLayout, (allowed) => {
 })
 watch(() => route.params.floorId, loadFloor, { immediate: true })
 watch(inspectedSlot, (slot) => {
-  if (!slot) inspectedKey.value = null
+  if (!slot) {
+    inspectedKey.value = null
+    lastInspectedKey = null
+    manualLicensePlate.value = ''
+    manualProvince.value = ''
+    vehicleDetailsMessage.value = ''
+    return
+  }
+  const key = slotKey(slot)
+  if (key !== lastInspectedKey || slot.status !== 'occupied')
+    vehicleDetailsMessage.value = ''
+  lastInspectedKey = key
+  manualLicensePlate.value = slot.license_num || ''
+  manualProvince.value = slot.province || ''
 })
 watch(
   () => auth.isAdmin,
@@ -1053,27 +1132,11 @@ a:focus-visible {
 .floor-status-control {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 999px;
-  background: #f1f3f5;
-}
-.floor-status-button {
-  border: 0;
-  border-radius: 999px;
-  padding: 8px 16px;
+  gap: 8px;
+  margin-left: 12px;
+  color: #334155;
+  font-size: 13px;
   font-weight: 600;
-}
-.floor-status-button.available {
-  color: #fff;
-  background: #35b54a;
-}
-.floor-status-button.disable {
-  color: #374151;
-  background: #d1d5db;
-}
-.floor-status-button.active {
-  box-shadow: inset 0 0 0 2px #000;
 }
 .floor-status-error {
   color: #b42318;
@@ -1370,6 +1433,63 @@ h2 {
   padding: 8px;
   border: 1px solid #dbe2eb;
   border-radius: 6px;
+}
+.vehicle-detail-form {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 18px;
+  font-size: 12px;
+}
+.vehicle-detail-form label {
+  color: #475569;
+  font-weight: 600;
+}
+.vehicle-detail-form input,
+.vehicle-detail-form select {
+  min-width: 0;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #dbe2eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #1e293b;
+}
+.vehicle-detail-save {
+  padding: 9px 18px;
+  border: 1px solid #15803d;
+  border-radius: 6px;
+  background: #15803d;
+  color: #fff;
+  font-weight: 650;
+}
+.vehicle-detail-save:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.vehicle-detail-updated {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: 4px 6px;
+  color: #64748b;
+  font-size: 10px;
+}
+.vehicle-detail-updated strong {
+  overflow-wrap: anywhere;
+}
+.vehicle-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+.vehicle-detail-message {
+  color: #15803d;
+  font-size: 12px;
+}
+.vehicle-detail-message.error {
+  color: #b42318;
 }
 .assignment-notification {
   position: fixed;

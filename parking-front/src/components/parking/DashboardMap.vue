@@ -16,7 +16,7 @@
       <div class="map-header-actions">
         <button v-if="!isSample" @click="showSample">View sample map</button>
         <button
-          v-if="auth.canManageParking && selectedFloor?.parking_map"
+          v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample"
           type="button"
           aria-label="Update slot status"
           :disabled="!canUpdateSlotStatuses || updatingSlotStatuses"
@@ -25,7 +25,7 @@
           {{ updatingSlotStatuses ? 'Updating...' : 'Update slot status' }}
         </button>
         <button
-          v-if="auth.canManageParking && selectedFloor?.parking_map"
+          v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample"
           class="reset-status-button"
           type="button"
           aria-label="Reset parking slot status"
@@ -129,7 +129,7 @@
         </template>
       </div>
       <div class="map-footer">
-        <div v-if="auth.canManageParking && selectedFloor?.parking_map" class="map-actions">
+        <div v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample" class="map-actions">
           <button :disabled="saving || !selection.length" @click="setStatus('available')">
             Enable</button
           ><button :disabled="saving || !selection.length" @click="setStatus('disabled')">
@@ -366,17 +366,7 @@ async function load(silent = false) {
 }
 async function setStatus(status: 'available' | 'disabled') {
   const floor = selectedFloor.value
-  if (!auth.canManageParking || !floor?.parking_map || saving.value) return
-  if (isSample.value) {
-    const selected = new Set(selection.value)
-    floor.parking_map.slots = floor.parking_map.slots.map((slot) =>
-      selected.has(slotKey(slot)) && ['available', 'disabled'].includes(slot.status)
-        ? { ...slot, status }
-        : slot,
-    )
-    selection.value = []
-    return
-  }
+  if (!auth.canManageParking || !floor?.parking_map || isSample.value || saving.value) return
   saving.value = true
   error.value = ''
   try {

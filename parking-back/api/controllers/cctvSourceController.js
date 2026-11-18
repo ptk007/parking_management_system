@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const mongoose = require("mongoose");
 const ParkingSourceFile = require("../models/parkingSourceFileModel");
+const ParkingFloor = require("../models/parkingFloorModel");
 
 const FILE_ROOT = path.resolve(__dirname, "../../../json_file/parking_slots");
 const PYTHON_PROJECT = path.resolve(__dirname, "../../../python-v2");
@@ -319,19 +320,22 @@ exports.streamCameraPreview = async (req, res) => {
   };
 
   try {
-    const recordIndex = Number(req.params.recordIndex);
-    if (!Number.isSafeInteger(recordIndex) || recordIndex < 0) {
-      return res.status(400).json({ message: "Invalid camera record index" });
+    let camera = req.previewCamera || null;
+    if (!camera) {
+      const recordIndex = Number(req.params.recordIndex);
+      if (!Number.isSafeInteger(recordIndex) || recordIndex < 0) {
+        return res.status(400).json({ message: "Invalid camera record index" });
+      }
+      const loaded = await loadSourceFile(req.params.fileId);
+      if (loaded.error) {
+        return res.status(loaded.error.status).json({ message: loaded.error.message });
+      }
+      const record = extractRecords(loaded.data)[recordIndex];
+      if (!record || typeof record !== "object" || Array.isArray(record)) {
+        return res.status(404).json({ message: "Camera record not found" });
+      }
+      camera = mapCameraRecord(record, recordIndex);
     }
-    const loaded = await loadSourceFile(req.params.fileId);
-    if (loaded.error) {
-      return res.status(loaded.error.status).json({ message: loaded.error.message });
-    }
-    const record = extractRecords(loaded.data)[recordIndex];
-    if (!record || typeof record !== "object" || Array.isArray(record)) {
-      return res.status(404).json({ message: "Camera record not found" });
-    }
-    const camera = mapCameraRecord(record, recordIndex);
     if (!camera.rtspLink || !validateRtspUrl(camera.rtspLink)) {
       return res.status(400).json({ message: "Camera source has no valid RTSP link." });
     }
@@ -439,5 +443,68 @@ exports.streamCameraPreview = async (req, res) => {
     }
     stopChild();
     cleanup();
+  }
+};
+
+exports.streamCameraPresetPreview = async (req, res) => {
+  try {
+    const { floorId, cameraId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(floorId))
+      return res.status(400).json({ message: "Invalid floor ID in CCTV preset preview request" });
+    if (!mongoose.Types.ObjectId.isValid(cameraId))
+      return res.status(400).json({ message: "Invalid CCTV preset ID in preview request" });
+    const floor = await ParkingFloor.findById(floorId);
+    if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const preset = floor.camera_presets.id(cameraId);
+    if (!preset) return res.status(404).json({ message: "Camera preset not found" });
+    if (preset.status === "Disable")
+      return res.status(409).json({ message: "Enable this CCTV preset before opening its preview." });
+    if (preset.modelEnabled)
+      return res.status(409).json({ message: "YOLO is enabled; use its annotated output preview." });
+
+    if (preset.rtspLink) {
+      if (!validateRtspUrl(preset.rtspLink))
+        return res.status(400).json({ message: "The saved CCTV preset has an invalid RTSP link." });
+      req.previewCamera = { rtspLink: preset.rtspLink };
+      req.body = { ...(req.body || {}), parkingSlotData: preset.parkingSlotData || null };
+      return module.exports.streamCameraPreview(req, res);
+    }
+
+    const source = await ParkingSourceFile.findOne({
+      original_name: preset.cctvFileName,
+      fileType: "cctv",
+    }).select("_id");
+    if (!source)
+      return res.status(404).json({ message: "Original CCTV source is unavailable. Re-import it in this setup." });
+    const loaded = await loadSourceFile(source._id);
+    if (loaded.error) return res.status(loaded.error.status).json({ message: loaded.error.message });
+
+    const lookupValues = [
+      preset.rtspLink,
+      preset.cameraNo,
+      preset.cameraSelector,
+      preset.ipAddress,
+      preset.sourceCameraName,
+    ].map((value) => String(value || "").trim()).filter(Boolean);
+    let matches = [];
+    for (const query of [...new Set(lookupValues)]) {
+      matches = module.exports.findCameraMatches(loaded.data, query);
+      if (matches.length) break;
+    }
+    if (matches.length !== 1)
+      return res.status(matches.length ? 409 : 404).json({
+        message: matches.length
+          ? "More than one source camera matches this preset. Update the camera selection in CCTV setup."
+          : "No exact camera match was found in the selected CCTV source.",
+      });
+
+    req.params.fileId = String(source._id);
+    req.params.recordIndex = String(matches[0].recordIndex);
+    req.body = { ...(req.body || {}), parkingSlotData: preset.parkingSlotData || null };
+    return module.exports.streamCameraPreview(req, res);
+  } catch (error) {
+    console.error("Failed to start CCTV preset preview:", error.message);
+    if (!res.headersSent) return res.status(500).json({ message: "Failed to start CCTV preset preview" });
+    return res.end();
   }
 };

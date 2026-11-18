@@ -157,16 +157,14 @@ describe('dashboard parking locations and permissions', () => {
       expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     },
   )
-  it('previews the sample alongside saved locations and changes sample statuses without an API write', async () => {
+  it('previews the sample read-only and does not expose dashboard map updates for it', async () => {
     const { wrapper } = await createDashboard('staff')
     await wrapper
       .findAll('.map-header button')
       .find((button) => button.text() === 'View sample map')!
       .trigger('click')
-    const slot = wrapper.findAll('.canvas-slot.available')[0]!
-    await slot.trigger('keydown', { key: 'Enter' })
-    await wrapper.findAll('.map-actions button')[1]!.trigger('click')
-    expect(slot.classes()).toContain('disabled')
+    expect(wrapper.find('.map-actions').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Update slot status"]').exists()).toBe(false)
     expect(floorService.setSlotStatuses).not.toHaveBeenCalled()
     await wrapper.get('[aria-controls="map-filters"]').trigger('click')
     await selectLocation(wrapper)

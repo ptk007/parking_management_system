@@ -1,0 +1,163 @@
+{
+  "run": {
+    "created_at": "2026-11-16T12:05:34.475955+08:00",
+    "device": "0",
+    "sequence_tracking": false,
+    "image_count": 4,
+    "car_model": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\models\\trained_car_detector.pt",
+    "plate_model": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\models\\best_license_plate_detector.pt",
+    "slots_json": null,
+    "settings": {
+      "car_tracker_input_conf": 0.1,
+      "car_application_conf": 0.8,
+      "car_imgsz": 960,
+      "car_frame_step_cctv": 8,
+      "plate_conf": 0.3,
+      "plate_imgsz": 640,
+      "plate_crop_padding": {
+        "x": 0.2,
+        "top": 0.12,
+        "bottom": 0.22
+      },
+      "plate_ocr_zoom": 2.0,
+      "ocr_language": "th",
+      "sharpness_threshold": 40.0,
+      "ocr_lock_conf": 0.5,
+      "ocr_min_length": 5,
+      "ocr_stable_votes": 3,
+      "ocr_vote_share": 0.6,
+      "car_box_shrink_for_slot_match": 0.1,
+      "car_display_box_expand": 0.1,
+      "slot_entry_overlap": 0.12
+    },
+    "slot_transitions": [],
+    "timing_ms": {
+      "car_and_outputs_total": 693.33,
+      "plate_stage_total": 158.48,
+      "ocr_total": 0.01,
+      "average_total_per_image": 173.33
+    },
+    "note": "Image batch timing is offline processing time; it is not live CCTV end-to-end latency. Slot evidence is not a temporal parking status."
+  },
+  "images": [
+    {
+      "image": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\1.webp",
+      "width": 1200,
+      "height": 800,
+      "annotated_output": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\output\\run_20261116_120528\\annotated\\1_result.jpg",
+      "batch_car_inference_ms": 466.24,
+      "detections": [
+        {
+          "image": "1.webp",
+          "track_id": null,
+          "car_box": [
+            111,
+            502,
+            184,
+            608
+          ],
+          "car_conf": 0.9845852255821228,
+          "plate_box": null,
+          "plate_conf": 0.0,
+          "ocr_text": "",
+          "ocr_conf": 0.0,
+          "ocr_status": "not_detected",
+          "stable_text": "",
+          "votes": 0,
+          "vote_share": 0.0,
+          "locked": false
+        },
+        {
+          "image": "1.webp",
+          "track_id": null,
+          "car_box": [
+            994,
+            61,
+            1067,
+            134
+          ],
+          "car_conf": 0.9230946898460388,
+          "plate_box": null,
+          "plate_conf": 0.0,
+          "ocr_text": "",
+          "ocr_conf": 0.0,
+          "ocr_status": "not_detected",
+          "stable_text": "",
+          "votes": 0,
+          "vote_share": 0.0,
+          "locked": false
+        }
+      ],
+      "slot_evidence": []
+    },
+    {
+      "image": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\2.jpg",
+      "width": 1600,
+      "height": 1195,
+      "annotated_output": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\output\\run_20261116_120528\\annotated\\2_result.jpg",
+      "batch_car_inference_ms": 466.24,
+      "detections": [],
+      "slot_evidence": []
+    },
+    {
+      "image": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\3.jpg",
+      "width": 739,
+      "height": 415,
+      "annotated_output": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\output\\run_20261116_120528\\annotated\\3_result.jpg",
+      "batch_car_inference_ms": 466.24,
+      "detections": [
+        {
+          "image": "3.jpg",
+          "track_id": null,
+          "car_box": [
+            0,
+            80,
+            137,
+            175
+          ],
+          "car_conf": 0.9096287488937378,
+          "plate_box": null,
+          "plate_conf": 0.0,
+          "ocr_text": "",
+          "ocr_conf": 0.0,
+          "ocr_status": "not_detected",
+          "stable_text": "",
+          "votes": 0,
+          "vote_share": 0.0,
+          "locked": false
+        }
+      ],
+      "slot_evidence": []
+    },
+    {
+      "image": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\4.jpg",
+      "width": 639,
+      "height": 480,
+      "annotated_output": "C:\\Users\\patta\\Documents\\GitHubtest\\parking_management_system\\python-v2\\pic_test\\output\\run_20261116_120528\\annotated\\4_result.jpg",
+      "batch_car_inference_ms": 466.24,
+      "detections": [
+        {
+          "image": "4.jpg",
+          "track_id": null,
+          "car_box": [
+            54,
+            233,
+            83,
+            311
+          ],
+          "car_conf": 0.9310064315795898,
+          "plate_box": null,
+          "plate_conf": 0.0,
+          "ocr_text": "",
+          "ocr_conf": 0.0,
+          "ocr_status": "not_detected",
+          "stable_text": "",
+          "votes": 0,
+          "vote_share": 0.0,
+          "locked": false
+        }
+      ],
+      "slot_evidence": []
+    }
+  ]
+}

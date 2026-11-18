@@ -217,6 +217,36 @@ If CUDA is unavailable, the CCTV workers do not start. This prevents the old
 behavior where a broken/CPU-only PyTorch environment silently fell back to CPU
 and produced severe realtime lag.
 
+For a CUDA GPU that supports half precision, `PARKING_FP16=1` enables FP16
+inference for both YOLO detectors. It is opt-in because the team should compare
+car/plate detection quality and end-to-end parking-state results before using
+it for normal operation. Example in PowerShell:
+
+```powershell
+$env:PARKING_FP16 = "1"
+run.bat
+```
+
+### Multi-camera performance without disabling features
+
+The supervisor currently runs one isolated Python worker per camera. This
+keeps each camera's tracker, OCR memory, parking state, and event history
+independent, but each worker has its own car detector and CUDA context. The
+plate detector and Thai OCR now stay unloaded until a car reaches plate
+detection and a plate box is found, which reduces startup work and idle GPU
+memory while preserving those features. Each camera can have a one-time delay
+when its first car reaches plate detection, because that worker loads the plate
+weights then; OCR initializes only after a plate box is actually returned.
+
+For a small number of cameras, first measure per-camera processing FPS, GPU
+memory, and slot-state accuracy, then try FP16 on supported hardware. For a
+larger camera count, the main architectural improvement is one shared
+inference service per GPU that batches frames from all cameras, while keeping
+the existing per-camera tracker, OCR voting, slot-state machine, API events,
+and history isolated. That change needs its own load and accuracy evaluation;
+simply lowering image size or skipping more frames can reduce detail or delay
+parking-state updates.
+
 ## Tracker configuration
 
 `tracker/parking_botsort_reid.yaml` is now a real configuration file and is not

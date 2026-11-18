@@ -22,9 +22,12 @@ function runtimeFramePath(camera) {
 
 exports.getCameraFrame = async (req, res) => {
   try {
-    const { id, cameraId } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(cameraId))
-      return res.status(400).json({ message: "Invalid floor or camera id" });
+    const id = req.params.id || req.params.floorId;
+    const { cameraId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ message: "Invalid floor ID in YOLO preview request" });
+    if (!mongoose.Types.ObjectId.isValid(cameraId))
+      return res.status(400).json({ message: "Invalid CCTV preset ID in YOLO preview request" });
 
     const floor = await ParkingFloor.findById(id);
     if (!floor) return res.status(404).json({ message: "Floor not found" });

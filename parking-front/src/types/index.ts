@@ -9,8 +9,6 @@ export interface ApiUser {
   status: UserStatus
   date_updated?: string | null
   time_updated?: string | null
-  date_add?: string
-  time_add?: string
   user_image?: string | null
 }
 

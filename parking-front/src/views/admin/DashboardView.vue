@@ -23,9 +23,18 @@
             <h3>
               Staff List <span class="staff-count">{{ adminStore.staffList.length }}</span>
             </h3>
-            <p>Staff profiles can be edited while Offline.</p>
+            <p>Staff profiles can be edited while disabled.</p>
           </div>
-          <div v-if="!adminStore.staffList.length" class="staff-empty" role="status">
+          <p v-if="staffError" class="staff-api-message error" role="alert">
+            {{ staffError }}
+            <button type="button" @click="loadStaff">Retry</button>
+          </p>
+          <p v-if="staffLoading" class="staff-api-message" role="status">Loading staff accounts...</p>
+          <div
+            v-if="!staffLoading && !staffError && !adminStore.staffList.length"
+            class="staff-empty"
+            role="status"
+          >
             <span class="staff-empty-icon"><Users :size="34" :stroke-width="1.6" /></span>
             <h3>No staff yet</h3>
             <p>Add your team members to help manage parking and support users.</p>
@@ -33,61 +42,44 @@
               <UserPlus :size="18" /> Add your first staff
             </button>
           </div>
-          <article v-for="staff in adminStore.staffList" :key="staff._id" class="staff-card">
-            <div class="profile-icon"><UserRound class="h-14 w-14" :stroke-width="1.8" /></div>
+          <article
+            v-for="staff in adminStore.staffList"
+            :key="staff._id"
+            class="staff-card"
+          >
+            <div class="profile-icon">
+              <img
+                v-if="staff.userImage"
+                :src="userService.imageUrl(staff.userImage)"
+                :alt="`${staff.staffName} profile`"
+              />
+              <UserRound v-else class="h-14 w-14" :stroke-width="1.8" />
+            </div>
             <div class="staff-copy">
               <p>Staff Name : {{ staff.staffName }}</p>
               <p>Username : {{ staff.username }}</p>
-              <p class="password-line">
-                Password :
-                {{
-                  visiblePasswordIds.has(staff._id) ? staff.password : maskPassword(staff.password)
-                }}
-                <button
-                  class="password-eye"
-                  type="button"
-                  :aria-label="
-                    visiblePasswordIds.has(staff._id) ? 'Hide password' : 'Show password'
-                  "
-                  @click="togglePasswordVisibility(staff._id)"
-                >
-                  <component
-                    :is="visiblePasswordIds.has(staff._id) ? EyeOff : Eye"
-                    class="inline-icon h-4 w-4"
-                    :stroke-width="2.2"
-                  />
-                </button>
-              </p>
-              <p>Date Updated : {{ staff.dateAdded }}</p>
-              <p>Time Updated : {{ staff.timeAdded }}</p>
+              <p>Password : Protected</p>
+              <p>Date Updated : {{ staff.dateUpdated }}</p>
+              <p>Time Updated : {{ staff.timeUpdated }}</p>
               <p>
                 Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong>
               </p>
             </div>
             <div class="row-actions">
-              <button
-                v-if="staff.status === 'Offline'"
-                class="staff-status-toggle disable"
-                type="button"
-                :aria-label="`Disable ${staff.staffName}`"
-                @click="setStaffStatus(staff, 'Disable')"
-              >
-                Disable
-              </button>
-              <button
-                v-else-if="staff.status === 'Disable'"
-                class="staff-status-toggle enable"
-                type="button"
-                :aria-label="`Enable ${staff.staffName}`"
-                @click="setStaffStatus(staff, 'Offline')"
-              >
-                Enable
-              </button>
+              <div class="staff-status-control">
+                <span>Enable / Disable</span>
+                <ToggleSwitch
+                  :checked="staff.status !== 'Disable'"
+                  :disabled="staffBusyId === staff._id"
+                  :label="`Enable or disable ${staff.staffName}`"
+                  @toggle="setStaffStatus(staff, staff.status === 'Disable' ? 'Offline' : 'Disable')"
+                />
+              </div>
               <button
                 type="button"
                 aria-label="Edit staff"
                 :disabled="!canEditStaff(staff)"
-                :title="canEditStaff(staff) ? 'Edit staff' : 'Staff can only be edited while offline'"
+                :title="canEditStaff(staff) ? 'Edit staff' : 'Staff can only be edited while disabled'"
                 @click="openEditStaff(staff)"
               >
                 <SquarePen class="h-6 w-6" :stroke-width="2.4" />
@@ -95,7 +87,8 @@
               <button
                 type="button"
                 aria-label="Delete staff"
-                @click="adminStore.deleteStaff(staff._id)"
+                :disabled="staffBusyId === staff._id"
+                @click="deleteStaff(staff)"
               >
                 <Trash2 class="h-6 w-6" :stroke-width="2.4" />
               </button>
@@ -107,6 +100,8 @@
           v-else
           :mode="staffMode"
           :forms="staffForms"
+          :saving="staffSaving"
+          :error="staffFormError"
           @save="saveStaff"
           @cancel="staffMode = 'list'"
           @add-more="addStaffForm"
@@ -278,6 +273,7 @@ import {
   Video,
 } from 'lucide-vue-next'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import ToggleSwitch from '@/components/ToggleSwitch.vue'
 import { useAdminStore, type StaffMember } from '@/stores/admin'
 import SharedDashboard from '@/views/staff/DashboardView.vue'
 import BuildingFormPanel from './BuildingFormPanel.vue'
@@ -289,6 +285,7 @@ import FloorFormPanel from './FloorFormPanel.vue'
 import {
   buildingService,
   floorService,
+  userService,
   type ParkingBuilding,
   type ParkingFloor,
   type BuildingCameraSummary as CameraSummary,
@@ -296,6 +293,7 @@ import {
 import { isAxiosError } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
+import type { ApiUser } from '@/types'
 
 type AdminSection = 'dashboard' | 'staff' | 'setup'
 type StaffMode = 'list' | 'add' | 'edit'
@@ -314,7 +312,8 @@ interface StaffFormState {
   username: string
   password: string
   confirmPassword: string
-  status: StaffMember['status']
+  userImageFile: File | null
+  existingUserImage: string | null
 }
 
 const adminStore = useAdminStore()
@@ -350,21 +349,29 @@ const buildingToDelete = ref<ParkingBuilding | null>(null)
 const isDeletingBuilding = ref(false)
 const deleteBuildingError = ref('')
 const editingStaffId = ref<string | null>(null)
-const visiblePasswordIds = ref(new Set<string>())
+const staffLoading = ref(false)
+const staffSaving = ref(false)
+const staffError = ref('')
+const staffFormError = ref('')
+const staffBusyId = ref('')
 
 const createStaffForm = (staff?: StaffMember): StaffFormState => ({
   staffName: staff?.staffName || '',
   username: staff?.username || '',
-  password: staff?.password || '',
+  password: '',
   confirmPassword: '',
-  status: staff?.status || 'Offline',
+  userImageFile: null,
+  existingUserImage: staff?.userImage || null,
 })
 
 const staffForms = ref<StaffFormState[]>([createStaffForm()])
 
 watch(activeSection, (section, previousSection) => {
   if (section === previousSection) return
-  if (section === 'staff') staffMode.value = 'list'
+  if (section === 'staff') {
+    staffMode.value = 'list'
+    void loadStaff()
+  }
   if (section === 'setup') {
     showParkingSetup()
     void loadParkingSetup()
@@ -372,6 +379,7 @@ watch(activeSection, (section, previousSection) => {
 })
 
 onMounted(() => {
+  if (activeSection.value === 'staff') void loadStaff()
   if (activeSection.value === 'setup') void loadParkingSetup()
 })
 
@@ -519,30 +527,72 @@ const deleteBuilding = async () => {
   }
 }
 
-const maskPassword = (password: string) => {
-  return '*'.repeat(Math.max(password.length, 8))
-}
-
-const togglePasswordVisibility = (staffId: string) => {
-  const nextVisible = new Set(visiblePasswordIds.value)
-  if (nextVisible.has(staffId)) {
-    nextVisible.delete(staffId)
-  } else {
-    nextVisible.add(staffId)
-  }
-  visiblePasswordIds.value = nextVisible
-}
-
 const canEditStaff = (staff: StaffMember) => {
-  return staff.status === 'Offline'
+  return staff.status === 'Disable'
 }
 
-const setStaffStatus = (staff: StaffMember, status: 'Offline' | 'Disable') => {
-  if (
-    (staff.status === 'Offline' && status === 'Disable') ||
-    (staff.status === 'Disable' && status === 'Offline')
-  )
-    adminStore.updateStaff(staff._id, { status })
+function mapApiStaff(user: ApiUser): StaffMember {
+  const status: StaffMember['status'] =
+    user.status === 'online' ? 'Online' : user.status === 'disable' ? 'Disable' : 'Offline'
+  return {
+    _id: user._id,
+    staffName: user.name,
+    username: user.username,
+    dateUpdated: user.date_updated || '-',
+    timeUpdated: user.time_updated || '-',
+    userImage: user.user_image || null,
+    status,
+  }
+}
+
+function requestMessage(cause: unknown, fallback: string) {
+  return isAxiosError<{ message?: string }>(cause)
+    ? cause.response?.data?.message || fallback
+    : fallback
+}
+
+async function loadStaff() {
+  staffLoading.value = true
+  staffError.value = ''
+  try {
+    const response = await userService.listStaff()
+    adminStore.staffList = response.data.users.map(mapApiStaff)
+  } catch (cause) {
+    staffError.value = requestMessage(cause, 'Failed to load staff accounts.')
+  } finally {
+    staffLoading.value = false
+  }
+}
+
+async function setStaffStatus(staff: StaffMember, nextStatus: 'Offline' | 'Disable') {
+  if (staffBusyId.value) return
+  staffBusyId.value = staff._id
+  staffError.value = ''
+  try {
+    const response = await userService.setStaffStatus(
+      staff._id,
+      nextStatus === 'Disable' ? 'disable' : 'offline',
+    )
+    adminStore.updateStaff(staff._id, mapApiStaff(response.data.user))
+  } catch (cause) {
+    staffError.value = requestMessage(cause, 'Failed to update staff status.')
+  } finally {
+    staffBusyId.value = ''
+  }
+}
+
+async function deleteStaff(staff: StaffMember) {
+  if (staffBusyId.value) return
+  staffBusyId.value = staff._id
+  staffError.value = ''
+  try {
+    await userService.remove(staff._id)
+    adminStore.deleteStaff(staff._id)
+  } catch (cause) {
+    staffError.value = requestMessage(cause, 'Failed to delete staff account.')
+  } finally {
+    staffBusyId.value = ''
+  }
 }
 
 const addStaffForm = () => {
@@ -551,41 +601,73 @@ const addStaffForm = () => {
 
 const openAddStaff = () => {
   editingStaffId.value = null
+  staffFormError.value = ''
   staffForms.value = [createStaffForm()]
   staffMode.value = 'add'
 }
 
 const openEditStaff = (staff: StaffMember) => {
   if (!canEditStaff(staff)) return
+  staffFormError.value = ''
   editingStaffId.value = staff._id
   staffForms.value = [createStaffForm(staff)]
   staffMode.value = 'edit'
 }
 
-const saveStaff = () => {
-  if (staffMode.value === 'add') {
-    staffForms.value.forEach((form, index) => {
-      adminStore.addStaff({
-        _id: `${Date.now()}-${index}`,
-        staffName: form.staffName,
-        username: form.username,
-        password: form.password,
-        dateAdded: '19/3/2569',
-        timeAdded: '12:00:00',
-        status: form.status,
-      })
-    })
-  } else if (editingStaffId.value) {
-    const form = staffForms.value[0]
-    if (!form) return
-    adminStore.updateStaff(editingStaffId.value, {
-      staffName: form.staffName,
-      username: form.username,
-      password: form.password,
-      status: form.status,
-    })
+async function saveStaff() {
+  if (staffSaving.value) return
+  staffFormError.value = ''
+  const forms = staffForms.value
+  for (const [index, form] of forms.entries()) {
+    if (!form.staffName.trim() || !form.username.trim()) {
+      staffFormError.value = `Enter a name and username for staff form ${index + 1}.`
+      return
+    }
+    if (staffMode.value === 'add' && !form.password) {
+      staffFormError.value = `Enter a password for staff form ${index + 1}.`
+      return
+    }
+    if (form.password && form.password !== form.confirmPassword) {
+      staffFormError.value = `Passwords do not match for staff form ${index + 1}.`
+      return
+    }
   }
-  staffMode.value = 'list'
+
+  staffSaving.value = true
+  try {
+    if (staffMode.value === 'add') {
+      for (const form of forms) {
+        await userService.createStaff({
+          name: form.staffName.trim(),
+          username: form.username.trim(),
+          password: form.password,
+          user_image: form.userImageFile,
+        })
+      }
+    } else {
+      const form = forms[0]
+      const staffId = editingStaffId.value
+      if (!form || !staffId) return
+      const staff = adminStore.staffList.find((item) => item._id === staffId)
+      if (!staff || !canEditStaff(staff)) {
+        staffFormError.value = 'Staff profile can only be edited while disabled.'
+        return
+      }
+      await userService.updateStaff(staffId, {
+        name: form.staffName.trim(),
+        username: form.username.trim(),
+        password: form.password || undefined,
+        user_image: form.userImageFile,
+      })
+    }
+    await loadStaff()
+    staffMode.value = 'list'
+  } catch (cause) {
+    staffFormError.value = requestMessage(cause, 'Failed to save staff account.')
+    if (staffMode.value === 'add') await loadStaff()
+  } finally {
+    staffSaving.value = false
+  }
 }
 
 const backFromCctv = () => {
@@ -623,6 +705,8 @@ const StaffFormPanel = defineComponent({
       type: Array as () => StaffFormState[],
       required: true,
     },
+    saving: { type: Boolean, default: false },
+    error: { type: String, default: '' },
   },
   emits: ['save', 'cancel', 'add-more'],
   setup(props, { emit }) {
@@ -640,10 +724,32 @@ const StaffFormPanel = defineComponent({
       visibleFormPasswordIndexes.value = nextVisible
     }
 
+    const renderProfileImage = (form: StaffFormState) => {
+      if (form.userImageFile) return h('span', form.userImageFile.name)
+      if (form.existingUserImage) {
+        return h('img', {
+          src: userService.imageUrl(form.existingUserImage),
+          alt: `${form.staffName || 'Staff'} profile`,
+        })
+      }
+      return h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })
+    }
+
     const renderStaffCard = (form: StaffFormState, index: number) =>
       h('div', { class: 'staff-form-card', key: index }, [
-        h('div', { class: 'profile-icon large' }, [
-          h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 }),
+        h('div', { class: 'staff-form-profile' }, [
+          h('div', { class: 'profile-icon large' }, [renderProfileImage(form)]),
+          h('label', { class: 'staff-image-field' }, [
+            h('span', 'Profile Image'),
+            h('input', {
+              type: 'file',
+              accept: 'image/jpeg,image/png,image/webp',
+              onChange: (event: Event) => {
+                form.userImageFile = (event.target as HTMLInputElement).files?.[0] || null
+              },
+            }),
+            h('small', 'JPG, PNG, or WebP. Maximum 5 MB.'),
+          ]),
         ]),
         h('div', { class: 'staff-form-fields' }, [
           h('label', [
@@ -668,6 +774,7 @@ const StaffFormPanel = defineComponent({
             h('span', 'Password :'),
             h('input', {
               type: isFormPasswordVisible(index) ? 'text' : 'password',
+              placeholder: props.mode === 'edit' ? 'Leave blank to keep current password' : '',
               value: form.password,
               onInput: (event: Event) => {
                 form.password = (event.target as HTMLInputElement).value
@@ -716,6 +823,7 @@ const StaffFormPanel = defineComponent({
           [h(ArrowLeft, { class: 'h-5 w-5', strokeWidth: 2.4 })],
         ),
         h('h2', props.mode === 'add' ? 'Add Staff' : 'Edit Staff'),
+        props.error ? h('p', { class: 'staff-form-error', role: 'alert' }, props.error) : null,
         props.forms.map(renderStaffCard),
         props.mode === 'add'
           ? h(
@@ -730,13 +838,19 @@ const StaffFormPanel = defineComponent({
             {
               class: props.mode === 'add' ? 'green-button' : 'blue-button',
               type: 'button',
+              disabled: props.saving,
               onClick: () => emit('save'),
             },
-            props.mode === 'add' ? 'Add' : 'Edit',
+            props.saving ? 'Saving...' : props.mode === 'add' ? 'Add' : 'Edit',
           ),
           h(
             'button',
-            { class: 'red-button', type: 'button', onClick: () => emit('cancel') },
+            {
+              class: 'red-button',
+              type: 'button',
+              disabled: props.saving,
+              onClick: () => emit('cancel'),
+            },
             'Cancel',
           ),
         ]),
@@ -1350,6 +1464,19 @@ const ParkingSetupList = defineComponent({
   width: 95px;
   height: 95px;
   margin: 0 auto 18px;
+}
+.profile-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-icon.large span {
+  max-width: 86px;
+  overflow: hidden;
+  padding: 8px;
+  font-size: 10px;
+  text-align: center;
+  text-overflow: ellipsis;
 }
 
 .staff-copy {
@@ -2526,6 +2653,49 @@ const ParkingSetupList = defineComponent({
   font-size: 12px;
   color: #64748b;
 }
+.staff-api-message {
+  margin: 12px 24px;
+  color: #475569;
+  font-size: 13px;
+}
+.staff-api-message.error,
+.staff-form-error {
+  color: #b42318;
+}
+.staff-api-message button {
+  margin-left: 8px;
+  color: #166534;
+  text-decoration: underline;
+}
+.staff-form-profile {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.staff-manager-section .profile-icon.large {
+  margin: 0;
+}
+.staff-manager-section .staff-image-field {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  color: #475569;
+  font-size: 12px;
+}
+.staff-manager-section .staff-image-field input {
+  max-width: 270px;
+  height: auto;
+  padding: 4px;
+  font-size: 11px;
+}
+.staff-manager-section .staff-image-field small {
+  color: #64748b;
+}
+.staff-manager-section .staff-form-error {
+  margin: 0 0 16px;
+  font-size: 13px;
+}
 .staff-count {
   display: grid;
   place-items: center;
@@ -2614,30 +2784,13 @@ const ParkingSetupList = defineComponent({
   background: #f8fafc;
   color: #a52f30;
 }
-.staff-manager-section .row-actions > .staff-status-toggle {
-  width: auto;
-  min-width: 62px;
-  padding: 0 9px;
-  color: #fff;
-  border-color: #000;
+.staff-status-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
   font-size: 11px;
-  font-weight: 600;
-}
-.staff-manager-section .row-actions > .staff-status-toggle.enable {
-  background: #16a34a;
-}
-.staff-manager-section .row-actions > .staff-status-toggle.disable {
-  background: #dc2626;
-}
-.staff-manager-section .row-actions > .staff-status-toggle.enable:hover:not(:disabled) {
-  background: #15803d;
-}
-.staff-manager-section .row-actions > .staff-status-toggle.disable:hover:not(:disabled) {
-  background: #b91c1c;
-}
-.staff-manager-section .row-actions > .staff-status-toggle:hover:not(:disabled) {
-  color: #fff;
-  border-color: #000;
+  white-space: nowrap;
 }
 .staff-manager-section .staff-form-panel {
   min-height: 0;

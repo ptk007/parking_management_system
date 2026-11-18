@@ -16,6 +16,7 @@ vi.mock('@/services/api', () => ({
     setCameraModelEnabled: vi.fn(),
     setCameraPresetStatus: vi.fn(),
     getCameraModelFrame: vi.fn(),
+    removeCamera: vi.fn(),
   },
 }))
 let wrapper: VueWrapper
@@ -182,6 +183,72 @@ describe('shared CCTV source library and per-floor presets', () => {
       slotFile,
     )
     expect(wrapper.emitted('saved')?.[0]).toEqual([floor])
+  })
+
+  it('confirms before creating a preview-only preset without parking-slot JSON', async () => {
+    wrapper = mount(AddCCTVPanel, { props: { mode: 'add', selectedFloor: floor } })
+    await flushPromises()
+    vi.mocked(floorService.saveCamera).mockResolvedValue({ data: { floor } } as never)
+    const match = {
+      recordIndex: 0,
+      cameraNo: 'CAM-1',
+      ipAddress: '192.0.2.1',
+      sourceCameraName: 'North entrance',
+      rtspLink: 'rtsp://camera.example/stream',
+    }
+    vi.mocked(floorService.searchCctvSource).mockResolvedValue({
+      data: { matches: [match], camera: match, status: 'Unknown', message: 'Camera matched.' },
+    } as never)
+    vi.mocked(floorService.streamCctvPreview).mockImplementation(() =>
+      Promise.resolve(livePreviewResponse()),
+    )
+    await wrapper.findAll('select')[0]!.setValue('s1')
+    await wrapper.get('input[type="text"]').setValue('North entrance')
+    await wrapper.findAll('input[type="text"]')[1]!.setValue('CAM-1')
+    await wrapper.get('.add-cctv-search').trigger('click')
+    await flushPromises()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[role="alertdialog"]').text()).toContain('Detection cannot be enabled')
+    expect(floorService.saveCamera).not.toHaveBeenCalled()
+    await wrapper.get('[role="alertdialog"] button:last-child').trigger('click')
+    await flushPromises()
+    expect(floorService.saveCamera).toHaveBeenCalledWith(
+      'f1',
+      expect.objectContaining({ name: 'North entrance', parkingSlotFileId: null }),
+      null,
+    )
+    expect((vi.mocked(floorService.saveCamera).mock.calls[0]?.[1] as { parkingSlotData?: unknown }).parkingSlotData).toBeUndefined()
+  })
+
+  it('deletes a CCTV preset after confirmation and displays source fields', async () => {
+    const camera = {
+      _id: 'camera-1',
+      name: 'North entrance',
+      cameraNo: 'CAM-1',
+      cameraSelector: 'CAM-1',
+      cctvFileName: 'source.json',
+      parkingSlotFileId: null,
+      sourceStatus: 'Online' as const,
+      status: 'Enable' as const,
+      parkingSlotData: { categories: [{ name: 'slot-1', supercategory: 'parking-slot' }] },
+    }
+    const selectedFloor = { ...floor, camera_presets: [camera] } as ParkingFloor
+    const updatedFloor = { ...selectedFloor, camera_presets: [] }
+    vi.mocked(floorService.removeCamera).mockResolvedValue({
+      data: { success: true, floor: updatedFloor },
+    } as never)
+    wrapper = mount(CCTVSetupList, { props: { selectedFloor } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Online')
+    await wrapper.get('[aria-label="Delete CCTV preset North entrance"]').trigger('click')
+    expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain(
+      'map slot and its status will remain',
+    )
+    document.body.querySelector<HTMLButtonElement>('.cctv-delete-confirm')?.click()
+    await flushPromises()
+    expect(floorService.removeCamera).toHaveBeenCalledWith('f1', 'camera-1')
+    expect(wrapper.emitted('floor-updated')?.[0]).toEqual([updatedFloor])
   })
   it('searches camera fields and starts a live preview with matched details', async () => {
     const slotData = {
@@ -451,6 +518,9 @@ describe('shared CCTV source library and per-floor presets', () => {
       rtspLink: '',
       cctvFileName: 'original.json',
       parkingSlotFileId: null,
+      parkingSlotData: {
+        categories: [{ name: 'zoneA_slot01', supercategory: 'parking-slot' }],
+      },
       status: 'Enable' as const,
       sourceStatus: 'Online' as const,
       modelEnabled: true,
@@ -488,6 +558,9 @@ describe('shared CCTV source library and per-floor presets', () => {
       rtspLink: '',
       cctvFileName: 'original.json',
       parkingSlotFileId: null,
+      parkingSlotData: {
+        categories: [{ name: 'zoneA_slot01', supercategory: 'parking-slot' }],
+      },
       status: 'Enable' as const,
       sourceStatus: 'Online' as const,
       modelEnabled: false,
@@ -507,7 +580,7 @@ describe('shared CCTV source library and per-floor presets', () => {
     })
     await flushPromises()
 
-    await wrapper.get('[aria-label="Enable Detection for North entrance"]').trigger('click')
+    await wrapper.get('[aria-label="Detection for North entrance"]').trigger('click')
     await flushPromises()
     await wrapper.setProps({ selectedFloor: { ...floor, camera_presets: [startedCamera] } })
 
@@ -516,8 +589,8 @@ describe('shared CCTV source library and per-floor presets', () => {
       camera._id,
       true,
     )
-    expect(wrapper.get('.cctv-model-toggle').text()).toContain('Disable Detection')
-    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('is-disable')
+    expect(wrapper.get('[aria-label="Detection for North entrance"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[aria-label="CCTV preset North entrance"]').attributes('aria-checked')).toBe('true')
     expect(wrapper.get('.cctv-model-status').text()).toBe('Starting')
     expect(wrapper.get('.cctv-model-status').classes()).toContain('status-starting')
     expect(wrapper.find('.cctv-edit').element.previousElementSibling).not.toBeNull()
@@ -547,6 +620,6 @@ describe('shared CCTV source library and per-floor presets', () => {
     expect(wrapper.get('.model-runtime-hint').text()).toContain(
       'CCTV Online only confirms camera connectivity',
     )
-    expect(wrapper.get('.cctv-model-toggle').classes()).toContain('is-disable')
+    expect(wrapper.get('[aria-label="Detection for North entrance"]').attributes('aria-checked')).toBe('true')
   })
 })

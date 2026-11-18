@@ -17,7 +17,7 @@
       </h2>
     </header>
 
-    <form class="add-cctv-card" @submit.prevent="save">
+    <form class="add-cctv-card" @submit.prevent="save()">
       <div class="add-cctv-fields">
         <div class="add-cctv-preview" role="status">
           <img
@@ -83,7 +83,6 @@
             class="add-cctv-file"
             type="file"
             accept=".json,application/json"
-            :required="!camera?.parkingSlotFileId"
             :disabled="saving"
             @change="selectCctvFile"
           />
@@ -92,6 +91,9 @@
           </small>
           <small v-else-if="mode === 'edit' && camera?.parkingSlotData">
             This preset has embedded slot data. Upload a JSON file to replace it.
+          </small>
+          <small v-else>
+            Optional. Without parking-slot JSON, the original CCTV preview is available, but Detection stays disabled.
           </small>
         </label>
 
@@ -159,6 +161,21 @@
         </button>
       </footer>
     </form>
+    <div v-if="confirmWithoutParkingSlots" class="add-cctv-confirm-backdrop">
+      <section
+        class="add-cctv-confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="cctv-no-slots-title"
+      >
+        <h3 id="cctv-no-slots-title">Save CCTV preset without parking-slot JSON?</h3>
+        <p>The original CCTV preview will be available. Detection cannot be enabled until parking-slot JSON is added.</p>
+        <div>
+          <button type="button" :disabled="saving" @click="confirmWithoutParkingSlots = false">Cancel</button>
+          <button type="button" :disabled="saving" @click="save(true)">Confirm</button>
+        </div>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -251,6 +268,7 @@ const previewMessage = computed(() => {
 })
 const error = ref(''),
   saving = ref(false)
+const confirmWithoutParkingSlots = ref(false)
 onMounted(async () => {
   try {
     availableParkingFiles.value = (await floorService.sourceFiles()).data.files
@@ -419,13 +437,18 @@ async function selectCctvFile(event: Event) {
     error.value = cause instanceof Error ? cause.message : 'Unable to read the parking slot JSON file.'
   }
 }
-async function save() {
+async function save(confirmedWithoutParkingSlots = false) {
   if (saving.value || !props.selectedFloor) return
   saving.value = true
   error.value = ''
   try {
     if (!cameraName.value.trim() || !selectedCctvSource.value)
       throw new Error('Enter a CCTV name and select an original CCTV source.')
+    const hasParkingSlotData = Boolean(
+      cctvFile.value || props.camera?.parkingSlotFileId || props.camera?.parkingSlotData,
+    )
+    if (!hasParkingSlotData && (!selectedCamera.value || !selectedCamera.value.rtspLink.trim()))
+      throw new Error('Search and select the original CCTV source before saving without slot JSON.')
     if (cctvFile.value) {
       if (cctvFile.value.size > MAX_IMPORT_BYTES)
         throw new Error('Choose a parking slot file up to 5 MB.')
@@ -451,8 +474,11 @@ async function save() {
         )
       )
         throw new Error('JSON must contain at least one parking-slot category name.')
-    } else if (!props.camera?.parkingSlotFileId) {
-      throw new Error('Choose a Parking Slot JSON file.')
+    } else if (!props.camera?.parkingSlotFileId && !props.camera?.parkingSlotData) {
+      if (!confirmedWithoutParkingSlots) {
+        confirmWithoutParkingSlots.value = true
+        return
+      }
     }
     const camera: CctvFormCamera = {
       ...(props.camera?._id ? { _id: props.camera._id } : {}),
@@ -464,6 +490,9 @@ async function save() {
       rtspLink: selectedCamera.value?.rtspLink || '',
       cctvFileName: selectedCctvSource.value.original_name,
       parkingSlotFileId: cctvFile.value ? null : props.camera?.parkingSlotFileId || null,
+      ...(!props.camera?.parkingSlotFileId && props.camera?.parkingSlotData
+        ? { parkingSlotData: props.camera.parkingSlotData }
+        : {}),
       status: props.camera?.status || 'Enable',
       sourceStatus: connectionStatus.value === 'Disable' ? 'Unknown' : connectionStatus.value,
     }
@@ -473,6 +502,7 @@ async function save() {
       cctvFile.value,
     )
     stopLivePreview()
+    confirmWithoutParkingSlots.value = false
     emit('saved', response.data.floor)
     emit('save', camera, cctvFile.value)
   } catch (cause) {
@@ -510,6 +540,35 @@ async function save() {
   border-radius: 7px;
   background: #fff;
   box-shadow: 0 3px 4px rgb(0 0 0 / 20%);
+}
+.add-cctv-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 42%);
+}
+.add-cctv-confirm-dialog {
+  width: min(100%, 440px);
+  padding: 22px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 16px 44px rgb(15 23 42 / 25%);
+}
+.add-cctv-confirm-dialog h3 {
+  margin: 0 0 10px;
+}
+.add-cctv-confirm-dialog p {
+  margin: 0 0 20px;
+  color: #475569;
+  line-height: 1.5;
+}
+.add-cctv-confirm-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .add-cctv-fields {
   display: grid;

@@ -727,18 +727,37 @@ else:
     print('Device: cpu (explicit)')
 
 LICENSE_PLATE_MODEL_PATH = MODEL_DIR / 'best_license_plate_detector.pt'
-if 'trained_model' not in globals():
-    trained_model = YOLO(LICENSE_PLATE_MODEL_PATH)
-trained_model.to(DEVICE)
-print(f'License plate detector ready: {LICENSE_PLATE_MODEL_PATH}')
+trained_model = None
+
+
+def get_license_plate_model():
+    """Load the plate detector only after a car is ready for Stage 2."""
+    global trained_model
+    if trained_model is None:
+        trained_model = YOLO(LICENSE_PLATE_MODEL_PATH)
+        trained_model.to(DEVICE)
+        print(f'License plate detector ready: {LICENSE_PLATE_MODEL_PATH}')
+    return trained_model
 
 CAR_MODEL_PATH = MODEL_DIR / 'trained_car_detector.pt'
 car_detector_model = YOLO(CAR_MODEL_PATH)
 car_detector_model.to(DEVICE)
 print(f'Car detector model loaded from: {CAR_MODEL_PATH}')
 
-# EasyOCR uses the same CUDA-enabled PyTorch runtime as YOLO.
-reader = easyocr.Reader(['th'], gpu=USE_GPU, verbose=False)
+# Keep OCR idle until the plate detector returns a plate box.
+reader = None
+
+
+def get_ocr_reader():
+    """Initialize EasyOCR on demand, after a license plate was detected."""
+    global reader
+    if reader is None:
+        reader = easyocr.Reader(['th'], gpu=USE_GPU, verbose=False)
+        print('[OCR] Thai EasyOCR ready.')
+    return reader
+
+
+print('[AI] Plate detector and Thai OCR will stay on standby until needed.')
 
 
 # ============================================================
@@ -848,9 +867,13 @@ CAR_CROP_PAD_TOP = 0.12
 CAR_CROP_PAD_BOTTOM = 0.22
 PLATE_EXPANDED_RETRY_CONF = 0.45
 
-# Make the visible/matching car box 10% smaller than the raw YOLO box.
-# 0.10 means final width and height are 90% of the YOLO box.
+# Keep a slightly inset box for slot-overlap matching.
 CAR_BOX_SHRINK_RATIO = 0.10
+
+# The on-screen car box is expanded by 10% from the previous inset display box.
+# This is display-only; tracking, plate crops, and slot matching use their
+# existing raw/reduced boxes so this visual adjustment does not change decisions.
+CAR_DISPLAY_BOX_EXPAND_RATIO = 0.10
 
 # Keep padded boxes for license-plate retry crops only; do not draw them.
 DRAW_PADDED_CAR_BOX = False
@@ -1213,6 +1236,28 @@ def shrink_car_box(box, frame_shape, shrink_ratio=CAR_BOX_SHRINK_RATIO):
     sy2 = min(frame_h - 1, int(round(cy + new_h / 2.0)))
 
     return sx1, sy1, sx2, sy2
+
+
+def expand_display_box(
+    box,
+    frame_shape,
+    expand_ratio=CAR_DISPLAY_BOX_EXPAND_RATIO
+):
+    """Expand an existing box by a total percentage on each axis."""
+    x1, y1, x2, y2 = map(float, box)
+    frame_h, frame_w = frame_shape[:2]
+    expand_ratio = float(np.clip(expand_ratio, 0.0, 0.50))
+    width = max(1.0, x2 - x1)
+    height = max(1.0, y2 - y1)
+    pad_x = width * expand_ratio / 2.0
+    pad_y = height * expand_ratio / 2.0
+
+    return (
+        max(0, int(round(x1 - pad_x))),
+        max(0, int(round(y1 - pad_y))),
+        min(frame_w - 1, int(round(x2 + pad_x))),
+        min(frame_h - 1, int(round(y2 + pad_y))),
+    )
 
 
 # ============================================================
@@ -4096,16 +4141,14 @@ def print_parking_statuses():
 # ============================================================
 # 15.5) Realtime GPU warm-up
 # ============================================================
-# Pay CUDA/CuDNN first-call setup cost before live frames arrive. This removes
-# the large first YOLO/OCR hitch without changing runtime image size/thresholds.
+# Pay the car detector's CUDA/CuDNN setup cost before live frames arrive.
+# Plate detection and OCR remain idle until a car/plate candidate reaches Stage 2.
 def warmup_realtime_models():
     if not USE_GPU:
         return
 
-    print('[GPU] Warming up YOLO + EasyOCR before opening live processing...')
+    print('[GPU] Warming up the car detector before opening live processing...')
     dummy_car = np.zeros((720, 1280, 3), dtype=np.uint8)
-    dummy_plate = np.zeros((160, 320, 3), dtype=np.uint8)
-    dummy_ocr = np.full((96, 320, 3), 255, dtype=np.uint8)
 
     with torch.inference_mode():
         car_detector_model.predict(
@@ -4116,22 +4159,9 @@ def warmup_realtime_models():
             quantize=YOLO_QUANTIZE,
             verbose=False,
         )
-        trained_model.predict(
-            [dummy_plate],
-            conf=PLATE_CONF_THRESHOLD,
-            imgsz=DETECTOR_IMGSZ,
-            device=YOLO_DEVICE,
-            quantize=YOLO_QUANTIZE,
-            verbose=False,
-        )
-        reader.readtext(
-            dummy_ocr,
-            batch_size=1,
-            workers=0,
-        )
 
     torch.cuda.synchronize()
-    print('[GPU] Warm-up complete.')
+    print('[GPU] Car detector warm-up complete; plate detector and OCR are on standby.')
 
 
 warmup_realtime_models()
@@ -4222,7 +4252,7 @@ try:
                 detect_frame,
                 # Give BoT-SORT low-confidence boxes so it can KEEP an ID
                 # through blur/partial occlusion. We still filter application
-                # detections to CAR_CONF_THRESHOLD (0.60) below.
+                # detections to CAR_CONF_THRESHOLD below.
                 conf=TRACKER_INPUT_CONF,
                 imgsz=CAR_DETECTOR_IMGSZ,
                 tracker=CUSTOM_TRACKER_PATH,
@@ -4250,8 +4280,9 @@ try:
 
                     conf = float(box.conf[0])
 
-                    # Explicit second guard: keep only car detections >= 0.60.
-                    # Ultralytics already receives conf=CAR_CONF_THRESHOLD above,
+                    # Explicit second guard: keep only detections at the
+                    # configured car confidence threshold.
+                    # Ultralytics already receives the same confidence above,
                     # but this prevents low-confidence boxes from entering the
                     # rest of the pipeline if tracker behavior changes.
                     if conf < CAR_CONF_THRESHOLD:
@@ -4377,7 +4408,11 @@ try:
                 display_box = (
                     padded_car_box
                     if DRAW_PADDED_CAR_BOX
-                    else reduced_car_box
+                    else expand_display_box(
+                        reduced_car_box,
+                        frame.shape,
+                        CAR_DISPLAY_BOX_EXPAND_RATIO
+                    )
                 )
                 dx1, dy1, dx2, dy2 = display_box
 
@@ -4447,9 +4482,10 @@ try:
             # =================================================
 
             if stage2_tasks:
+                license_plate_model = get_license_plate_model()
                 raw_plate_results = detect_best_plates_batch(
                     [task['car_crop'] for task in stage2_tasks],
-                    trained_model
+                    license_plate_model
                 )
 
                 for task, result in zip(
@@ -4485,7 +4521,7 @@ try:
             if fallback_tasks:
                 padded_plate_results = detect_best_plates_batch(
                     fallback_crops,
-                    trained_model
+                    license_plate_model
                 )
 
                 for task, padded_crop, result in zip(
@@ -4561,7 +4597,7 @@ try:
                 final_id, _ = process_plate_for_track(
                     raw_track_id,
                     plate_zoom,
-                    reader,
+                    get_ocr_reader(),
                     car_memory,
                     car_conf=task['conf'],
                     plate_conf=plate_conf,
@@ -4624,14 +4660,7 @@ try:
                 car_track_id = resolve_car_id(car_track_id)
                 result_info = car_memory.get(car_track_id)
 
-                if result_info and result_info.get('is_locked'):
-                    box_color = (0, 255, 0)
-
-                elif result_info and result_info.get('digits_locked'):
-                    box_color = (0, 255, 255)
-
-                else:
-                    box_color = (0, 165, 255)
+                box_color = (255, 255, 255)
 
                 cv2.rectangle(
                     frame,
@@ -4641,25 +4670,18 @@ try:
                     3
                 )
 
+                label = f'Car {car_track_id}'
                 if result_info:
-                    if result_info.get('is_locked'):
-                        status = 'LOCK'
-
-                    elif result_info.get('digits_locked'):
-                        status = 'DIGITS'
-
-                    else:
-                        status = 'READ'
-
-                    label = (
-                        f"Car {car_track_id}: "
-                        f"{result_info['text']} "
-                        f"({result_info['score']:.2f}) "
-                        f"[{status}]"
-                    )
-
-                else:
-                    label = f'Car {car_track_id}: reading...'
+                    recognized_plate = str(
+                        result_info.get('stable_text')
+                        or (
+                            result_info.get('text', '')
+                            if result_info.get('digits_locked')
+                            else ''
+                        )
+                    ).strip()
+                    if recognized_plate:
+                        label = f'Car {car_track_id} | {recognized_plate}'
 
                 car_text_labels.append(
                     (label, (px1, max(py1 - 10, 20)), box_color, 26)

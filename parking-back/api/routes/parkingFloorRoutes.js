@@ -35,8 +35,19 @@ const upload = multer({
 });
 
 router.use(userController.requireAuth);
+router.get("/slot-status-logs", floorController.listSlotStatusLogs);
 router.get("/catalog", floorController.dashboardCatalog);
+router.get("/catalog/cameras", floorController.dashboardCameraPresets);
+router.get(
+  "/catalog/:floorId/cameras/:cameraId/model-preview",
+  modelPreviewController.getCameraFrame,
+);
+router.post(
+  "/catalog/:floorId/cameras/:cameraId/preview",
+  cctvSourceController.streamCameraPresetPreview,
+);
 router.patch("/catalog/:id/slot-statuses", floorController.setSlotStatuses);
+router.patch("/catalog/:id/slot-vehicle-details", floorController.updateOccupiedSlotVehicleDetails);
 router.post("/catalog/:id/reset-slot-statuses", floorController.resetSlotStatuses);
 router.post("/catalog/:id/update-slot-statuses", floorController.refreshModelSlotStatuses);
 router.use(userController.requireAdmin);
@@ -93,6 +104,7 @@ router.post(
   floorController.saveCameraPreset,
 );
 router.patch("/:id/cameras/:cameraId/status", floorController.updateCameraPresetStatus);
+router.delete("/:id/cameras/:cameraId", floorController.deleteCameraPreset);
 router.patch("/:id/cameras/:cameraId/model", floorController.updateCameraModelState);
 router.get(
   "/:id/cameras/:cameraId/model-preview",

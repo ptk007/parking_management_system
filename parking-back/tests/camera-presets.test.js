@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const mongoose = require("mongoose");
 const ParkingFloor = require("../api/models/parkingFloorModel");
+const ParkingBuilding = require("../api/models/parkingBuildingModel");
 const ParkingSourceFile = require("../api/models/parkingSourceFileModel");
 const controller = require("../api/controllers/parkingFloorController");
 const pythonModelRuntime = require("../api/services/pythonModelRuntime");
@@ -29,6 +30,10 @@ function response() {
 function makeFloor(camera = null) {
   const cameras = camera ? [camera] : [];
   cameras.id = (id) => cameras.find((item) => String(item._id) === String(id));
+  cameras.pull = (id) => {
+    const index = cameras.findIndex((item) => String(item._id) === String(id));
+    if (index >= 0) cameras.splice(index, 1);
+  };
   return {
     _id: floorId,
     camera_presets: cameras,
@@ -247,6 +252,136 @@ test("new offline CCTV preset leaves YOLO disabled", async (t) => {
   assert.equal(res.statusCode, 200);
   assert.equal(floor.camera_presets[0].modelEnabled, false);
   assert.equal(start.mock.callCount(), 0);
+});
+
+test("creates an online CCTV preset without parking-slot JSON and leaves Detection disabled", async (t) => {
+  const floor = makeFloor();
+  t.mock.method(floor, "save", async () => {});
+  t.mock.method(floor, "populate", async () => floor);
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  const start = t.mock.method(pythonModelRuntime, "start", () => ({}));
+  const res = response();
+
+  await controller.saveCameraPreset(
+    {
+      params: { id: floorId },
+      body: {
+        name: "Preview-only camera",
+        cctvFileName: "camera-preview.json",
+        cameraNo: "CAM-6",
+        status: "Enable",
+        sourceStatus: "Online",
+      },
+    },
+    res,
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(floor.camera_presets[0].parkingSlotData, undefined);
+  assert.equal(floor.camera_presets[0].modelEnabled, false);
+  assert.equal(start.mock.callCount(), 0);
+});
+
+test("dashboard CCTV API returns preset preview state for the selected floor", async (t) => {
+  t.mock.method(ParkingBuilding, "findOne", () => ({
+    select: async () => ({ _id: "507f1f77bcf86cd799439099" }),
+  }));
+  t.mock.method(ParkingFloor, "find", () => ({
+    select: async () => [
+      {
+        _id: floorId,
+        building: "507f1f77bcf86cd799439099",
+        floor: 4,
+        veh_type: "car",
+        camera_presets: [
+          {
+            _id: cameraId,
+            name: "North entrance",
+            sourceStatus: "Online",
+            status: "Enable",
+            modelEnabled: false,
+            cameraSelector: "CAM-01",
+            cameraNo: "01",
+            ipAddress: "10.0.0.1",
+            sourceCameraName: "North camera",
+            rtspLink: "rtsp://private",
+            cctvFileName: "source.json",
+            parkingSlotFileId: "slot-file-id",
+            parkingSlotData: { slots: [] },
+            modelRuntimeStatus: "Offline",
+            modelRuntimeMessage: "",
+            modelRuntimeUpdatedAt: null,
+            modelRuntimeId: "",
+            slotStatusRefreshVersion: 0,
+          },
+        ],
+      },
+    ],
+  }));
+  const res = response();
+  await controller.dashboardCameraPresets(
+    { query: { buildingName: "E4", floor: "4", veh_type: "car" } },
+    res,
+  );
+  assert.deepEqual(res.body, {
+    cameras: [{
+      _id: cameraId,
+      name: "North entrance",
+      sourceStatus: "Online",
+      status: "Enable",
+      modelEnabled: false,
+      cameraSelector: "CAM-01",
+      cameraNo: "01",
+      ipAddress: "10.0.0.1",
+      sourceCameraName: "North camera",
+      rtspLink: "rtsp://private",
+      cctvFileName: "source.json",
+      parkingSlotFileId: "slot-file-id",
+      parkingSlotData: { slots: [] },
+      modelRuntimeStatus: "Offline",
+      modelRuntimeMessage: "",
+      modelRuntimeUpdatedAt: null,
+      modelRuntimeId: "",
+      slotStatusRefreshVersion: 0,
+      floorId,
+      floor: 4,
+      veh_type: "car",
+      buildingId: "507f1f77bcf86cd799439099",
+    }],
+  });
+});
+
+test("deleting a CCTV preset removes its map assignment but keeps the slot", async (t) => {
+  const camera = { _id: cameraId };
+  const floor = makeFloor(camera);
+  floor.parking_map = {
+    slots: [
+      {
+        zone: "A",
+        number: 1,
+        status: "occupied",
+        cameraPresetId: cameraId,
+        parkingSlotName: "zoneA_slot01",
+      },
+    ],
+  };
+  t.mock.method(floor, "save", async () => {});
+  t.mock.method(floor, "populate", async () => floor);
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  const res = response();
+
+  await controller.deleteCameraPreset(
+    { params: { id: floorId, cameraId } },
+    res,
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(floor.camera_presets.length, 0);
+  assert.deepEqual(floor.parking_map.slots[0], {
+    zone: "A",
+    number: 1,
+    status: "occupied",
+  });
 });
 
 test("rejects embedded JSON without a named parking-slot category", async (t) => {

@@ -116,13 +116,10 @@ describe('Parking Map workspace', () => {
   })
   it('updates floor status from the controls beside the Parking Map title', async () => {
     const { wrapper } = await createPage()
-    const available = wrapper.get<HTMLButtonElement>('.floor-status-button.available')
-    const disable = wrapper.get<HTMLButtonElement>('.floor-status-button.disable')
+    const floorSwitch = wrapper.get<HTMLButtonElement>('[aria-label="Set floor Available or Disable"]')
 
-    expect(available.text()).toBe('Available')
-    expect(disable.text()).toBe('Disable')
-    expect(disable.attributes('aria-pressed')).toBe('true')
-    await available.trigger('click')
+    expect(floorSwitch.attributes('aria-checked')).toBe('false')
+    await floorSwitch.trigger('click')
     await flushPromises()
 
     expect(floorService.update).toHaveBeenCalledWith(
@@ -134,7 +131,7 @@ describe('Parking Map workspace', () => {
         status: 'Available',
       }),
     )
-    expect(available.attributes('aria-pressed')).toBe('true')
+    expect(floorSwitch.attributes('aria-checked')).toBe('true')
     expect(wrapper.findAll<HTMLButtonElement>('.view-mode button')[1]!.element.disabled).toBe(true)
   })
   it('assigns a floor CCTV and one of its parking-slot categories to a selected map slot', async () => {

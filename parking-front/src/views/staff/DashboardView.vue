@@ -24,12 +24,24 @@
       />
 
       <div v-if="activeTab === 'cctv' && authStore.canManageParking" class="cctv-grid">
+        <p v-if="selectedLocation?.isSample" class="cctv-state" role="status">
+          Sample map selected. Select a saved parking location to view its CCTV presets.
+        </p>
+        <p v-else-if="cctvLoading" class="cctv-state" role="status">Loading CCTV presets...</p>
+        <p v-else-if="cctvError" class="cctv-state error" role="alert">{{ cctvError }}</p>
         <CameraPreviewCard
           v-for="camera in staffCameras"
-          :key="camera.title"
-          :title="camera.title"
-          :plate-suffix="camera.plateSuffix"
+          :key="camera._id"
+          :floor-id="camera.floorId"
+          :camera-id="camera._id"
+          :title="camera.name"
+          :source-status="camera.sourceStatus"
+          :status="camera.status"
+          :model-enabled="camera.modelEnabled"
         />
+        <p v-if="!selectedLocation?.isSample && !cctvLoading && !cctvError && !staffCameras.length" class="cctv-state" role="status">
+          No CCTV presets are configured for this parking location.
+        </p>
       </div>
 
       <div v-else-if="activeTab === 'log' && authStore.canManageParking" class="logs-panel">
@@ -107,7 +119,13 @@ import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/Par
 import DashboardMap from '@/components/parking/DashboardMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
 import { useAuthStore } from '@/stores/auth'
-import { parkingLogService, type ParkingFloor, type ParkingLogRecord } from '@/services/api'
+import {
+  cctvService,
+  type DashboardCameraPreset,
+  parkingLogService,
+  type ParkingFloor,
+  type ParkingLogRecord,
+} from '@/services/api'
 import { dashboardParkingLogSamples } from '@/data/parkingLogSamples'
 
 defineProps<{ embedded?: boolean }>()
@@ -139,12 +157,10 @@ watch(
   },
 )
 
-const staffCameras = [
-  { title: 'Entrance', plateSuffix: '7' },
-  { title: 'Exit', plateSuffix: '7' },
-  { title: 'Floor4 B6', plateSuffix: '5' },
-  { title: 'Floor4 C3', plateSuffix: '6' },
-]
+const staffCameras = ref<DashboardCameraPreset[]>([])
+const cctvLoading = ref(false)
+const cctvError = ref('')
+let cctvRequestSequence = 0
 
 const parkingLogs = ref<ParkingLogDisplay[]>([])
 const isShowingSampleLogs = ref(false)
@@ -199,12 +215,45 @@ const mapParkingLog = (log: ParkingLogRecord): ParkingLogDisplay => ({
 })
 
 const onLogLocationChange = (location: { floor: ParkingFloor; isSample: boolean } | null) => {
-  logRequestSequence += 1
+  const previousLocation = selectedLocation.value
+  const sameLocation =
+    previousLocation?.floor._id === location?.floor._id &&
+    previousLocation?.isSample === location?.isSample
+  if (location?.isSample && activeTab.value === 'cctv') activeTab.value = 'slots'
   selectedLocation.value = location
+  if (sameLocation) return
+
+  logRequestSequence += 1
   parkingLogs.value = []
   isLoadingLogs.value = false
   logsError.value = ''
+  staffCameras.value = []
+  void loadCctvPresets(location)
   if (activeTab.value === 'log') loadParkingLogs()
+}
+
+async function loadCctvPresets(location: { floor: ParkingFloor; isSample: boolean } | null) {
+  const sequence = ++cctvRequestSequence
+  staffCameras.value = []
+  cctvError.value = ''
+  if (!location || location.isSample || !location.floor.building?.building_name) {
+    cctvLoading.value = false
+    return
+  }
+  cctvLoading.value = true
+  try {
+    const response = await cctvService.getDashboardPresets(
+      location.floor.building.building_name,
+      location.floor.floor,
+      location.floor.veh_type,
+    )
+    if (sequence === cctvRequestSequence) staffCameras.value = response.data.cameras
+  } catch {
+    if (sequence === cctvRequestSequence)
+      cctvError.value = 'Unable to load CCTV presets for this parking location.'
+  } finally {
+    if (sequence === cctvRequestSequence) cctvLoading.value = false
+  }
 }
 
 watch(activeTab, (tab) => {
@@ -316,6 +365,7 @@ async function exportParkingLogs() {
 }
 
 onUnmounted(() => {
+  cctvRequestSequence += 1
   if (exportNotificationTimeout) clearTimeout(exportNotificationTimeout)
 })
 </script>
@@ -445,6 +495,17 @@ onUnmounted(() => {
   grid-template-columns: repeat(2, minmax(320px, 393px));
   gap: 12px 82px;
   justify-content: center;
+}
+.cctv-state {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border-radius: 10px;
+  background: #fff;
+  color: #475569;
+  text-align: center;
+}
+.cctv-state.error {
+  color: #b42318;
 }
 
 .logs-panel {

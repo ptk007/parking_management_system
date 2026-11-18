@@ -144,10 +144,6 @@
           <dd>{{ camera.name }}</dd>
         </div>
         <div>
-          <dt>Vehicle</dt>
-          <dd>{{ vehicle }}</dd>
-        </div>
-        <div>
           <dt>Original CCTV Source</dt>
           <dd>{{ camera.cctvFileName || '-' }}</dd>
         </div>
@@ -171,28 +167,29 @@
       </dl>
       <div class="cctv-card-actions">
         <div class="cctv-preset-control">
-          <button
-            type="button"
-            :class="['cctv-preset-toggle', camera.status === 'Disable' ? 'is-enable' : 'is-disable']"
-            :disabled="!camera._id || modelBusyCameraIds.length > 0"
-            :aria-label="`${camera.status === 'Disable' ? 'Enable' : 'Disable'} CCTV preset ${camera.name}`"
-            @click="togglePreset(camera)"
-          >
-            {{ camera.status === 'Disable' ? 'Enable' : 'Disable' }}
-          </button>
-          <small>Preset</small>
+          <div class="cctv-toggle-row">
+            <span>CCTV</span>
+            <ToggleSwitch
+              :checked="camera.status === 'Enable'"
+              :disabled="!camera._id || modelBusyCameraIds.length > 0"
+              :label="`CCTV preset ${camera.name}`"
+              @toggle="togglePreset(camera)"
+            />
+          </div>
         </div>
         <div class="cctv-model-control">
-          <button
-            type="button"
-            class="cctv-model-toggle"
-            :class="camera.modelEnabled ? 'is-disable' : 'is-enable'"
-            :disabled="!camera._id || camera.status === 'Disable' || modelBusyCameraIds.length > 0"
-            :aria-label="`${camera.modelEnabled ? 'Disable Detection' : 'Enable Detection'} for ${camera.name}`"
-            @click="toggleModel(camera)"
-          >
-            {{ modelBusyCameraIds.includes(camera._id || '') ? 'Saving...' : camera.modelEnabled ? 'Disable Detection' : 'Enable Detection' }}
-          </button>
+          <div class="cctv-toggle-row">
+            <span>Detection</span>
+            <ToggleSwitch
+              :checked="!!camera.modelEnabled"
+              :disabled="!camera._id || camera.status === 'Disable' || !camera.parkingSlotData || modelBusyCameraIds.length > 0"
+              :label="`Detection for ${camera.name}`"
+              @toggle="toggleModel(camera)"
+            />
+          </div>
+          <small v-if="!camera.parkingSlotData" class="detection-slot-requirement">
+            Add parking-slot JSON to enable Detection.
+          </small>
           <span
             class="cctv-model-status"
             :class="`status-${modelStatusLabel(camera).toLowerCase()}`"
@@ -223,9 +220,50 @@
         >
           <SquarePen :size="29" />
         </button>
+        <button
+          type="button"
+          class="cctv-delete"
+          :aria-label="`Delete CCTV preset ${camera.name}`"
+          :disabled="deletingCameraId !== ''"
+          @click="cameraToDelete = camera"
+        >
+          <Trash2 :size="27" />
+        </button>
       </div>
     </article>
     <Teleport to="body">
+      <div
+        v-if="cameraToDelete"
+        class="cctv-delete-overlay"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-cctv-title"
+        @click.self="!deletingCameraId && (cameraToDelete = null)"
+      >
+        <section class="cctv-delete-dialog">
+          <h2 id="delete-cctv-title">Delete CCTV preset?</h2>
+          <p>
+            Delete {{ cameraToDelete.name }}? Its parking-map assignment will be removed, while
+            the map slot and its status will remain.
+          </p>
+          <p v-if="deleteCameraError" role="alert" class="cctv-delete-error">
+            {{ deleteCameraError }}
+          </p>
+          <div>
+            <button type="button" :disabled="!!deletingCameraId" @click="cameraToDelete = null">
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="cctv-delete-confirm"
+              :disabled="!!deletingCameraId"
+              @click="deleteCameraPreset"
+            >
+              {{ deletingCameraId ? 'Deleting...' : 'Delete' }}
+            </button>
+          </div>
+        </section>
+      </div>
       <div
         v-if="expandedPreview && activePreviewCamera"
         class="cctv-expanded-overlay"
@@ -268,9 +306,11 @@ import {
   Upload,
   FileJson,
   Download,
+  Trash2,
 } from 'lucide-vue-next'
 import { isAxiosError } from 'axios'
 import { floorService, type ParkingFloor, type ParkingSlotFile } from '@/services/api'
+import ToggleSwitch from '@/components/ToggleSwitch.vue'
 import { MAX_IMPORT_BYTES } from '@/components/parking/parkingMapJson'
 import { consumeMjpegPreview } from './cctvMjpeg'
 
@@ -283,9 +323,6 @@ const emit = defineEmits<{
 }>()
 const props = defineProps<{ selectedFloor?: ParkingFloor | null }>()
 const building = computed(() => props.selectedFloor?.building?.building_name || 'Building')
-const vehicle = computed(() =>
-  props.selectedFloor?.veh_type === 'motorcycle' ? 'Motorcycles' : 'Cars',
-)
 const slotFiles = ref<ParkingSlotFile[]>([])
 const activePreviewCameraId = ref('')
 const previewFrame = ref('')
@@ -293,6 +330,9 @@ const previewMessage = ref('')
 const expandedPreview = ref(false)
 const modelBusyCameraIds = ref<string[]>([])
 const modelControlErrors = ref<Record<string, string>>({})
+const cameraToDelete = ref<CctvFormCamera | null>(null)
+const deletingCameraId = ref('')
+const deleteCameraError = ref('')
 const modelStatusRefreshError = ref('')
 let modelRefreshTimer: ReturnType<typeof setInterval> | undefined
 let modelRefreshPending = false
@@ -426,6 +466,28 @@ async function togglePreset(camera: CctvFormCamera) {
     }
   } finally {
     modelBusyCameraIds.value = modelBusyCameraIds.value.filter((id) => id !== cameraId)
+  }
+}
+
+async function deleteCameraPreset() {
+  const floorId = props.selectedFloor?._id
+  const camera = cameraToDelete.value
+  if (!floorId || !camera?._id || deletingCameraId.value) return
+  deletingCameraId.value = camera._id
+  deleteCameraError.value = ''
+  try {
+    const response = await floorService.removeCamera(floorId, camera._id)
+    if (activePreviewCameraId.value === camera._id) stopCameraPreview()
+    cameraToDelete.value = null
+    emit('floor-updated', response.data.floor)
+  } catch (cause) {
+    deleteCameraError.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Unable to delete CCTV preset.'
+      : cause instanceof Error
+        ? cause.message
+        : 'Unable to delete CCTV preset.'
+  } finally {
+    deletingCameraId.value = ''
   }
 }
 
@@ -1025,40 +1087,8 @@ button:disabled {
 }
 .cctv-preset-control {
   display: grid;
-  justify-items: center;
   gap: 7px;
-  text-align: center;
-}
-.cctv-preset-control small {
-  color: #64748b;
-  font-size: 11px;
-}
-.cctv-preset-toggle,
-.cctv-model-toggle {
-  min-height: 38px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: #e5e7eb;
-  color: #1f2937;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.cctv-preset-toggle {
-  min-width: 96px;
-  padding: 8px 12px;
-}
-.cctv-preset-toggle.is-enable,
-.cctv-model-toggle.is-enable {
-  border-color: #15803d;
-}
-.cctv-preset-toggle.is-disable,
-.cctv-model-toggle.is-disable {
-  border-color: #b91c1c;
-}
-.cctv-preset-toggle:hover:not(:disabled),
-.cctv-model-toggle:hover:not(:disabled) {
-  filter: brightness(0.96);
+  min-width: 118px;
 }
 .cctv-disabled-message {
   display: grid;
@@ -1071,21 +1101,19 @@ button:disabled {
 }
 .cctv-model-control {
   display: grid;
-  justify-items: center;
+  justify-items: stretch;
   gap: 7px;
   max-width: none;
-  text-align: center;
+  min-width: 140px;
 }
-.cctv-model-toggle {
-  display: inline-flex;
+.cctv-toggle-row {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 160px;
-  padding: 8px 12px;
-}
-.cctv-model-toggle:not(:disabled):hover {
-  filter: brightness(0.96);
+  justify-content: space-between;
+  gap: 10px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
 }
 .cctv-model-status {
   font-size: 12px;
@@ -1150,6 +1178,59 @@ button:disabled {
   height: 40px;
   border-radius: 6px;
   color: #222;
+}
+.cctv-delete {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  color: #c62828;
+}
+.cctv-delete:hover {
+  background: #fff1f0;
+}
+.cctv-delete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 44%);
+}
+.cctv-delete-dialog {
+  width: min(100%, 440px);
+  padding: 24px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 48px rgb(15 23 42 / 24%);
+}
+.cctv-delete-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 19px;
+}
+.cctv-delete-dialog p {
+  margin: 0 0 18px;
+  color: #475569;
+  line-height: 1.5;
+}
+.cctv-delete-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.cctv-delete-confirm {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+.cctv-delete-error {
+  color: #b42318 !important;
+}
+.detection-slot-requirement {
+  color: #64748b;
+  font-size: 12px;
 }
 .cctv-edit:hover,
 .cctv-map-button:hover {

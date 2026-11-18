@@ -3,7 +3,11 @@ const path = require("path");
 const mongoose = require("mongoose");
 const ParkingBuilding = require("../models/parkingBuildingModel");
 const ParkingFloor = require("../models/parkingFloorModel");
+const ParkingLog = require("../models/parkingLogModel");
+const ParkingLogCounter = require("../models/parkingLogCounterModel");
+const ParkingSlotStatusLog = require("../models/parkingSlotStatusLogModel");
 const ParkingSourceFile = require("../models/parkingSourceFileModel");
+const Vehicle = require("../models/vehicleModel");
 const { getBangkokDateTime } = require("../utils/dateTime");
 const pythonModelRuntime = require("../services/pythonModelRuntime");
 
@@ -24,6 +28,52 @@ function getUpdatedAt() {
     date_updated: timestamp.date_add,
     time_updated: timestamp.time_add,
   };
+}
+
+async function getNextGuestName() {
+  const counter = await ParkingLogCounter.findOneAndUpdate(
+    { _id: "guest" },
+    { $inc: { sequence: 1 } },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
+  );
+  return `Guest ${counter.sequence}`;
+}
+
+function getChangedEmptySlots(beforeSlots, afterSlots) {
+  const afterByKey = new Map(
+    afterSlots.map((slot) => [JSON.stringify([slot.zone, slot.number]), slot]),
+  );
+  return beforeSlots
+    .filter((slot) => ["available", "disabled"].includes(slot.status))
+    .filter((slot) => {
+      const after = afterByKey.get(JSON.stringify([slot.zone, slot.number]));
+      return after && after.status !== slot.status && ["available", "disabled"].includes(after.status);
+    })
+    .map((slot) => ({
+      zone: String(slot.zone ?? "default"),
+      number: Number(slot.number),
+      name: slot.parkingSlotName || slot.name || String(slot.number),
+    }));
+}
+
+async function recordSlotStatusChange(user, floor, slots, status) {
+  if (!slots.length) return;
+  const populatedBuildingName = floor.building?.building_name;
+  const buildingRecord = populatedBuildingName || !floor.building
+    ? null
+    : await ParkingBuilding.findById(floor.building).select("building_name");
+  const timestamp = getBangkokDateTime();
+  await ParkingSlotStatusLog.create({
+    name: user.name,
+    role: user.role,
+    building: populatedBuildingName || buildingRecord?.building_name || String(floor.building || ""),
+    floor: floor.floor,
+    veh_type: floor.veh_type,
+    slots,
+    date_updated: timestamp.date_add,
+    time_updated: timestamp.time_add,
+    status,
+  });
 }
 
 function normalizeFloorStatus(status) {
@@ -471,6 +521,43 @@ exports.dashboardCatalog = async (req, res) => {
     return sendError(res, error);
   }
 };
+
+exports.dashboardCameraPresets = async (req, res) => {
+  try {
+    const buildingName = String(req.query.buildingName || "").trim();
+    const floorNumber = Number(req.query.floor || 0);
+    const vehicleType = String(req.query.veh_type || "").trim();
+    if (!buildingName || !Number.isInteger(floorNumber) || floorNumber < 1 ||
+        !["car", "motorcycle"].includes(vehicleType))
+      return res.status(400).json({ message: "Building, floor, and vehicle type are required" });
+    const escapedName = buildingName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const building = await ParkingBuilding.findOne({
+      building_name: new RegExp(`^${escapedName}$`, "i"),
+    }).select("_id");
+    if (!building) return res.json({ cameras: [] });
+    const floors = await ParkingFloor.find({
+      building: building._id,
+      floor: floorNumber,
+      veh_type: vehicleType,
+    }).select("_id building floor veh_type camera_presets");
+    const cameras = floors.flatMap((floor) =>
+      (floor.camera_presets || []).map((camera) => {
+        const preset =
+          typeof camera.toObject === "function" ? camera.toObject() : { ...camera };
+        return {
+          ...preset,
+          floorId: String(floor._id),
+          floor: floor.floor,
+          veh_type: floor.veh_type,
+          buildingId: String(floor.building),
+        };
+      }),
+    );
+    return res.json({ cameras });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
 exports.saveMap = async (req, res) => {
   try {
     if (!isValidId(req.params.id))
@@ -486,17 +573,31 @@ exports.saveMap = async (req, res) => {
     const plateDetectionBySlot = new Map(
       (floor.parking_map?.slots || []).map((slot) => [
         JSON.stringify([slot.zone, slot.number]),
-        slot.licensePlateDetected,
+        {
+          licensePlateDetected: slot.licensePlateDetected,
+          license_num: slot.license_num,
+          province: slot.province,
+          date_updated: slot.date_updated,
+          time_updated: slot.time_updated,
+        },
       ]),
     );
     map.slots = map.slots.map((slot) => {
       const { licensePlateDetected: _untrustedDetection, ...cleanSlot } = slot;
-      const previousDetection = plateDetectionBySlot.get(
+      const previousDetails = plateDetectionBySlot.get(
         JSON.stringify([slot.zone, slot.number]),
       );
-      return slot.status === "occupied" && typeof previousDetection === "boolean"
-        ? { ...cleanSlot, licensePlateDetected: previousDetection }
-        : cleanSlot;
+      if (slot.status !== "occupied" || !previousDetails) return cleanSlot;
+      return {
+        ...cleanSlot,
+        ...(typeof previousDetails.licensePlateDetected === "boolean"
+          ? { licensePlateDetected: previousDetails.licensePlateDetected }
+          : {}),
+        ...(previousDetails.license_num ? { license_num: previousDetails.license_num } : {}),
+        ...(previousDetails.province ? { province: previousDetails.province } : {}),
+        ...(previousDetails.date_updated ? { date_updated: previousDetails.date_updated } : {}),
+        ...(previousDetails.time_updated ? { time_updated: previousDetails.time_updated } : {}),
+      };
     });
     for (const slot of map.slots) {
       const hasCameraPreset = slot.cameraPresetId !== undefined;
@@ -659,13 +760,7 @@ exports.saveCameraPreset = async (req, res) => {
         }
       } else {
         parkingSlotData = existingCamera?.parkingSlotData;
-        try {
-          getParkingSlotNames(parkingSlotData);
-        } catch {
-          return res.status(400).json({
-            message: "Provide parkingSlotData or a parking slot JSON file",
-          });
-        }
+        if (parkingSlotData) getParkingSlotNames(parkingSlotData);
       }
     }
 
@@ -694,8 +789,19 @@ exports.saveCameraPreset = async (req, res) => {
     const presetStatus = ["Enable", "Disable"].includes(data.status)
       ? data.status
       : existingCamera?.status || "Enable";
+    const hasValidSlotData = (() => {
+      try {
+        getParkingSlotNames(preset.parkingSlotData);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
     const autoEnableModel =
-      !existingCamera && presetStatus === "Enable" && sourceStatus === "Online";
+      !existingCamera &&
+      hasValidSlotData &&
+      presetStatus === "Enable" &&
+      sourceStatus === "Online";
     if (existingCamera) {
       const previousIdentity = [
         existingCamera.cameraNo || existingCamera.cameraSelector || "",
@@ -798,6 +904,39 @@ exports.updateCameraPresetStatus = async (req, res) => {
     // Keep the Detection preference while the preset is disabled. Runtime sync
     // gates the worker on both switches, so re-enabling the preset restores it.
     camera.modelRuntimeUpdatedAt = new Date();
+    Object.assign(floor, getUpdatedAt());
+    await floor.save();
+    await floor.populate("building", BUILDING_FIELDS);
+    return res.json({ success: true, floor });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.deleteCameraPreset = async (req, res) => {
+  try {
+    const { id, cameraId } = req.params;
+    if (!isValidId(id) || !isValidId(cameraId))
+      return res.status(400).json({ message: "Invalid floor or camera id" });
+    const floor = await ParkingFloor.findById(id);
+    if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const camera = floor.camera_presets.id(cameraId);
+    if (!camera) return res.status(404).json({ message: "Camera preset not found" });
+
+    if (floor.parking_map?.slots?.length) {
+      const map = floor.parking_map;
+      floor.parking_map = {
+        ...map,
+        slots: map.slots.map((slot) => {
+        if (String(slot.cameraPresetId) !== String(camera._id)) return slot;
+        const unassigned = { ...slot };
+        delete unassigned.cameraPresetId;
+        delete unassigned.parkingSlotName;
+        return unassigned;
+        }),
+      };
+    }
+    floor.camera_presets.pull(cameraId);
     Object.assign(floor, getUpdatedAt());
     await floor.save();
     await floor.populate("building", BUILDING_FIELDS);
@@ -1065,7 +1204,7 @@ exports.setSlotStatuses = async (req, res) => {
   try {
     const user = await require("../models/userModel")
       .findById(req.auth.userId)
-      .select("role status");
+      .select("name role status");
     if (
       !user ||
       user.status === "disable" ||
@@ -1086,6 +1225,7 @@ exports.setSlotStatuses = async (req, res) => {
     const floor = await ParkingFloor.findById(req.params.id);
     if (!floor?.parking_map)
       return res.status(404).json({ message: "Parking map not found" });
+    const originalSlots = floor.parking_map.slots;
     const selected = new Set(keys);
     const slots = floor.parking_map.slots.map((slot) =>
       selected.has(JSON.stringify([slot.zone, slot.number])) &&
@@ -1093,6 +1233,10 @@ exports.setSlotStatuses = async (req, res) => {
         ? (() => {
             const updatedSlot = { ...slot, status };
             delete updatedSlot.licensePlateDetected;
+            delete updatedSlot.license_num;
+            delete updatedSlot.province;
+            delete updatedSlot.date_updated;
+            delete updatedSlot.time_updated;
             return updatedSlot;
           })()
         : slot,
@@ -1107,8 +1251,163 @@ exports.setSlotStatuses = async (req, res) => {
       return res
         .status(409)
         .json({ message: "Map changed. Reload and try again." });
+    const changedSlots = getChangedEmptySlots(originalSlots, slots);
+    await recordSlotStatusChange(user, floor, changedSlots, status);
     res.json({ map });
   } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.updateOccupiedSlotVehicleDetails = async (req, res) => {
+  try {
+    const user = await require("../models/userModel")
+      .findById(req.auth.userId)
+      .select("role status");
+    if (!user || user.status === "disable" || !["admin", "staff"].includes(user.role))
+      return res.status(403).json({ message: "Parking management access required" });
+    const { key, license_num, province } = req.body || {};
+    if (
+      !isValidId(req.params.id) ||
+      typeof key !== "string" ||
+      key.length > 256 ||
+      typeof license_num !== "string" ||
+      !license_num.trim() ||
+      license_num.trim().length > 100 ||
+      typeof province !== "string" ||
+      !province.trim() ||
+      province.trim().length > 100
+    )
+      return res.status(400).json({ message: "License plate and province are required" });
+    let identity;
+    try {
+      identity = JSON.parse(key);
+    } catch {
+      return res.status(400).json({ message: "Invalid parking slot key" });
+    }
+    if (
+      !Array.isArray(identity) ||
+      identity.length !== 2 ||
+      typeof identity[0] !== "string" ||
+      !Number.isSafeInteger(identity[1]) ||
+      identity[1] < 1
+    )
+      return res.status(400).json({ message: "Invalid parking slot key" });
+    const floor = await ParkingFloor.findById(req.params.id);
+    if (!floor?.parking_map)
+      return res.status(404).json({ message: "Parking map not found" });
+    const target = floor.parking_map.slots.find(
+      (slot) => slot.zone === identity[0] && slot.number === identity[1],
+    );
+    if (!target) return res.status(404).json({ message: "Parking map slot not found" });
+    if (target.status !== "occupied")
+      return res.status(409).json({ message: "Vehicle details can only be saved for an occupied slot" });
+    const buildingId = String(floor.building?._id || floor.building || "");
+    const slotLogIdentity = target.cameraPresetId && target.parkingSlotName
+      ? {
+          buildingId,
+          floorId: floor._id,
+          veh_type: floor.veh_type,
+          park_slot: target.number,
+          cameraPresetId: target.cameraPresetId,
+          parkingSlotName: target.parkingSlotName,
+          park_status: "Parking",
+        }
+      : null;
+    const activeLog = slotLogIdentity
+      ? await ParkingLog.findOne(slotLogIdentity)
+      : null;
+    if (
+      activeLog &&
+      (activeLog.license_num !== license_num.trim() || activeLog.province !== province.trim())
+    ) {
+      const duplicateActiveLog = await ParkingLog.exists({
+        buildingId,
+        floorId: floor._id,
+        veh_type: floor.veh_type,
+        license_num: license_num.trim(),
+        province: province.trim(),
+        park_status: "Parking",
+        _id: { $ne: activeLog._id },
+      });
+      if (duplicateActiveLog)
+        return res.status(409).json({ message: "This vehicle already has an active parking log on this floor" });
+    }
+    let vehicle = null;
+    let activeLogUpdate = null;
+    if (activeLog) {
+      vehicle = await Vehicle.findOne({
+        license_num: license_num.trim(),
+        province: province.trim(),
+        veh_type: floor.veh_type,
+      }).populate("name", "name username");
+      const owner = vehicle?.name;
+      const ownerId = owner && typeof owner === "object" ? owner._id : owner || null;
+      const ownerName = owner && typeof owner === "object"
+        ? owner.name || owner.username || ""
+        : "";
+      const logName = ownerName || (!activeLog.owner ? activeLog.name : "") || await getNextGuestName();
+      activeLogUpdate = {
+        license_num: license_num.trim(),
+        province: province.trim(),
+        owner: ownerId,
+        name: logName,
+      };
+    }
+    const timestamp = getUpdatedAt();
+    const map = {
+      ...floor.parking_map,
+      slots: floor.parking_map.slots.map((slot) =>
+        slot.zone === identity[0] && slot.number === identity[1]
+          ? {
+              ...slot,
+              license_num: license_num.trim(),
+              province: province.trim(),
+              ...timestamp,
+            }
+          : slot,
+      ),
+    };
+    const updated = await ParkingFloor.findOneAndUpdate(
+      { _id: floor._id, parking_map: floor.parking_map },
+      { $set: { parking_map: map, ...timestamp } },
+      { new: true },
+    );
+    if (!updated)
+      return res.status(409).json({ message: "Map changed. Reload and try again." });
+    let activeLogUpdated = false;
+    let updatedLog = null;
+    let removedHistoryCount = 0;
+    if (activeLog) {
+      updatedLog = await ParkingLog.findOneAndUpdate(
+        { _id: activeLog._id, park_status: "Parking" },
+        { $set: activeLogUpdate },
+        { new: true },
+      );
+      activeLogUpdated = Boolean(updatedLog);
+      if (activeLogUpdated && vehicle && activeLogUpdate.owner) {
+        const deletion = await ParkingLog.deleteMany({
+          owner: activeLogUpdate.owner,
+          veh_type: floor.veh_type,
+          license_num: license_num.trim(),
+          province: province.trim(),
+          park_status: { $in: ["Exited", "Not parking"] },
+          _id: { $ne: activeLog._id },
+        });
+        removedHistoryCount = deletion.deletedCount || 0;
+      }
+    }
+    return res.json({
+      success: true,
+      map: updated.parking_map,
+      log: updatedLog,
+      activeLogFound: Boolean(activeLog),
+      activeLogUpdated,
+      removedHistoryCount,
+    });
+  } catch (error) {
+    if (error?.code === 11000)
+      return res.status(409).json({ message: "This vehicle already has an active parking log on this floor" });
     return sendError(res, error);
   }
 };
@@ -1117,7 +1416,7 @@ exports.resetSlotStatuses = async (req, res) => {
   try {
     const user = await require("../models/userModel")
       .findById(req.auth.userId)
-      .select("role status");
+      .select("name role status");
     if (
       !user ||
       user.status === "disable" ||
@@ -1130,6 +1429,7 @@ exports.resetSlotStatuses = async (req, res) => {
     const floor = await ParkingFloor.findById(req.params.id);
     if (!floor?.parking_map)
       return res.status(404).json({ message: "Parking map not found" });
+    const originalSlots = floor.parking_map.slots;
     const presets = floor.camera_presets || [];
     if (!presets.length || presets.some((camera) => camera.status !== "Disable"))
       return res.status(409).json({
@@ -1141,6 +1441,10 @@ exports.resetSlotStatuses = async (req, res) => {
       slots: floor.parking_map.slots.map((slot) => {
         const updatedSlot = { ...slot, status: "available" };
         delete updatedSlot.licensePlateDetected;
+        delete updatedSlot.license_num;
+        delete updatedSlot.province;
+        delete updatedSlot.date_updated;
+        delete updatedSlot.time_updated;
         return updatedSlot;
       }),
     };
@@ -1151,7 +1455,35 @@ exports.resetSlotStatuses = async (req, res) => {
     );
     if (!updated)
       return res.status(409).json({ message: "Map changed. Reload and try again." });
+    const changedSlots = getChangedEmptySlots(originalSlots, map.slots);
+    await recordSlotStatusChange(user, floor, changedSlots, "available");
     return res.json({ map: updated.parking_map });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+exports.listSlotStatusLogs = async (req, res) => {
+  try {
+    const user = await require("../models/userModel")
+      .findById(req.auth.userId)
+      .select("role status");
+    if (!user || user.status === "disable" || !["staff", "admin"].includes(user.role))
+      return res.status(403).json({ message: "Parking management access required" });
+    const rolesParam = req.query.roles;
+    let roles = ["staff", "admin"];
+    if (rolesParam !== undefined) {
+      roles = String(rolesParam)
+        .split(",")
+        .map((role) => role.trim().toLowerCase())
+        .filter(Boolean);
+      if (!roles.length || roles.some((role) => !["staff", "admin"].includes(role)))
+        return res.status(400).json({ message: "Invalid role filter" });
+    }
+    const logs = await ParkingSlotStatusLog.find({ role: { $in: roles } })
+      .sort({ date_updated: -1, time_updated: -1, _id: -1 })
+      .lean();
+    return res.json({ logs });
   } catch (error) {
     return sendError(res, error);
   }

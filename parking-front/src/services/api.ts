@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
-import type { ChatTicket, NewSupportTicket } from '@/types'
+import type { ApiUser, ChatTicket, NewSupportTicket, UserStatus } from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '')
@@ -26,6 +26,42 @@ export const authService = {
     apiClient.post('/auth/login', { username, password }),
   logout: () => apiClient.post('/auth/logout'),
   verifyToken: () => apiClient.get('/auth/verify'),
+}
+
+export interface StaffUserInput {
+  username: string
+  name: string
+  password?: string
+  user_image?: File | null
+}
+
+function staffUserFormData(data: StaffUserInput, includeRole: boolean) {
+  const form = new FormData()
+  form.append('username', data.username)
+  form.append('name', data.name)
+  if (data.password) form.append('password', data.password)
+  if (includeRole) form.append('role', 'staff')
+  if (data.user_image) form.append('user_image', data.user_image)
+  return form
+}
+
+export const userService = {
+  listStaff: () => apiClient.get<{ success: boolean; count: number; users: ApiUser[] }>('/users'),
+  createStaff: (data: StaffUserInput) =>
+    apiClient.post<{ success: boolean; user: ApiUser }>('/users', staffUserFormData(data, true), {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  updateStaff: (id: string, data: StaffUserInput) =>
+    apiClient.put<{ success: boolean; user: ApiUser }>(
+      `/users/${id}`,
+      staffUserFormData(data, false),
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ),
+  setStaffStatus: (id: string, status: Extract<UserStatus, 'offline' | 'disable'>) =>
+    apiClient.patch<{ success: boolean; user: ApiUser }>(`/users/${id}/status`, { status }),
+  remove: (id: string) => apiClient.delete<{ success: boolean; message: string }>(`/users/${id}`),
+  imageUrl: (imagePath: string | null | undefined) =>
+    imagePath ? new URL(imagePath.replace(/^\/+/, ''), `${API_ORIGIN}/`).toString() : '',
 }
 
 export const dashboardService = {
@@ -108,6 +144,33 @@ export interface CameraSummaryResponse {
   floorSummaries: Record<string, BuildingCameraSummary>
 }
 
+export interface DashboardCameraPreset {
+  _id: string
+  floorId: string
+  floor: number
+  veh_type: 'car' | 'motorcycle'
+  buildingId: string
+  name: string
+  cctvFileName?: string
+  cameraSelector?: string
+  cameraNo?: string
+  ipAddress?: string
+  sourceCameraName?: string
+  rtspLink?: string
+  status: 'Enable' | 'Disable'
+  sourceStatus: 'Online' | 'Offline' | 'Unknown'
+  modelEnabled: boolean
+  modelRuntimeStatus: 'Offline' | 'Starting' | 'Online' | 'Stopping' | 'Error'
+  modelRuntimeMessage: string
+  modelRuntimeUpdatedAt: string | null
+  modelRuntimeId: string
+  slotStatusRefreshVersion: number
+  parkingSlotFileId?: string
+  parkingSlotData?: unknown
+  createAt?: string
+  updateAt?: string
+}
+
 export interface ParkingBuilding {
   _id: string
   building_name: string
@@ -176,7 +239,41 @@ export type ParkingFloorPayload = Pick<ParkingFloor, 'floor' | 'veh_type' | 'sta
   building: string
 }
 
+export interface ParkingSlotStatusLog {
+  _id: string
+  name: string
+  role: 'staff' | 'admin'
+  building: string
+  floor: number
+  veh_type: 'car' | 'motorcycle'
+  slots: { zone: string; number: number; name: string }[]
+  date_updated: string
+  time_updated: string
+  status: 'available' | 'disabled'
+}
+
 export const floorService = {
+  updateOccupiedSlotVehicleDetails: (
+    id: string,
+    key: string,
+    license_num: string,
+    province: string,
+  ) =>
+    apiClient.patch<{
+      success: boolean
+      map: NonNullable<ParkingFloor['parking_map']>
+      log: ParkingLogRecord | null
+      activeLogFound: boolean
+      activeLogUpdated: boolean
+      removedHistoryCount: number
+    }>(
+      `/admin/system/floors/catalog/${id}/slot-vehicle-details`,
+      { key, license_num, province },
+    ),
+  slotStatusLogs: (roles: ('staff' | 'admin')[]) =>
+    apiClient.get<{ logs: ParkingSlotStatusLog[] }>('/admin/system/floors/slot-status-logs', {
+      params: { roles: roles.join(',') },
+    }),
   setSlotStatuses: (id: string, keys: string[], status: 'available' | 'disabled') =>
     apiClient.patch<{ map: NonNullable<ParkingFloor['parking_map']> }>(
       `/admin/system/floors/catalog/${id}/slot-statuses`,
@@ -240,6 +337,10 @@ export const floorService = {
       ? apiClient.patch<{ floor: ParkingFloor }>(url, camera)
       : apiClient.post<{ floor: ParkingFloor }>(url, camera)
   },
+  removeCamera: (floorId: string, cameraId: string) =>
+    apiClient.delete<{ success: boolean; floor: ParkingFloor }>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}`,
+    ),
   sourceFiles: () =>
     apiClient.get<{ files: ParkingSlotFile[] }>('/admin/system/floors/source-files'),
   searchCctvSource: (fileId: string, query: string) =>
@@ -308,6 +409,28 @@ export const floorService = {
 }
 
 export const cctvService = {
+  getDashboardPresets: (buildingName: string, floor: number, vehicleType: 'car' | 'motorcycle') =>
+    apiClient.get<{ cameras: DashboardCameraPreset[] }>('/admin/system/floors/catalog/cameras', {
+      params: { buildingName, floor, veh_type: vehicleType },
+    }),
+  getDashboardModelFrame: (floorId: string, cameraId: string, signal?: AbortSignal) =>
+    apiClient.get<Blob>(
+      `/admin/system/floors/catalog/${floorId}/cameras/${cameraId}/model-preview`,
+      { responseType: 'blob', signal },
+    ),
+  streamDashboardCameraPreview: (floorId: string, cameraId: string, signal: AbortSignal) => {
+    const token = localStorage.getItem('token')
+    return fetch(
+      `${API_BASE_URL.replace(/\/+$/, '')}/admin/system/floors/catalog/${floorId}/cameras/${cameraId}/preview`,
+      {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal,
+      },
+    )
+  },
   getCameras: (buildingId: string, floorId: string) =>
     apiClient.get('/staff/cctv/cameras', {
       params: { buildingId, floorId },
