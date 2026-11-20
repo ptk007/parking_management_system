@@ -7,25 +7,34 @@
           <p>Enable / Disable Slot Records</p>
         </div>
 
-        <div class="info-popover">
-          <button class="info-button" type="button" aria-label="About this page">!</button>
-          <div class="info-tooltip" role="tooltip">
-            Shows which parking slots were enabled or disabled, which staff member changed the slot status, and when the change happened.
+        <div class="history-controls">
+          <fieldset class="role-filter" aria-label="Filter by role">
+            <label><input v-model="selectedRoles" type="checkbox" value="staff" /> Staff</label>
+            <label><input v-model="selectedRoles" type="checkbox" value="admin" /> Admin</label>
+          </fieldset>
+          <div class="info-popover">
+            <button class="info-button" type="button" aria-label="About this page">!</button>
+            <div class="info-tooltip" role="tooltip">
+              Shows which parking slots were enabled or disabled, which staff member changed the slot status, and when the change happened.
+            </div>
           </div>
         </div>
       </div>
 
-      <article v-for="entry in historyEntries" :key="entry.id" class="history-card">
-        <p>Changed by Staff : {{ entry.staffName }}</p>
+      <p v-if="loading" class="history-message">Loading slot status logs...</p>
+      <p v-else-if="loadError" class="history-message error">{{ loadError }}</p>
+      <p v-else-if="!historyEntries.length" class="history-message">No slot status changes found.</p>
+      <article v-for="entry in historyEntries" :key="entry._id" class="history-card">
+        <p>Changed by {{ entry.role === 'staff' ? 'Staff' : 'Admin' }} : {{ entry.name }}</p>
         <p>Building : {{ entry.building }}</p>
         <p>Floor <span>:</span> {{ entry.floor }}</p>
-        <p>Parking Slots : {{ entry.parkingSlots }}</p>
-        <p>Date edited : {{ entry.dateEdited }}</p>
-        <p>Time edited : {{ entry.timeEdited }}</p>
+        <p>Parking Slots : {{ formatSlots(entry.slots) }}</p>
+        <p>Date edited : {{ entry.date_updated }}</p>
+        <p>Time edited : {{ entry.time_updated }}</p>
         <p>
           Slot status changed to :
-          <strong :class="entry.statusChangedTo === 'Enable' ? 'enabled' : 'disabled'">
-            {{ entry.statusChangedTo }}
+          <strong :class="entry.status === 'available' ? 'enabled' : 'disabled'">
+            {{ entry.status === 'available' ? 'Enable' : 'Disable' }}
           </strong>
         </p>
       </article>
@@ -34,41 +43,37 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { floorService, type ParkingSlotStatusLog } from '@/services/api'
 
-interface HistoryEntry {
-  id: number
-  staffName: string
-  building: string
-  floor: string
-  parkingSlots: string
-  dateEdited: string
-  timeEdited: string
-  statusChangedTo: 'Enable' | 'Disable'
+const historyEntries = ref<ParkingSlotStatusLog[]>([])
+const selectedRoles = ref<Array<'staff' | 'admin'>>(['staff', 'admin'])
+const loading = ref(false)
+const loadError = ref('')
+
+async function loadHistory() {
+  loadError.value = ''
+  if (!selectedRoles.value.length) {
+    historyEntries.value = []
+    return
+  }
+  loading.value = true
+  try {
+    const response = await floorService.slotStatusLogs(selectedRoles.value)
+    historyEntries.value = response.data.logs
+  } catch {
+    loadError.value = 'Could not load slot status logs. Please try again.'
+  } finally {
+    loading.value = false
+  }
 }
 
-const historyEntries = ref<HistoryEntry[]>([
-  {
-    id: 1,
-    staffName: 'Thanathip Pitaksin',
-    building: 'E4',
-    floor: '4',
-    parkingSlots: '120, 121, 122, 123',
-    dateEdited: '11/4/2569',
-    timeEdited: '13:00:23',
-    statusChangedTo: 'Disable',
-  },
-  {
-    id: 2,
-    staffName: 'Atithan Sarapol',
-    building: 'E4',
-    floor: '4',
-    parkingSlots: '120, 121, 122, 123',
-    dateEdited: '11/4/2569',
-    timeEdited: '13:00:23',
-    statusChangedTo: 'Enable',
-  },
-])
+function formatSlots(slots: ParkingSlotStatusLog['slots']) {
+  return slots.map((slot) => slot.name || String(slot.number)).join(', ')
+}
+
+onMounted(loadHistory)
+watch(selectedRoles, loadHistory)
 </script>
 
 <style scoped>
@@ -93,6 +98,44 @@ const historyEntries = ref<HistoryEntry[]>([
   gap: 18px;
   margin: 0 0 22px;
   padding: 0 14px;
+}
+
+.history-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.role-filter {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.role-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #333;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.role-filter input {
+  accent-color: #a52e28;
+}
+
+.history-message {
+  margin: 24px 14px;
+  color: #555;
+  font-size: 14px;
+}
+
+.history-message.error {
+  color: #b42318;
 }
 
 .history-heading h2 {

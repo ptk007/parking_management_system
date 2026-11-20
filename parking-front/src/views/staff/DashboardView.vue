@@ -18,32 +18,115 @@
         { 'slots-content': activeTab === 'slots' || !authStore.canManageParking },
       ]"
     >
-      <DashboardMap v-show="activeTab === 'slots' || !authStore.canManageParking" />
+      <DashboardMap
+        :header-only="activeTab !== 'slots' && authStore.canManageParking"
+        @location-change="onLogLocationChange"
+      />
 
       <div v-if="activeTab === 'cctv' && authStore.canManageParking" class="cctv-grid">
+        <p v-if="selectedLocation?.isSample" class="cctv-state" role="status">
+          Sample map selected. Select a saved parking location to view its CCTV presets.
+        </p>
+        <p v-else-if="cctvLoading" class="cctv-state" role="status">Loading CCTV presets...</p>
+        <p v-else-if="cctvError" class="cctv-state error" role="alert">{{ cctvError }}</p>
         <CameraPreviewCard
           v-for="camera in staffCameras"
-          :key="camera.title"
-          :title="camera.title"
-          :plate-suffix="camera.plateSuffix"
+          :key="camera._id"
+          :floor-id="camera.floorId"
+          :camera-id="camera._id"
+          :title="camera.name"
+          :source-status="camera.sourceStatus"
+          :status="camera.status"
+          :model-enabled="camera.modelEnabled"
         />
+        <p v-if="!selectedLocation?.isSample && !cctvLoading && !cctvError && !staffCameras.length" class="cctv-state" role="status">
+          No CCTV presets are configured for this parking location.
+        </p>
       </div>
 
       <div v-else-if="activeTab === 'log' && authStore.canManageParking" class="logs-panel">
-        <div class="warning-banner"><span>Exited</span> car log will reset after 24 hours</div>
-
-        <ParkingLogCard v-for="log in parkingLogs" :key="log.id" :log="log" />
+        <div class="sample-log-controls">
+          <button
+            type="button"
+            class="sample-log-toggle"
+            :aria-pressed="isShowingSampleLogs"
+            @click="isShowingSampleLogs = !isShowingSampleLogs"
+          >
+            {{ isShowingSampleLogs ? 'Hide sample logs' : 'View sample logs' }}
+          </button>
+          <button
+            type="button"
+            class="export-log-button"
+            :disabled="
+              !isSelectedLocation ||
+              (selectedLocation?.isSample && !sampleLogsForSelectedLocation.length) ||
+              isExporting ||
+              isLoadingLogs
+            "
+            @click="exportParkingLogs"
+          >
+            {{ isExporting ? 'Exporting...' : 'Export log' }}
+          </button>
+          <span v-if="isShowingSampleLogs" class="sample-log-note">
+            Sample preview only. These logs are not saved to the database.
+          </span>
+        </div>
+        <div class="warning-banner">
+          <span>Exited and Not Parking</span> logs are shown for 24 hours; records remain in the
+          database.
+        </div>
+        <div class="undetected-parking-banner" role="status" aria-live="polite">
+          {{ undetectedOccupiedCount }}
+          <strong>Parking</strong>
+          with undetected license plate and province
+        </div>
+        <p v-if="!isShowingSampleLogs && isLoadingLogs" class="logs-state" role="status">
+          Loading parking logs...
+        </p>
+        <p v-else-if="!isSelectedLocation" class="logs-state" role="status">
+          Select a parking location
+        </p>
+        <p v-else-if="!isShowingSampleLogs && logsError" class="logs-state error" role="alert">
+          {{ logsError }} <button type="button" @click="loadParkingLogs">Try again</button>
+        </p>
+        <p v-else-if="!displayedParkingLogs.length" class="logs-state" role="status">
+          No parking logs found
+        </p>
+        <ParkingLogCard
+          v-for="log in displayedParkingLogs"
+          :key="log.id"
+          :log="log"
+          hide-building
+          hide-floor
+        />
       </div>
     </section>
+    <div
+      v-if="exportNotification"
+      :class="['export-log-notification', exportNotificationType]"
+      role="status"
+      aria-live="polite"
+    >
+      {{ exportNotification }}
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import ParkingLogCard from '@/components/parking/ParkingLogCard.vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { isAxiosError } from 'axios'
+import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/ParkingLogCard.vue'
 import DashboardMap from '@/components/parking/DashboardMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
 import { useAuthStore } from '@/stores/auth'
+import {
+  cctvService,
+  type DashboardCameraPreset,
+  parkingLogService,
+  type ParkingFloor,
+  type ParkingLogRecord,
+} from '@/services/api'
+import { dashboardParkingLogSamples } from '@/data/parkingLogSamples'
 
 defineProps<{ embedded?: boolean }>()
 
@@ -74,58 +157,217 @@ watch(
   },
 )
 
-const staffCameras = [
-  { title: 'Entrance', plateSuffix: '7' },
-  { title: 'Exit', plateSuffix: '7' },
-  { title: 'Floor4 B6', plateSuffix: '5' },
-  { title: 'Floor4 C3', plateSuffix: '6' },
-]
+const staffCameras = ref<DashboardCameraPreset[]>([])
+const cctvLoading = ref(false)
+const cctvError = ref('')
+let cctvRequestSequence = 0
 
-const parkingLogs = [
-  {
-    id: 1,
-    name: 'Mrs. Wilayporn Nonsila',
-    licenseNumber: 'กง 1234',
-    province: 'เชียงราย',
-    brand: 'Toyota',
-    model: 'Fortuner',
-    color: 'Black',
-    date: '12/08/2569',
-    parkingTime: '12:00:34',
-    exitTime: '-',
-    parkingSlot: '10',
-    status: 'Parking',
-  },
-  {
-    id: 2,
-    name: '*Guest555',
-    licenseNumber: 'กถ 5555',
-    province: 'ลำพูน',
-    brand: 'Unknown',
-    model: 'Unknown',
-    color: 'Unknown',
-    date: '12/08/2569',
-    parkingTime: '14:00:34',
-    exitDate: '12/08/2569',
-    exitTime: '16:01:21',
-    parkingSlot: '54',
-    status: 'Exited',
-  },
-  {
-    id: 3,
-    name: 'Anutin Charnvirakul',
-    licenseNumber: 'รย 1000',
-    province: 'กรุงเทพมหานคร',
-    brand: 'BYD',
-    model: '-',
-    color: 'Blue pearl',
-    date: '12/08/2569',
-    parkingTime: '-',
-    exitTime: '-',
-    parkingSlot: '-',
-    status: 'Not Parking',
-  },
-]
+const parkingLogs = ref<ParkingLogDisplay[]>([])
+const isShowingSampleLogs = ref(false)
+const isExporting = ref(false)
+const exportNotification = ref('')
+const exportNotificationType = ref<'success' | 'error'>('success')
+const isLoadingLogs = ref(false)
+const logsError = ref('')
+const selectedLocation = ref<{ floor: ParkingFloor; isSample: boolean } | null>(null)
+let logRequestSequence = 0
+let exportNotificationTimeout: ReturnType<typeof setTimeout> | undefined
+const isSelectedLocation = computed(() => Boolean(selectedLocation.value))
+const sampleLogsForSelectedLocation = computed(() => {
+  const location = selectedLocation.value
+  if (!location?.isSample) return []
+  return dashboardParkingLogSamples.filter(
+    (log) =>
+      log.buildingId === String(location.floor.building?._id) &&
+      log.floor === location.floor.floor &&
+      log.vehType === location.floor.veh_type,
+  )
+})
+const displayedParkingLogs = computed(() =>
+  isShowingSampleLogs.value ? sampleLogsForSelectedLocation.value : parkingLogs.value,
+)
+const undetectedOccupiedCount = computed(
+  () =>
+    selectedLocation.value?.floor.parking_map?.slots.filter(
+      (slot) => slot.status === 'occupied' && slot.licensePlateDetected === false,
+    ).length || 0,
+)
+
+const mapParkingLog = (log: ParkingLogRecord): ParkingLogDisplay => ({
+  id: log._id,
+  name: log.name,
+  brand: log.brand,
+  model: log.model,
+  color: log.color,
+  licenseNumber: log.license_num,
+  province: log.province,
+  building: log.building,
+  buildingId: log.buildingId,
+  floor: log.floor,
+  vehType: log.veh_type,
+  date: log.date_enter,
+  parkingTime: log.park_time,
+  exitDate: log.date_exit || '-',
+  exitTime: log.exit_time || '-',
+  parkingSlot: log.park_slot === null ? '-' : String(log.park_slot),
+  status: log.park_status === 'Not parking' ? 'Not Parking' : log.park_status,
+  slotDisabled: log.slotDisabled,
+})
+
+const onLogLocationChange = (location: { floor: ParkingFloor; isSample: boolean } | null) => {
+  const previousLocation = selectedLocation.value
+  const sameLocation =
+    previousLocation?.floor._id === location?.floor._id &&
+    previousLocation?.isSample === location?.isSample
+  if (location?.isSample && activeTab.value === 'cctv') activeTab.value = 'slots'
+  selectedLocation.value = location
+  if (sameLocation) return
+
+  logRequestSequence += 1
+  parkingLogs.value = []
+  isLoadingLogs.value = false
+  logsError.value = ''
+  staffCameras.value = []
+  void loadCctvPresets(location)
+  if (activeTab.value === 'log') loadParkingLogs()
+}
+
+async function loadCctvPresets(location: { floor: ParkingFloor; isSample: boolean } | null) {
+  const sequence = ++cctvRequestSequence
+  staffCameras.value = []
+  cctvError.value = ''
+  if (!location || location.isSample || !location.floor.building?.building_name) {
+    cctvLoading.value = false
+    return
+  }
+  cctvLoading.value = true
+  try {
+    const response = await cctvService.getDashboardPresets(
+      location.floor.building.building_name,
+      location.floor.floor,
+      location.floor.veh_type,
+    )
+    if (sequence === cctvRequestSequence) staffCameras.value = response.data.cameras
+  } catch {
+    if (sequence === cctvRequestSequence)
+      cctvError.value = 'Unable to load CCTV presets for this parking location.'
+  } finally {
+    if (sequence === cctvRequestSequence) cctvLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'log' && authStore.canManageParking && selectedLocation.value)
+    loadParkingLogs()
+})
+
+async function loadParkingLogs() {
+  const requestSequence = ++logRequestSequence
+  const location = selectedLocation.value
+  const floor = location?.floor
+  if (!floor || location.isSample) {
+    parkingLogs.value = []
+    isLoadingLogs.value = false
+    logsError.value = ''
+    return
+  }
+  isLoadingLogs.value = true
+  logsError.value = ''
+  try {
+    const response = await parkingLogService.list({
+      buildingId: floor.building!._id,
+      floorId: floor._id,
+      veh_type: floor.veh_type,
+    })
+    if (requestSequence !== logRequestSequence) return
+    parkingLogs.value = response.data.logs.map(mapParkingLog)
+  } catch {
+    if (requestSequence !== logRequestSequence) return
+    logsError.value = 'Failed to load parking logs'
+  } finally {
+    if (requestSequence === logRequestSequence) isLoadingLogs.value = false
+  }
+}
+
+function showExportNotification(message: string, type: 'success' | 'error') {
+  exportNotification.value = message
+  exportNotificationType.value = type
+  if (exportNotificationTimeout) clearTimeout(exportNotificationTimeout)
+  exportNotificationTimeout = setTimeout(() => {
+    exportNotification.value = ''
+    exportNotificationTimeout = undefined
+  }, 4500)
+}
+
+async function exportParkingLogs() {
+  const location = selectedLocation.value
+  const floor = location?.floor
+  if (!floor || isExporting.value) return
+  isExporting.value = true
+  exportNotification.value = ''
+  try {
+    const response = location.isSample
+      ? await parkingLogService.exportSamples(
+          sampleLogsForSelectedLocation.value.map((log) => ({
+            owner: !String(log.id).startsWith('sample-guest'),
+            name: log.name || '',
+            building: log.building || '',
+            floor: log.floor || floor.floor,
+            veh_type: log.vehType || floor.veh_type,
+            parkingSlotName: null,
+            brand: log.brand || '',
+            model: log.model || '',
+            color: log.color || '',
+            license_num: log.licenseNumber || '',
+            province: log.province || '',
+            date_enter: log.date || '',
+            park_time: log.parkingTime || '',
+            date_exit: log.exitDate && log.exitDate !== '-' ? log.exitDate : '',
+            exit_time: log.exitTime && log.exitTime !== '-' ? log.exitTime : '',
+            park_slot: log.parkingSlot && log.parkingSlot !== '-' ? Number(log.parkingSlot) : null,
+            park_status: log.status === 'Not Parking' ? 'Not parking' : log.status,
+            createdAt: log.date || '',
+            updatedAt: log.date || '',
+          })),
+        )
+      : await parkingLogService.export({
+          buildingId: floor.building!._id,
+          floorId: floor._id,
+          veh_type: floor.veh_type,
+        })
+    const disposition = response.headers['content-disposition'] || ''
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filenameMatch?.[1] || 'parking-logs.xlsx'
+    document.body.append(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    showExportNotification('Parking log exported', 'success')
+  } catch (cause) {
+    let message = 'Unable to export parking logs.'
+    if (isAxiosError(cause) && cause.response?.data instanceof Blob) {
+      try {
+        const errorPayload = JSON.parse(await cause.response.data.text()) as { message?: string }
+        message = errorPayload.message || message
+      } catch {
+        // Keep the fallback notification for non-JSON responses.
+      }
+    } else if (isAxiosError<{ message?: string }>(cause)) {
+      message = cause.response?.data?.message || message
+    }
+    showExportNotification(message, 'error')
+  } finally {
+    isExporting.value = false
+  }
+}
+
+onUnmounted(() => {
+  cctvRequestSequence += 1
+  if (exportNotificationTimeout) clearTimeout(exportNotificationTimeout)
+})
 </script>
 
 <style scoped>
@@ -254,6 +496,17 @@ const parkingLogs = [
   gap: 12px 82px;
   justify-content: center;
 }
+.cctv-state {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border-radius: 10px;
+  background: #fff;
+  color: #475569;
+  text-align: center;
+}
+.cctv-state.error {
+  color: #b42318;
+}
 
 .logs-panel {
   display: grid;
@@ -263,6 +516,62 @@ const parkingLogs = [
   border-radius: 5px;
   min-height: 670px;
   padding: 10px 20px 44px;
+}
+
+.sample-log-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sample-log-toggle {
+  border: 1px solid #9e2d25;
+  border-radius: 5px;
+  background: #fff;
+  color: #9e2d25;
+  padding: 9px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.export-log-button {
+  border: 1px solid #15803d;
+  border-radius: 5px;
+  background: #e5e7eb;
+  color: #166534;
+  padding: 9px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.export-log-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.export-log-notification {
+  position: fixed;
+  z-index: 1000;
+  top: 22px;
+  right: 22px;
+  max-width: min(420px, calc(100vw - 44px));
+  padding: 12px 18px;
+  border: 1px solid;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-weight: 700;
+}
+.export-log-notification.success {
+  border-color: #16a34a;
+  color: #166534;
+}
+.export-log-notification.error {
+  border-color: #dc2626;
+  color: #991b1b;
+}
+
+.sample-log-note {
+  color: #555;
+  font-size: 14px;
 }
 
 .warning-banner {
@@ -278,6 +587,22 @@ const parkingLogs = [
 
 .warning-banner span {
   color: #c7352c;
+}
+.undetected-parking-banner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+}
+.undetected-parking-banner strong {
+  color: #15803d;
 }
 
 .log-card {

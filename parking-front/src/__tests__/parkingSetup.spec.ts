@@ -19,24 +19,33 @@ const building = {
   _id: 'b1',
   building_name: 'B6',
   building_image: null,
-  date_add: '',
-  time_add: '',
+  date_updated: '2026-11-02',
+  time_updated: '10:15:00',
 }
 const floors = [1, 2].map((floor) => ({
   _id: `f${floor}`,
   building,
   floor,
   veh_type: 'car' as const,
-  zone: floor,
+  camera_presets:
+    floor === 1 ? ([{ _id: 'camera-1', name: 'Camera 1' }] as never) : [],
   parking_slot_file: floor === 2 ? 'map.json' : null,
-  status: 'available' as const,
-  date_add: '',
-  time_add: '',
+  status: 'Available' as const,
+  date_updated: '',
+  time_updated: '',
 }))
 async function openSetup() {
   localStorage.clear()
   vi.mocked(buildingService.list).mockResolvedValue({ data: { buildings: [building] } } as never)
-  vi.mocked(buildingService.cameraSummaries).mockResolvedValue({ data: { summaries: {} } } as never)
+  vi.mocked(buildingService.cameraSummaries).mockResolvedValue({
+    data: {
+      summaries: {},
+      floorSummaries: {
+        f1: { total: 1, online: 1, offline: 0, disabled: 0, unknown: 0 },
+        f2: { total: 0, online: 0, offline: 0, disabled: 0, unknown: 0 },
+      },
+    },
+  } as never)
   vi.mocked(floorService.list).mockResolvedValue({ data: { floors } } as never)
   const router = createRouter({
     history: createMemoryHistory(),
@@ -58,9 +67,24 @@ afterEach(() => {
 describe('admin parking setup floor actions', () => {
   it('marks only floors with maps green and opens CCTV with the selected location', async () => {
     await openSetup()
+    expect(wrapper.get('.building-row').text()).toContain('Date Updated : 2026-11-02')
+    expect(wrapper.get('.building-row').text()).toContain('Time Updated : 10:15:00')
+    const floorDetails = wrapper.get('.floor-row .setup-copy').findAll('p')
+    expect(floorDetails).toHaveLength(3)
+    expect(floorDetails[0]!.text()).toContain('Floor : 1')
+    expect(floorDetails[1]!.text()).toContain('Date Updated :')
+    expect(floorDetails[2]!.text()).toContain('Time Updated :')
     const maps = wrapper.findAll('.floor-parking-map')
+    const cctvButtons = wrapper.findAll('.floor-cctv-button')
+    const floorCctvSummaries = wrapper.findAll('.floor-row .building-camera-summary')
+    expect(floorCctvSummaries).toHaveLength(2)
+    expect(floorCctvSummaries[0]!.text()).toContain('1 camera')
+    expect(floorCctvSummaries[0]!.text()).toContain('Online 1')
+    expect(floorCctvSummaries[1]!.text()).toContain('No cameras assigned')
     expect(maps[0]!.classes()).not.toContain('has-map')
     expect(maps[1]!.classes()).toContain('has-map')
+    expect(cctvButtons[0]!.classes()).toContain('has-cctv')
+    expect(cctvButtons[1]!.classes()).not.toContain('has-cctv')
     await wrapper.get('[aria-label="CCTV for floor 2 (Cars)"]').trigger('click')
     expect(wrapper.get('.cctv-heading').text()).toBe('B6 : Floor 2 CCTV')
     expect(wrapper.find('.cctv-location-filters').exists()).toBe(false)

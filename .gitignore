@@ -3,3 +3,6 @@ python/__pycache__/
 *.py[cod]
 python.rar
 *.rar
+parking-back/.env
+/logs/
+parking-back/node_modules/

@@ -5,10 +5,10 @@ export interface StaffMember {
   _id: string
   staffName: string
   username: string
-  password: string
-  dateAdded: string
-  timeAdded: string
-  status: 'Online' | 'Offline' | 'Disable' | 'Logging in'
+  dateUpdated: string
+  timeUpdated: string
+  userImage: string | null
+  status: 'Online' | 'Offline' | 'Disable'
 }
 
 export interface Building {

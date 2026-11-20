@@ -400,11 +400,11 @@ class LatestFrameCapture:
         return bool(capture.set(prop_id, value))
 
 
-def open_capture(source: str) -> Any:
+def open_capture(source: str, *, read_wait_timeout: float = 1.5) -> Any:
     # Do NOT use latest-frame dropping for normal video files; it is intended
     # only for live streams where old frames have no value and create latency.
     if _is_live_network_stream(source):
-        return LatestFrameCapture(source)
+        return LatestFrameCapture(source, read_wait_timeout=read_wait_timeout)
     return _open_opencv_capture(source)
 
 

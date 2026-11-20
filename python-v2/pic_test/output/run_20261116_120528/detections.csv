@@ -1,0 +1,5 @@
+﻿image,track_id,car_conf,car_box,slot_candidate,slot_overlap_score,slot_slot_coverage,slot_car_coverage,slot_anchor_inside,slot_center_inside,plate_box,plate_conf,plate_sharpness,ocr_text,ocr_conf,stable_text,votes,vote_share,locked,ocr_status
+1.webp,,0.9845852255821228,"[111, 502, 184, 608]",,,,,,,null,0.0,,,0.0,,0,0.0,False,not_detected
+1.webp,,0.9230946898460388,"[994, 61, 1067, 134]",,,,,,,null,0.0,,,0.0,,0,0.0,False,not_detected
+3.jpg,,0.9096287488937378,"[0, 80, 137, 175]",,,,,,,null,0.0,,,0.0,,0,0.0,False,not_detected
+4.jpg,,0.9310064315795898,"[54, 233, 83, 311]",,,,,,,null,0.0,,,0.0,,0,0.0,False,not_detected

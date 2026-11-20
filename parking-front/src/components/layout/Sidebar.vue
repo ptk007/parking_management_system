@@ -61,6 +61,12 @@ const navItems = computed(() => {
         isActive: (path: string) => path === '/my-vehicle',
       },
       {
+        to: '/admin/history',
+        label: 'Slot Status Log',
+        icon: Clock3,
+        isActive: (path: string) => path === '/admin/history',
+      },
+      {
         to: '/admin/staff',
         label: 'Staff Manager',
         icon: Users,

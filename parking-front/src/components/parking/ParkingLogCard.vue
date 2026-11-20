@@ -2,12 +2,14 @@
   <article class="parking-log-card">
     <CarFront :size="36" class="log-icon" />
     <div class="log-column">
+      <p v-if="!hideBuilding">Building <span>:</span> {{ log.building || '-' }}</p>
+      <p v-if="!hideFloor">Floor <span>:</span> {{ log.floor ?? '-' }}</p>
       <p v-if="!hideName">Name <span>:</span> {{ log.name || '-' }}</p>
       <p>Brand <span>:</span> {{ log.brand || '-' }}</p>
       <p>Model <span>:</span> {{ log.model || '-' }}</p>
       <p>Color <span>:</span> {{ log.color || '-' }}</p>
-      <p>License plate <span>:</span> {{ log.licenseNumber || '-' }}</p>
-      <p>Province <span>:</span> {{ log.province || '-' }}</p>
+      <p>License Plate <span>:</span> {{ log.licenseNumber || '-' }}</p>
+      <p v-if="!hideProvince">Province <span>:</span> {{ log.province || '-' }}</p>
     </div>
     <div class="log-column">
       <p>Date Enter <span>:</span> {{ log.date || '-' }}</p>
@@ -17,7 +19,9 @@
       <p>Parking Slot Number <span>:</span> {{ log.parkingSlot || '-' }}</p>
       <p>
         Parking Status <span>:</span>
-        <strong :class="log.status.toLowerCase().replace(/ /g, '-')">{{ log.status }}</strong>
+        <strong :class="log.status.toLowerCase().replace(/ /g, '-')"
+          >{{ log.status }}<template v-if="log.slotDisabled"> (Slot Disable)</template></strong
+        >
       </p>
     </div>
   </article>
@@ -32,14 +36,25 @@ export interface ParkingLogDisplay {
   color?: string
   licenseNumber?: string
   province?: string
+  building?: string
+  buildingId?: string
+  floor?: number
+  vehType?: 'car' | 'motorcycle'
   date?: string
   parkingTime?: string
   exitDate?: string
   exitTime?: string
   parkingSlot?: string
   status: string
+  slotDisabled?: boolean
 }
-defineProps<{ log: ParkingLogDisplay; hideName?: boolean }>()
+defineProps<{
+  log: ParkingLogDisplay
+  hideName?: boolean
+  hideBuilding?: boolean
+  hideFloor?: boolean
+  hideProvince?: boolean
+}>()
 </script>
 <style scoped>
 .parking-log-card {
@@ -49,7 +64,8 @@ defineProps<{ log: ParkingLogDisplay; hideName?: boolean }>()
   padding: 24px 30px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px #0001;
+  border: 1px solid #111;
+  box-shadow: 0 2px 5px #0002;
 }
 .log-icon {
   color: #a52f30;
@@ -69,7 +85,7 @@ span {
   padding: 0 6px;
 }
 strong.parking {
-  color: #b77913;
+  color: #16a36a;
 }
 strong.exited {
   color: #b73232;

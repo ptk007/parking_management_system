@@ -3,11 +3,25 @@ import { parseParkingMapJson } from './parkingMapJson'
 import { restoreParkingLayout, type ParkingLayout } from './parkingLayout'
 
 export type SlotStatus = 'available' | 'occupied' | 'incoming' | 'disabled'
+export type SlotConnectionStatus = 'Connect' | 'None' | 'Disconnect'
 export interface PreviewSlot {
   name?: string
   number: number
   zone: string
   status: SlotStatus
+  licensePlateDetected?: boolean
+  license_num?: string
+  province?: string
+  date_updated?: string
+  time_updated?: string
+  cameraPresetId?: string
+  parkingSlotName?: string
+  connectionStatus?: SlotConnectionStatus
+}
+
+export function slotConnectionStatus(slot: PreviewSlot): SlotConnectionStatus {
+  if (slot.connectionStatus === 'Disconnect') return 'Disconnect'
+  return slot.cameraPresetId && slot.parkingSlotName ? 'Connect' : 'None'
 }
 
 // Row boundaries follow the existing ReferenceParkingMap floor plan.
@@ -81,6 +95,29 @@ export function restoreMapDraft(raw: string | null): {
 } {
   const slots = restorePreviewDraft(raw)
   const draft = raw ? JSON.parse(raw) : null
+  if (draft?.version === 2 && Array.isArray(draft.slots)) {
+    for (const slot of slots) {
+      if (slot.status !== 'occupied') continue
+      const stored = draft.slots.find(
+        (item: unknown) =>
+          !!item &&
+          typeof item === 'object' &&
+          'zone' in item &&
+          'number' in item &&
+          item.zone === slot.zone &&
+          item.number === slot.number,
+      ) as {
+        license_num?: unknown
+        province?: unknown
+        date_updated?: unknown
+        time_updated?: unknown
+      } | undefined
+      if (typeof stored?.license_num === 'string') slot.license_num = stored.license_num
+      if (typeof stored?.province === 'string') slot.province = stored.province
+      if (typeof stored?.date_updated === 'string') slot.date_updated = stored.date_updated
+      if (typeof stored?.time_updated === 'string') slot.time_updated = stored.time_updated
+    }
+  }
   return {
     slots,
     layout: restoreParkingLayout(draft?.layout),

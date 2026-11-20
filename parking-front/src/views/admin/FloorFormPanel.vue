@@ -33,9 +33,9 @@
     </label>
     <label class="floor-field">
       <span>Status</span>
-      <select v-model="status" :disabled="isSaving">
-        <option value="available">Available</option>
-        <option value="disable">Disable</option>
+      <select v-model="status" :disabled="isSaving || mode === 'add'">
+        <option value="Available">Available</option>
+        <option value="Disable">Disable</option>
       </select>
     </label>
     <p v-if="error" class="floor-error" role="alert">{{ error }}</p>
@@ -49,40 +49,15 @@
       </button>
       <button
         v-if="mode === 'edit'"
-        class="red-button"
+        class="cancel-button"
         type="button"
         :disabled="isSaving"
-        @click="openDeleteConfirmation"
+        @click="$emit('cancel')"
       >
-        Delete
+        Cancel
       </button>
     </div>
   </form>
-
-  <div
-    v-if="showDeleteConfirmation"
-    class="floor-delete-backdrop"
-    @click.self="!isSaving && (showDeleteConfirmation = false)"
-  >
-    <div
-      class="floor-delete-dialog"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="floor-delete-title"
-    >
-      <h2 id="floor-delete-title">Delete Floor {{ floor?.floor }}?</h2>
-      <p>This floor will be removed from {{ floor?.building?.building_name }}.</p>
-      <p v-if="deleteError" class="floor-error" role="alert">{{ deleteError }}</p>
-      <div class="floor-delete-actions">
-        <button type="button" :disabled="isSaving" @click="showDeleteConfirmation = false">
-          Cancel
-        </button>
-        <button class="red-button" type="button" :disabled="isSaving" @click="deleteFloor">
-          {{ isSaving ? 'Deleting...' : 'Delete' }}
-        </button>
-      </div>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -94,11 +69,11 @@ import { floorService, type ParkingBuilding, type ParkingFloor } from '@/service
 const props = defineProps<{
   mode: 'add' | 'edit'
   buildings: ParkingBuilding[]
+  floors?: ParkingFloor[]
   floor?: ParkingFloor | null
 }>()
 const emit = defineEmits<{
   saved: [buildingId: string]
-  deleted: [buildingId: string]
   cancel: []
 }>()
 
@@ -106,33 +81,10 @@ const buildingId = ref(props.floor?.building?._id ?? props.buildings[0]?._id ?? 
 const floorNumber = ref(props.floor?.floor ?? 1)
 const vehicleType = ref<ParkingFloor['veh_type']>(props.floor?.veh_type ?? 'car')
 const status = ref<ParkingFloor['status']>(
-  props.floor?.status === 'available' ? 'available' : 'disable',
+  props.mode === 'edit' && props.floor?.status === 'Available' ? 'Available' : 'Disable',
 )
 const isSaving = ref(false)
 const error = ref('')
-const showDeleteConfirmation = ref(false)
-const deleteError = ref('')
-
-const openDeleteConfirmation = () => {
-  deleteError.value = ''
-  showDeleteConfirmation.value = true
-}
-
-const deleteFloor = async () => {
-  if (!props.floor || isSaving.value) return
-  isSaving.value = true
-  deleteError.value = ''
-  try {
-    await floorService.remove(props.floor._id)
-    emit('deleted', props.floor.building?._id ?? buildingId.value)
-  } catch (cause) {
-    deleteError.value = isAxiosError<{ message?: string }>(cause)
-      ? cause.response?.data?.message || 'Failed to delete floor.'
-      : 'Failed to delete floor.'
-  } finally {
-    isSaving.value = false
-  }
-}
 
 const saveFloor = async () => {
   if (isSaving.value) return
@@ -144,6 +96,17 @@ const saveFloor = async () => {
     error.value = 'Floor not found.'
     return
   }
+  const duplicate = (props.floors || []).some(
+    (item) =>
+      item._id !== props.floor?._id &&
+      item.building?._id === buildingId.value &&
+      item.floor === floorNumber.value &&
+      item.veh_type === vehicleType.value,
+  )
+  if (duplicate) {
+    error.value = 'This floor already exists for the selected vehicle type in this building.'
+    return
+  }
 
   error.value = ''
   isSaving.value = true
@@ -151,7 +114,7 @@ const saveFloor = async () => {
     building: buildingId.value,
     floor: floorNumber.value,
     veh_type: vehicleType.value,
-    status: status.value,
+    status: props.mode === 'add' ? 'Disable' : status.value,
   }
 
   try {
@@ -173,20 +136,38 @@ const saveFloor = async () => {
 
 <style scoped>
 .overlay-card.floor-form {
-  width: min(440px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+  align-items: stretch;
+  width: min(460px, calc(100vw - 32px));
   min-height: auto;
-  gap: 12px;
-  padding-top: 24px;
+  gap: 16px 20px;
+  padding: 52px 32px 28px;
 }
 
-.floor-form .floor-field {
+.overlay-card.floor-form h2 {
+  grid-column: 1;
+}
+
+.overlay-card.floor-form h2 {
+  justify-self: center;
+  margin: 0;
+}
+
+.overlay-card.floor-form .floor-field {
   width: 100%;
-  max-width: 320px;
+  max-width: none;
   font-size: 14px;
 }
 
-.floor-form .floor-field input,
-.floor-form .floor-field select {
+.overlay-card.floor-form .floor-actions,
+.overlay-card.floor-form .floor-error {
+  grid-column: 1;
+}
+
+.overlay-card.floor-form .floor-field input,
+.overlay-card.floor-form .floor-field select {
   width: 100%;
   min-height: 36px;
 }
@@ -197,49 +178,37 @@ const saveFloor = async () => {
   text-align: center;
 }
 
-.floor-actions,
-.floor-delete-actions {
+.floor-actions {
   display: flex;
   justify-content: center;
   gap: 12px;
 }
 
-.floor-delete-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.45);
+.floor-actions {
+  justify-content: center;
+  margin-top: 2px;
 }
 
-.floor-delete-dialog {
-  width: min(400px, 100%);
-  padding: 24px;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
+.floor-actions button[type='submit'] {
+  color: #fff;
 }
 
-.floor-delete-dialog h2 {
-  margin-bottom: 10px;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.floor-delete-dialog p {
-  margin-bottom: 16px;
-  font-size: 14px;
-}
-
-.floor-delete-actions {
-  justify-content: flex-end;
-}
-
-.floor-delete-actions button {
+.cancel-button {
   min-width: 84px;
   min-height: 36px;
   border-radius: 5px;
+  border: 1px solid #64748b;
+  background: #fff;
+  color: #334155;
+}
+
+.cancel-button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+@media (max-width: 520px) {
+  .overlay-card.floor-form {
+    padding: 52px 20px 24px;
+  }
 }
 </style>

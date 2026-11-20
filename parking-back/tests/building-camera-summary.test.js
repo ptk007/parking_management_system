@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const mongoose = require("mongoose");
 const ParkingBuilding = require("../api/models/parkingBuildingModel");
+const ParkingFloor = require("../api/models/parkingFloorModel");
 const { listCameraSummaries } = require("../api/controllers/parkingCameraSummaryController");
 
 function response() {
@@ -12,35 +13,39 @@ function response() {
   };
 }
 
-test("camera totals match each building by name or ObjectId and retain unknown statuses", async (t) => {
+test("camera totals are counted from parking-floor presets by building and floor", async (t) => {
   const id = new mongoose.Types.ObjectId();
+  const floorId = new mongoose.Types.ObjectId();
+  const secondFloorId = new mongoose.Types.ObjectId();
   const buildings = [{ _id: id, building_name: "E4" }, { _id: "d1", building_name: "D1" }];
   t.mock.method(ParkingBuilding, "find", () => ({ select: () => ({ lean: async () => buildings }) }));
-  t.mock.method(mongoose.connection, "collection", (name) => {
-    assert.equal(name, "parking_cctv");
-    return { aggregate: () => ({ toArray: async () => [
-      { _id: { building: "E4", status: "online" }, count: 3 },
-      { _id: { building: id, status: "offline" }, count: 2 },
-      { _id: { building: "E4", status: "disable" }, count: 1 },
-      { _id: { building: "E4", status: "Disabled" }, count: 1 },
-      { _id: { building: "E4", status: "connecting" }, count: 1 },
-      { _id: { building: "E4", status: null }, count: 1 },
-      { _id: { building: "other", status: "online" }, count: 20 },
-      { _id: { building: null, status: "online" }, count: 10 },
-    ] }) };
+  let pipeline;
+  t.mock.method(ParkingFloor, "aggregate", (query) => {
+    pipeline = query;
+    return Promise.resolve([
+      { _id: { building: id, floor: floorId, presetStatus: "Enable", sourceStatus: "Online" }, count: 3 },
+      { _id: { building: id, floor: floorId, presetStatus: "Enable", sourceStatus: "Offline" }, count: 2 },
+      { _id: { building: id, floor: floorId, presetStatus: "Disable", sourceStatus: "Online" }, count: 1 },
+      { _id: { building: id, floor: floorId, presetStatus: "Disable", sourceStatus: "Unknown" }, count: 1 },
+      { _id: { building: id, floor: secondFloorId, presetStatus: "Enable", sourceStatus: "Unknown" }, count: 2 },
+      { _id: { building: "other", floor: new mongoose.Types.ObjectId(), presetStatus: "Enable", sourceStatus: "Online" }, count: 20 },
+    ]);
   });
   const res = response();
   await listCameraSummaries({}, res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body.summaries[String(id)], { total: 9, online: 3, offline: 2, disabled: 2, unknown: 2 });
+  assert.deepEqual(res.body.floorSummaries[String(floorId)], { total: 7, online: 3, offline: 2, disabled: 2, unknown: 0 });
+  assert.deepEqual(res.body.floorSummaries[String(secondFloorId)], { total: 2, online: 0, offline: 0, disabled: 0, unknown: 2 });
   assert.deepEqual(res.body.summaries.d1, { total: 0, online: 0, offline: 0, disabled: 0, unknown: 0 });
-  assert.deepEqual(Object.keys(res.body), ["success", "summaries"]);
+  assert.deepEqual(pipeline[0], { $unwind: "$camera_presets" });
+  assert.deepEqual(Object.keys(res.body), ["success", "summaries", "floorSummaries"]);
 });
 
 test("a database failure returns an error instead of zero camera counts", async (t) => {
   t.mock.method(console, "error", () => {});
   t.mock.method(ParkingBuilding, "find", () => ({ select: () => ({ lean: async () => [] }) }));
-  t.mock.method(mongoose.connection, "collection", () => ({ aggregate: () => ({ toArray: async () => { throw new Error("unavailable"); } }) }));
+  t.mock.method(ParkingFloor, "aggregate", () => Promise.reject(new Error("unavailable")));
   const res = response();
   await listCameraSummaries({}, res);
   assert.equal(res.statusCode, 500);

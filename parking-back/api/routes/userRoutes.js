@@ -1,10 +1,12 @@
 const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const multer = require("multer");
 const userController = require("../controllers/userController");
 
 const router = express.Router();
 const imageDirectory = path.resolve(__dirname, "../../../images/user");
+fs.mkdirSync(imageDirectory, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: imageDirectory,
@@ -27,9 +29,11 @@ const upload = multer({
 });
 
 // User collection CRUD API routes. The image form field name is "user_image".
+router.use(userController.requireAuth, userController.requireAdmin);
 router.post("/", upload.single("user_image"), userController.createUser);
 router.get("/", userController.listUsers);
 router.get("/check-duplicate", userController.checkDuplicateUsername);
+router.patch("/:id/status", userController.updateUserStatus);
 router.get("/:id", userController.getUser);
 router.put("/:id", upload.single("user_image"), userController.updateUser);
 router.delete("/:id", userController.deleteUser);

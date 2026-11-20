@@ -26,6 +26,12 @@ const router = createRouter({
       meta: { requiresParkingManagement: true },
     },
     {
+      path: '/admin/history',
+      name: 'AdminHistory',
+      component: HistoryView,
+      meta: { requiresAdmin: true },
+    },
+    {
       path: '/my-vehicle',
       name: 'MyVehicle',
       component: MyVehicleView,

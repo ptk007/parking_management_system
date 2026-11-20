@@ -1,303 +1,361 @@
 <template>
-  <article :class="['camera-card', mode]">
-    <header>
-      <h2>{{ title }}</h2>
-      <span :class="['live-state', status]"><i></i>{{ status === 'online' ? 'Live' : 'Offline' }}</span>
-    </header>
-
-    <div v-if="mode === 'detection'" class="detection-grid">
-      <div v-for="item in 4" :key="item" class="camera-scene detection-scene">
-        <span class="timestamp">AI Car Free Slot {{ item + 1 }}</span>
-        <span class="box yellow one"></span>
-        <span class="box yellow two"></span>
-        <span class="box green three"></span>
-        <span class="box green four"></span>
-        <span class="pillar one">B0{{ item }}</span>
-        <span class="pillar two">C0{{ item }}</span>
-        <span class="scene-car car-a"></span>
-        <span class="scene-car car-b"></span>
-        <span class="scene-car car-c"></span>
+  <article class="camera-card">
+    <div class="camera-display" :class="{ 'is-streaming': !!previewFrame }">
+      <img
+        v-if="previewFrame"
+        class="camera-frame"
+        :src="previewFrame"
+        :alt="`${modelEnabled ? 'YOLO output' : 'Live CCTV preview'} for ${title}`"
+      />
+      <div v-else class="camera-placeholder">
+        <Video :size="36" aria-hidden="true" />
+        <span>{{ title }}</span>
       </div>
+      <span v-if="status === 'Disable'" class="disabled-message" role="status">
+        CCTV has disable
+      </span>
+      <button
+        v-if="previewFrame"
+        class="expand-button"
+        type="button"
+        :aria-label="`Expand live preview for ${title}`"
+        @click="expanded = true"
+      >
+        Expand
+      </button>
+      <button
+        v-if="status === 'Enable'"
+        class="preview-toggle"
+        type="button"
+        :disabled="!floorId"
+        @click="togglePreview"
+      >
+        {{
+          isRunning
+            ? modelEnabled
+              ? 'Stop YOLO preview'
+              : 'Stop preview'
+            : modelEnabled
+              ? 'Show YOLO preview'
+              : 'Show live preview'
+        }}
+      </button>
+      <span v-if="previewMessage" class="preview-message" role="status">{{ previewMessage }}</span>
     </div>
-
-    <div v-else class="camera-scene staff-scene">
-      <span class="timestamp">03-05-2026 Sun 00:38:45</span>
-      <span class="pillar one">B03</span>
-      <span class="pillar two">C03</span>
-      <span class="scene-car car-a"></span>
-      <span class="scene-car car-b"></span>
-      <span class="scene-car car-c"></span>
-      <span class="direction-arrow"></span>
-      <span class="plate">B-4CB{{ plateSuffix }}</span>
+    <div class="camera-info">
+      <h2>{{ title }}</h2>
+      <span :class="['source-status', sourceStatus.toLowerCase()]">{{ sourceStatus }}</span>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="expanded && previewFrame"
+        class="expanded-overlay"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="`Live CCTV output for ${title}`"
+        @click.self="expanded = false"
+      >
+        <section class="expanded-panel">
+          <header>
+            <h2>{{ title }} — {{ modelEnabled ? 'YOLO Output' : 'Live Preview' }}</h2>
+            <button type="button" aria-label="Close expanded preview" @click="expanded = false">
+              Close
+            </button>
+          </header>
+          <img :src="previewFrame" :alt="`Expanded CCTV output for ${title}`" />
+        </section>
+      </div>
+    </Teleport>
   </article>
 </template>
 
 <script setup lang="ts">
-withDefaults(
+import { onUnmounted, ref, watch } from 'vue'
+import { Video } from 'lucide-vue-next'
+import { isAxiosError } from 'axios'
+import { cctvService } from '@/services/api'
+import { consumeMjpegPreview } from '@/views/admin/cctvMjpeg'
+
+const props = withDefaults(
   defineProps<{
     title: string
-    status?: 'online' | 'offline'
-    mode?: 'staff' | 'detection'
-    plateSuffix?: string
+    floorId?: string
+    cameraId: string
+    sourceStatus?: 'Online' | 'Offline' | 'Unknown'
+    status?: 'Enable' | 'Disable'
+    modelEnabled?: boolean
   }>(),
   {
-    status: 'online',
-    mode: 'staff',
-    plateSuffix: '6',
+    sourceStatus: 'Unknown',
+    status: 'Enable',
+    modelEnabled: false,
   },
 )
+
+const previewFrame = ref('')
+const previewMessage = ref('')
+const isRunning = ref(false)
+const expanded = ref(false)
+let previewController: AbortController | null = null
+let previewObjectUrl = ''
+
+function stopPreview() {
+  previewController?.abort()
+  previewController = null
+  isRunning.value = false
+  if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
+  previewObjectUrl = ''
+  previewFrame.value = ''
+  previewMessage.value = ''
+  expanded.value = false
+}
+
+function handleExpandedKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') expanded.value = false
+}
+
+function waitForNextFrame(signal: AbortSignal, delay: number) {
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, delay)
+    signal.addEventListener('abort', finish, { once: true })
+  })
+}
+
+async function readPreviewError(response: Response) {
+  try {
+    const payload = (await response.json()) as { message?: string }
+    if (payload.message) return payload.message
+  } catch {
+    // Use the HTTP response status below.
+  }
+  return `Unable to open CCTV preview (HTTP ${response.status}).`
+}
+
+async function readModelError(cause: unknown) {
+  if (isAxiosError(cause) && cause.response?.data instanceof Blob) {
+    try {
+      const payload = (await cause.response.data.text()) as string
+      const message = (JSON.parse(payload) as { message?: string }).message
+      if (message) return message
+    } catch {
+      return 'YOLO preview returned an invalid response.'
+    }
+  }
+  return cause instanceof Error ? cause.message : 'YOLO preview is unavailable.'
+}
+
+async function runModelPreview(controller: AbortController) {
+  if (!props.floorId) return
+  while (!controller.signal.aborted && previewController === controller) {
+    try {
+      const response = await cctvService.getDashboardModelFrame(
+        props.floorId,
+        props.cameraId,
+        controller.signal,
+      )
+      if (controller.signal.aborted || previewController !== controller) return
+      const nextUrl = URL.createObjectURL(response.data)
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
+      previewObjectUrl = nextUrl
+      previewFrame.value = nextUrl
+      previewMessage.value = ''
+      await waitForNextFrame(controller.signal, 200)
+    } catch (cause) {
+      if (controller.signal.aborted || previewController !== controller) return
+      previewMessage.value = await readModelError(cause)
+      if (!isAxiosError(cause) || cause.response?.status !== 503) return
+      await waitForNextFrame(controller.signal, 1000)
+    }
+  }
+}
+
+async function runLivePreview(controller: AbortController) {
+  if (!props.floorId) return
+  try {
+    previewMessage.value = 'Connecting to the camera...'
+    const response = await cctvService.streamDashboardCameraPreview(
+      props.floorId,
+      props.cameraId,
+      controller.signal,
+    )
+    if (controller.signal.aborted || previewController !== controller) return
+    if (!response.ok) {
+      previewMessage.value = await readPreviewError(response)
+      isRunning.value = false
+      return
+    }
+    previewMessage.value = ''
+    await consumeMjpegPreview(response, controller.signal, (frame) => {
+      if (previewController !== controller) return
+      const nextUrl = URL.createObjectURL(frame)
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
+      previewObjectUrl = nextUrl
+      previewFrame.value = nextUrl
+    })
+    if (!controller.signal.aborted && previewController === controller) {
+      previewMessage.value = 'The live camera preview ended.'
+      isRunning.value = false
+    }
+  } catch (cause) {
+    if (controller.signal.aborted || previewController !== controller) return
+    previewMessage.value = cause instanceof Error ? cause.message : 'Unable to open the live preview.'
+    isRunning.value = false
+  }
+}
+
+function togglePreview() {
+  if (isRunning.value) {
+    stopPreview()
+    return
+  }
+  stopPreview()
+  const objectIdPattern = /^[\da-f]{24}$/i
+  if (!objectIdPattern.test(props.floorId || '') || !objectIdPattern.test(props.cameraId)) {
+    previewMessage.value = 'The CCTV preset API returned an invalid floor or preset ID.'
+    return
+  }
+  const controller = new AbortController()
+  previewController = controller
+  isRunning.value = true
+  previewMessage.value = props.modelEnabled ? 'Waiting for an annotated YOLO frame...' : ''
+  if (props.modelEnabled) void runModelPreview(controller)
+  else void runLivePreview(controller)
+}
+
+watch(() => [props.floorId, props.cameraId, props.status, props.modelEnabled], stopPreview)
+watch(expanded, (isExpanded) => {
+  if (isExpanded) window.addEventListener('keydown', handleExpandedKeydown)
+  else window.removeEventListener('keydown', handleExpandedKeydown)
+})
+onUnmounted(stopPreview)
+onUnmounted(() => window.removeEventListener('keydown', handleExpandedKeydown))
 </script>
 
 <style scoped>
 .camera-card {
   overflow: hidden;
-  border-radius: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
   background: #fff;
+  box-shadow: 0 2px 5px rgb(15 23 42 / 8%);
 }
-
-.camera-card header {
-  height: 40px;
-  border-bottom: 1px solid #5c5c5c;
-  display: flex;
+.camera-display {
+  position: relative;
+  display: grid;
+  min-height: 186px;
+  place-items: center;
+  overflow: hidden;
+  background: #0b0b0b;
+  color: #fff;
+}
+.camera-frame {
+  width: 100%;
+  height: 186px;
+  object-fit: contain;
+}
+.camera-placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: #b5b5b5;
+}
+.camera-placeholder span {
+  color: #fff;
+  font-size: 14px;
+}
+.disabled-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+  font-weight: 600;
+}
+.preview-toggle,
+.expand-button {
+  position: absolute;
+  bottom: 8px;
+  border: 1px solid #fff;
+  border-radius: 5px;
+  background: rgb(15 23 42 / 85%);
+  color: #fff;
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.preview-toggle { left: 8px; }
+.expand-button { right: 8px; }
+.preview-toggle:disabled { cursor: not-allowed; opacity: 0.55; }
+.preview-message {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  border-radius: 4px;
+  background: rgb(0 0 0 / 72%);
+  color: #fff;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+.camera-info {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 22px;
+  gap: 16px;
+  padding: 0 16px;
 }
-
-.camera-card h2 {
+.camera-info h2 {
+  margin: 0;
   color: #242424;
   font-size: 14px;
   font-weight: 400;
 }
-
-.live-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: #d3342c;
-  font-size: 11px;
+.source-status { font-size: 12px; font-weight: 600; }
+.source-status.online { color: #15803d; }
+.source-status.offline { color: #b42318; }
+.source-status.unknown { color: #64748b; }
+.expanded-overlay {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 72%);
+  padding: 24px;
 }
-
-.live-state i {
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.live-state.offline {
-  color: #7f7f7f;
-}
-
-.camera-scene {
-  position: relative;
+.expanded-panel {
+  width: min(1100px, 96vw);
   overflow: hidden;
+  border-radius: 10px;
+  background: #fff;
+}
+.expanded-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+}
+.expanded-panel h2 { margin: 0; font-size: 16px; }
+.expanded-panel header button {
+  border: 1px solid #aaa;
   border-radius: 5px;
-  background:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0)),
-    linear-gradient(115deg, #1f272a 0 16%, #777d7d 17% 36%, #c8cbc7 37% 52%, #696e6d 53% 100%);
+  background: #fff;
+  padding: 7px 12px;
+  cursor: pointer;
 }
-
-.camera-scene::before {
-  content: '';
-  position: absolute;
-  inset: 44% -10% 0;
-  background:
-    linear-gradient(95deg, transparent 0 32%, rgba(255, 255, 255, 0.18) 33% 34%, transparent 35%),
-    radial-gradient(ellipse at 50% 0, rgba(255, 255, 255, 0.18), transparent 55%),
-    #676b66;
-  transform: perspective(220px) rotateX(45deg);
-  transform-origin: top;
-}
-
-.staff-scene {
-  height: 186px;
-  margin: 8px 29px 8px;
-}
-
-.detection-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px 50px;
-  padding: 8px 29px 13px;
-}
-
-.detection-scene {
-  height: 80px;
-  border-radius: 4px;
-}
-
-.timestamp {
-  position: absolute;
-  left: 9px;
-  top: 7px;
-  z-index: 5;
-  color: rgba(255, 255, 255, 0.9);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
-  font-weight: 700;
-  text-shadow: 0 1px 1px #000;
-}
-
-.detection-scene .timestamp {
-  top: 0;
-  left: 0;
-  border-radius: 2px;
-  background: #c7352c;
-  padding: 1px 4px;
-  font-size: 5px;
-}
-
-.pillar {
-  position: absolute;
-  top: 14px;
-  z-index: 3;
-  width: 45px;
-  height: 132px;
-  background: linear-gradient(#d8dddd, #b9bdbb);
-  color: #5d4030;
-  display: grid;
-  place-items: end center;
-  padding-bottom: 12px;
-  font-size: 10px;
-}
-
-.pillar.one {
-  left: 25%;
-}
-
-.pillar.two {
-  right: 19%;
-}
-
-.detection-scene .pillar {
-  top: 8px;
-  width: 20px;
-  height: 56px;
-  font-size: 5px;
-  padding-bottom: 4px;
-}
-
-.scene-car {
-  position: absolute;
-  z-index: 4;
-  width: 96px;
-  height: 47px;
-  border-radius: 48% 48% 16px 16px;
-  background: linear-gradient(135deg, #1a1d20, #596064 52%, #151719);
-  box-shadow: 0 12px 18px rgba(0, 0, 0, 0.48);
-}
-
-.car-a {
-  left: 2%;
-  top: 63px;
-  transform: rotate(-13deg);
-}
-
-.car-b {
-  right: 15%;
-  top: 101px;
-  transform: rotate(8deg);
-  background: linear-gradient(135deg, #dde3e0, #8c9696 55%, #202427);
-}
-
-.car-c {
-  left: -5%;
-  bottom: 14px;
-  transform: rotate(18deg);
-}
-
-.detection-scene .scene-car {
-  width: 43px;
-  height: 21px;
-  box-shadow: 0 4px 7px rgba(0, 0, 0, 0.45);
-}
-
-.detection-scene .car-a {
-  top: 28px;
-}
-
-.detection-scene .car-b {
-  top: 45px;
-}
-
-.detection-scene .car-c {
-  bottom: 6px;
-}
-
-.direction-arrow {
-  position: absolute;
-  left: 45%;
-  bottom: 25px;
-  z-index: 3;
-  width: 18px;
-  height: 82px;
-  background: rgba(255, 255, 255, 0.2);
-  clip-path: polygon(35% 0, 65% 0, 65% 60%, 100% 60%, 50% 100%, 0 60%, 35% 60%);
-}
-
-.plate {
-  position: absolute;
-  right: 28px;
-  bottom: 10px;
-  z-index: 5;
-  color: #fff;
-  font-family: ui-serif, Georgia, serif;
-  font-size: 12px;
-  font-weight: 800;
-  text-shadow: 0 1px 2px #000;
-}
-
-.box {
-  position: absolute;
-  z-index: 6;
-  border: 1px solid;
-}
-
-.box.yellow {
-  border-color: #f5e800;
-}
-
-.box.green {
-  border-color: #10d24f;
-}
-
-.box.one {
-  left: 9%;
-  top: 18%;
-  width: 32%;
-  height: 26%;
-}
-
-.box.two {
-  right: 8%;
-  top: 16%;
-  width: 35%;
-  height: 30%;
-}
-
-.box.three {
-  left: 16%;
-  bottom: 7%;
-  width: 31%;
-  height: 32%;
-}
-
-.box.four {
-  right: 2%;
-  bottom: 8%;
-  width: 34%;
-  height: 35%;
-}
-
-@media (max-width: 860px) {
-  .detection-grid {
-    gap: 12px;
-  }
-
-  .staff-scene {
-    margin-inline: 18px;
-  }
+.expanded-panel img {
+  display: block;
+  width: 100%;
+  max-height: calc(100vh - 120px);
+  object-fit: contain;
+  background: #0b0b0b;
 }
 </style>

@@ -27,6 +27,12 @@ from pathlib import Path
 from cctv_viewer import load_cameras, open_capture, select_camera, redact_stream_url
 from parking_config import add_runtime_arguments
 from parking_export import export_results
+from parking_model_events import ParkingModelEventPublisher, write_worker_status
+from parking_slot_status import (
+    consume_slot_status_refresh_request,
+    read_disabled_parking_slot_names,
+    resolve_slot_display,
+)
 from project_paths import (
     PROJECT_ROOT,
     DEFAULT_CCTV_JSON,
@@ -64,6 +70,11 @@ CAMERA_ID = (
     str(selected_camera.get('NO', '')).strip()
     if selected_camera is not None
     else str(RUNTIME_ARGS.camera)
+)
+MODEL_EVENT_PUBLISHER = ParkingModelEventPublisher.from_environment(
+    CAMERA_ID,
+    os.environ.get('PARKING_RUNTIME_CCTV_FILE_NAME', '').strip()
+    or (Path(RUNTIME_ARGS.cctv_json).name if selected_camera is not None else ''),
 )
 RUN_STARTED_AT = datetime.now(timezone.utc)
 RUN_STARTED_AT_ISO = RUN_STARTED_AT.isoformat()
@@ -432,6 +443,7 @@ def load_parking_slots_from_json(
                 video_h
             ),
             'disabled': disabled,
+            'map_disabled': False,
             'status': (
                 'disable'
                 if disabled
@@ -715,18 +727,37 @@ else:
     print('Device: cpu (explicit)')
 
 LICENSE_PLATE_MODEL_PATH = MODEL_DIR / 'best_license_plate_detector.pt'
-if 'trained_model' not in globals():
-    trained_model = YOLO(LICENSE_PLATE_MODEL_PATH)
-trained_model.to(DEVICE)
-print(f'License plate detector ready: {LICENSE_PLATE_MODEL_PATH}')
+trained_model = None
+
+
+def get_license_plate_model():
+    """Load the plate detector only after a car is ready for Stage 2."""
+    global trained_model
+    if trained_model is None:
+        trained_model = YOLO(LICENSE_PLATE_MODEL_PATH)
+        trained_model.to(DEVICE)
+        print(f'License plate detector ready: {LICENSE_PLATE_MODEL_PATH}')
+    return trained_model
 
 CAR_MODEL_PATH = MODEL_DIR / 'trained_car_detector.pt'
 car_detector_model = YOLO(CAR_MODEL_PATH)
 car_detector_model.to(DEVICE)
 print(f'Car detector model loaded from: {CAR_MODEL_PATH}')
 
-# EasyOCR uses the same CUDA-enabled PyTorch runtime as YOLO.
-reader = easyocr.Reader(['th'], gpu=USE_GPU, verbose=False)
+# Keep OCR idle until the plate detector returns a plate box.
+reader = None
+
+
+def get_ocr_reader():
+    """Initialize EasyOCR on demand, after a license plate was detected."""
+    global reader
+    if reader is None:
+        reader = easyocr.Reader(['th'], gpu=USE_GPU, verbose=False)
+        print('[OCR] Thai EasyOCR ready.')
+    return reader
+
+
+print('[AI] Plate detector and Thai OCR will stay on standby until needed.')
 
 
 # ============================================================
@@ -836,9 +867,13 @@ CAR_CROP_PAD_TOP = 0.12
 CAR_CROP_PAD_BOTTOM = 0.22
 PLATE_EXPANDED_RETRY_CONF = 0.45
 
-# Make the visible/matching car box 10% smaller than the raw YOLO box.
-# 0.10 means final width and height are 90% of the YOLO box.
+# Keep a slightly inset box for slot-overlap matching.
 CAR_BOX_SHRINK_RATIO = 0.10
+
+# The on-screen car box is expanded by 10% from the previous inset display box.
+# This is display-only; tracking, plate crops, and slot matching use their
+# existing raw/reduced boxes so this visual adjustment does not change decisions.
+CAR_DISPLAY_BOX_EXPAND_RATIO = 0.10
 
 # Keep padded boxes for license-plate retry crops only; do not draw them.
 DRAW_PADDED_CAR_BOX = False
@@ -921,6 +956,66 @@ def prepare_display_frame(frame):
         (max(1, int(frame_width * scale)), max(1, int(frame_height * scale))),
         interpolation=cv2.INTER_AREA
     )
+
+
+RUNTIME_FRAME_FILE = os.environ.get('PARKING_RUNTIME_FRAME_FILE', '').strip()
+RUNTIME_DISABLED_SLOT_FILE = os.environ.get(
+    'PARKING_RUNTIME_DISABLED_SLOT_FILE', ''
+).strip()
+_last_runtime_frame_at = 0.0
+_last_runtime_frame_error_at = 0.0
+
+
+def _refresh_map_disabled_slots():
+    if not RUNTIME_DISABLED_SLOT_FILE:
+        return
+
+    try:
+        disabled_names = read_disabled_parking_slot_names(
+            RUNTIME_DISABLED_SLOT_FILE
+        )
+    except FileNotFoundError:
+        disabled_names = set()
+    except (OSError, json.JSONDecodeError) as error:
+        print(f'[Parking API] Could not read disabled parking-slot state: {error}')
+        return
+
+    for slot in parking_slots:
+        slot['map_disabled'] = slot['name'] in disabled_names
+
+
+def publish_runtime_frame(frame):
+    """Atomically publish a rate-limited annotated frame for the web preview."""
+    global _last_runtime_frame_at, _last_runtime_frame_error_at
+    if not RUNTIME_FRAME_FILE:
+        return
+
+    now = time.monotonic()
+    if now - _last_runtime_frame_at < 0.2:
+        return
+    _last_runtime_frame_at = now
+
+    success, encoded = cv2.imencode(
+        '.jpg',
+        prepare_display_frame(frame),
+        [cv2.IMWRITE_JPEG_QUALITY, 78],
+    )
+    if not success:
+        if now - _last_runtime_frame_error_at >= 30.0:
+            print('[YOLO preview] Could not encode an annotated frame.')
+            _last_runtime_frame_error_at = now
+        return
+
+    temporary_path = f'{RUNTIME_FRAME_FILE}.{os.getpid()}.tmp'
+    try:
+        Path(RUNTIME_FRAME_FILE).parent.mkdir(parents=True, exist_ok=True)
+        with open(temporary_path, 'wb') as frame_file:
+            frame_file.write(encoded.tobytes())
+        os.replace(temporary_path, RUNTIME_FRAME_FILE)
+    except OSError as error:
+        if now - _last_runtime_frame_error_at >= 30.0:
+            print(f'[YOLO preview] Could not publish an annotated frame: {error}')
+            _last_runtime_frame_error_at = now
 
 
 _UNICODE_FONT_CACHE = {}
@@ -1141,6 +1236,28 @@ def shrink_car_box(box, frame_shape, shrink_ratio=CAR_BOX_SHRINK_RATIO):
     sy2 = min(frame_h - 1, int(round(cy + new_h / 2.0)))
 
     return sx1, sy1, sx2, sy2
+
+
+def expand_display_box(
+    box,
+    frame_shape,
+    expand_ratio=CAR_DISPLAY_BOX_EXPAND_RATIO
+):
+    """Expand an existing box by a total percentage on each axis."""
+    x1, y1, x2, y2 = map(float, box)
+    frame_h, frame_w = frame_shape[:2]
+    expand_ratio = float(np.clip(expand_ratio, 0.0, 0.50))
+    width = max(1.0, x2 - x1)
+    height = max(1.0, y2 - y1)
+    pad_x = width * expand_ratio / 2.0
+    pad_y = height * expand_ratio / 2.0
+
+    return (
+        max(0, int(round(x1 - pad_x))),
+        max(0, int(round(y1 - pad_y))),
+        min(frame_w - 1, int(round(x2 + pad_x))),
+        min(frame_h - 1, int(round(y2 + pad_y))),
+    )
 
 
 # ============================================================
@@ -1803,6 +1920,12 @@ def _save_stable_snapshot(info, candidate):
         'stable_full_support_count': int(candidate.get('full_support_count', 0)),
         'stable_frame_idx': candidate.get('frame_idx')
     })
+    if MODEL_EVENT_PUBLISHER and not info.get('model_event_detection_sent'):
+        info['model_event_detection_sent'] = True
+        MODEL_EVENT_PUBLISHER.publish_not_parking(
+            candidate['text'],
+            datetime.now(timezone.utc).isoformat(),
+        )
 
 
 def _should_replace_stable(stable, candidate):
@@ -2804,11 +2927,22 @@ def _record_parking_start(state, frame_idx):
         'date_parking': event_date,
         'parking_time': event_time,
         'parking_start_frame': int(frame_idx),
+        'parking_slot_name': state.get('parking_slot_name'),
         'date_exited': None,
         'exited_time': None,
         'exited_at': None,
         'parking_duration_seconds': None
     })
+    if MODEL_EVENT_PUBLISHER:
+        plate = state.get('model_event_plate', '').strip()
+        if plate:
+            MODEL_EVENT_PUBLISHER.publish(
+                'Parking',
+                plate,
+                parking_slot_name=state.get('parking_slot_name', ''),
+                occurred_at=event_at,
+            )
+            state['model_event_parking_sent'] = plate
     _history_dirty = True
 
 
@@ -2837,6 +2971,15 @@ def _record_parking_exit(state, frame_idx):
         'exited_frame': int(frame_idx),
         'parking_duration_seconds': round(duration_seconds, 3)
     })
+    if MODEL_EVENT_PUBLISHER:
+        plate = state.get('model_event_plate', '').strip()
+        if plate:
+            MODEL_EVENT_PUBLISHER.publish(
+                'Exited',
+                plate,
+                parking_slot_name=state.get('parking_slot_name', ''),
+                occurred_at=event_at,
+            )
     state.update({
         'date_exited': event_date,
         'exited_time': event_time,
@@ -3211,6 +3354,21 @@ def _refresh_slot_owner_identity(state, car_id, frame_idx=None):
         plate_text = info.get('stable_text') or info.get('text', '')
         if plate_text:
             state['owner_plate_text'] = plate_text
+        stable_plate = str(info.get('stable_text') or '').strip()
+        if stable_plate:
+            state['model_event_plate'] = stable_plate
+            if (
+                MODEL_EVENT_PUBLISHER
+                and state.get('status') == 'parking'
+                and state.get('model_event_parking_sent') != stable_plate
+            ):
+                MODEL_EVENT_PUBLISHER.publish(
+                    'Parking',
+                    stable_plate,
+                    parking_slot_name=state.get('parking_slot_name', ''),
+                    occurred_at=state.get('parking_started_at', ''),
+                )
+                state['model_event_parking_sent'] = stable_plate
 
 
 def _strong_reid_candidate_for_slot(slot, car_id, car_box):
@@ -3527,6 +3685,9 @@ def _clear_slot_to_available(state, frame_idx):
         'inferred_parking': False,
         'owner_last_seen_frame': None,
         'owner_plate_text': '',
+        'model_event_plate': '',
+        'model_event_parking_sent': '',
+        'parking_slot_name': '',
         'parking_history': parking_history,
         'last_center': None,
         'last_anchor': None,
@@ -3535,7 +3696,51 @@ def _clear_slot_to_available(state, frame_idx):
     })
 
 
+def _publish_slot_map_status(state, previous_status, slot_name):
+    status = state.get('status')
+    if status == previous_status or not MODEL_EVENT_PUBLISHER:
+        return
+    map_status = {
+        'available': 'available',
+        'occupied': 'incoming',
+        'parking': 'occupied',
+    }.get(status)
+    if map_status:
+        license_plate_detected = None
+        if map_status == 'occupied':
+            license_plate_detected = bool(
+                str(state.get('model_event_plate') or '').strip()
+            )
+        MODEL_EVENT_PUBLISHER.publish_slot_status(
+            map_status,
+            slot_name,
+            license_plate_detected=license_plate_detected,
+        )
+
+
+_last_slot_status_refresh_version = 0
+
+
+def _publish_requested_slot_status_refresh():
+    global _last_slot_status_refresh_version
+    request_file = os.environ.get("PARKING_RUNTIME_SLOT_STATUS_REFRESH_FILE", "").strip()
+    if not request_file or not MODEL_EVENT_PUBLISHER:
+        return
+    version = consume_slot_status_refresh_request(
+        request_file, _last_slot_status_refresh_version
+    )
+    if version is None:
+        return
+    _last_slot_status_refresh_version = version
+    for slot in parking_slots:
+        state = parking_state.get(slot["name"], {})
+        if slot.get("disabled") or state.get("status") not in {"available", "occupied", "parking"}:
+            continue
+        _publish_slot_map_status(state, None, slot["name"])
+
+
 def update_parking_states(car_boxes, frame_idx):
+    _refresh_map_disabled_slots()
     assignments, lock_reasons = match_cars_to_slots(car_boxes)
 
     for slot in parking_slots:
@@ -3608,6 +3813,7 @@ def update_parking_states(car_boxes, frame_idx):
                         _clear_slot_to_available(state, frame_idx)
 
                 slot['status'] = state['status']
+                _publish_slot_map_status(state, previous_status, name)
                 continue
 
             # =================================================
@@ -3645,6 +3851,7 @@ def update_parking_states(car_boxes, frame_idx):
                 ):
                     state['status'] = 'parking'
                     state['inferred_parking'] = True
+                    state['parking_slot_name'] = slot['name']
                     _record_parking_start(state, frame_idx)
                     state['missing_hits'] = state.get('occupied_missing_hits', 0)
                     state['empty_hits'] = 0
@@ -3656,10 +3863,12 @@ def update_parking_states(car_boxes, frame_idx):
                     state['status'] = 'occupied'
 
                 slot['status'] = state['status']
+                _publish_slot_map_status(state, previous_status, name)
                 continue
 
             _clear_slot_to_available(state, frame_idx)
             slot['status'] = state['status']
+            _publish_slot_map_status(state, previous_status, name)
             continue
 
         # ----------------------------------------------------
@@ -3731,6 +3940,7 @@ def update_parking_states(car_boxes, frame_idx):
 
         state.update({
             'car_id': car_id,
+            'parking_slot_name': slot['name'],
             'overlap_score': assigned['overlap_score'],
             'slot_coverage': assigned['slot_coverage'],
             'car_coverage': assigned['car_coverage'],
@@ -3765,11 +3975,15 @@ def update_parking_states(car_boxes, frame_idx):
                 and state['stationary_hits'] >= PARKING_STABLE_DETECTIONS
             ):
                 state['status'] = 'parking'
+                state['parking_slot_name'] = slot['name']
                 _record_parking_start(state, frame_idx)
             else:
                 state['status'] = 'occupied'
 
         slot['status'] = state['status']
+        _publish_slot_map_status(state, previous_status, name)
+
+    _publish_requested_slot_status_refresh()
 
     return assignments
 
@@ -3783,7 +3997,9 @@ def draw_parking_slots(frame):
         name = slot['name']
         state = parking_state[name]
         status = state['status']
-        color = PARKING_STATUS_COLORS[status]
+        map_disabled = bool(slot.get('map_disabled'))
+        display_status, visual_status = resolve_slot_display(status, map_disabled)
+        color = PARKING_STATUS_COLORS[visual_status]
 
         x1, y1, x2, y2 = slot['bbox']
         polygon = slot.get('polygon')
@@ -3823,7 +4039,7 @@ def draw_parking_slots(frame):
                 lineType=cv2.LINE_AA
             )
 
-        label = f'{name} | {status}'
+        label = f'{name} | {display_status}'
 
         if state.get('car_id') is not None:
             label += f" | Car {state['car_id']}"
@@ -3857,8 +4073,10 @@ def parking_status_counts():
         'disable': 0
     }
 
-    for state in parking_state.values():
-        counts[state['status']] += 1
+    for slot in parking_slots:
+        state = parking_state[slot['name']]
+        status = 'disable' if slot.get('map_disabled') else state['status']
+        counts[status] += 1
 
     return counts
 
@@ -3923,16 +4141,14 @@ def print_parking_statuses():
 # ============================================================
 # 15.5) Realtime GPU warm-up
 # ============================================================
-# Pay CUDA/CuDNN first-call setup cost before live frames arrive. This removes
-# the large first YOLO/OCR hitch without changing runtime image size/thresholds.
+# Pay the car detector's CUDA/CuDNN setup cost before live frames arrive.
+# Plate detection and OCR remain idle until a car/plate candidate reaches Stage 2.
 def warmup_realtime_models():
     if not USE_GPU:
         return
 
-    print('[GPU] Warming up YOLO + EasyOCR before opening live processing...')
+    print('[GPU] Warming up the car detector before opening live processing...')
     dummy_car = np.zeros((720, 1280, 3), dtype=np.uint8)
-    dummy_plate = np.zeros((160, 320, 3), dtype=np.uint8)
-    dummy_ocr = np.full((96, 320, 3), 255, dtype=np.uint8)
 
     with torch.inference_mode():
         car_detector_model.predict(
@@ -3943,22 +4159,9 @@ def warmup_realtime_models():
             quantize=YOLO_QUANTIZE,
             verbose=False,
         )
-        trained_model.predict(
-            [dummy_plate],
-            conf=PLATE_CONF_THRESHOLD,
-            imgsz=DETECTOR_IMGSZ,
-            device=YOLO_DEVICE,
-            quantize=YOLO_QUANTIZE,
-            verbose=False,
-        )
-        reader.readtext(
-            dummy_ocr,
-            batch_size=1,
-            workers=0,
-        )
 
     torch.cuda.synchronize()
-    print('[GPU] Warm-up complete.')
+    print('[GPU] Car detector warm-up complete; plate detector and OCR are on standby.')
 
 
 warmup_realtime_models()
@@ -3996,6 +4199,8 @@ cap = open_capture(video_path)
 if not cap.isOpened():
     raise RuntimeError(f'Could not open video: {redact_stream_url(video_path)}')
 
+write_worker_status('Online')
+
 if str(video_path).lower().startswith(('rtsp://', 'rtsps://', 'rtmp://', 'http://', 'https://')):
     print('[RTSP] Low-latency latest-frame capture: ENABLED (stale frames are dropped)')
 
@@ -4005,6 +4210,7 @@ max_frames_to_process = RUNTIME_ARGS.max_frames or None
 last_boxes = []
 car_boxes_latest = {}
 plate_crops = {}
+plate_boxes_latest = []
 
 _processing_started_at = time.perf_counter()
 _last_export_at = time.monotonic()
@@ -4046,7 +4252,7 @@ try:
                 detect_frame,
                 # Give BoT-SORT low-confidence boxes so it can KEEP an ID
                 # through blur/partial occlusion. We still filter application
-                # detections to CAR_CONF_THRESHOLD (0.60) below.
+                # detections to CAR_CONF_THRESHOLD below.
                 conf=TRACKER_INPUT_CONF,
                 imgsz=CAR_DETECTOR_IMGSZ,
                 tracker=CUSTOM_TRACKER_PATH,
@@ -4074,8 +4280,9 @@ try:
 
                     conf = float(box.conf[0])
 
-                    # Explicit second guard: keep only car detections >= 0.60.
-                    # Ultralytics already receives conf=CAR_CONF_THRESHOLD above,
+                    # Explicit second guard: keep only detections at the
+                    # configured car confidence threshold.
+                    # Ultralytics already receives the same confidence above,
                     # but this prevents low-confidence boxes from entering the
                     # rest of the pipeline if tracker behavior changes.
                     if conf < CAR_CONF_THRESHOLD:
@@ -4160,6 +4367,7 @@ try:
 
             last_boxes = []
             car_boxes_latest = {}
+            plate_boxes_latest = []
 
             # =================================================
             # Process cars + collect Stage-2 jobs
@@ -4200,7 +4408,11 @@ try:
                 display_box = (
                     padded_car_box
                     if DRAW_PADDED_CAR_BOX
-                    else reduced_car_box
+                    else expand_display_box(
+                        reduced_car_box,
+                        frame.shape,
+                        CAR_DISPLAY_BOX_EXPAND_RATIO
+                    )
                 )
                 dx1, dy1, dx2, dy2 = display_box
 
@@ -4260,6 +4472,7 @@ try:
                     'conf': float(conf),
                     'car_crop': car_crop,
                     'selected_crop': car_crop,
+                    'selected_crop_origin': (px1, py1),
                     'plate_box': None,
                     'plate_conf': 0.0
                 })
@@ -4269,9 +4482,10 @@ try:
             # =================================================
 
             if stage2_tasks:
+                license_plate_model = get_license_plate_model()
                 raw_plate_results = detect_best_plates_batch(
                     [task['car_crop'] for task in stage2_tasks],
-                    trained_model
+                    license_plate_model
                 )
 
                 for task, result in zip(
@@ -4307,7 +4521,7 @@ try:
             if fallback_tasks:
                 padded_plate_results = detect_best_plates_batch(
                     fallback_crops,
-                    trained_model
+                    license_plate_model
                 )
 
                 for task, padded_crop, result in zip(
@@ -4325,6 +4539,7 @@ try:
                         )
                     ):
                         task['selected_crop'] = padded_crop
+                        task['selected_crop_origin'] = (cx1, cy1)
                         task['plate_box'] = padded_plate_box
                         task['plate_conf'] = padded_plate_conf
 
@@ -4357,6 +4572,17 @@ try:
 
                 if plate_crop.size == 0:
                     continue
+                crop_origin_x, crop_origin_y = task['selected_crop_origin']
+                plate_boxes_latest.append(
+                    (
+                        resolved_id,
+                        crop_origin_x + rx1,
+                        crop_origin_y + ry1,
+                        crop_origin_x + rx2,
+                        crop_origin_y + ry2,
+                        plate_conf,
+                    )
+                )
 
                 h, w = plate_crop.shape[:2]
 
@@ -4371,7 +4597,7 @@ try:
                 final_id, _ = process_plate_for_track(
                     raw_track_id,
                     plate_zoom,
-                    reader,
+                    get_ocr_reader(),
                     car_memory,
                     car_conf=task['conf'],
                     plate_conf=plate_conf,
@@ -4434,14 +4660,7 @@ try:
                 car_track_id = resolve_car_id(car_track_id)
                 result_info = car_memory.get(car_track_id)
 
-                if result_info and result_info.get('is_locked'):
-                    box_color = (0, 255, 0)
-
-                elif result_info and result_info.get('digits_locked'):
-                    box_color = (0, 255, 255)
-
-                else:
-                    box_color = (0, 165, 255)
+                box_color = (255, 255, 255)
 
                 cv2.rectangle(
                     frame,
@@ -4451,25 +4670,18 @@ try:
                     3
                 )
 
+                label = f'Car {car_track_id}'
                 if result_info:
-                    if result_info.get('is_locked'):
-                        status = 'LOCK'
-
-                    elif result_info.get('digits_locked'):
-                        status = 'DIGITS'
-
-                    else:
-                        status = 'READ'
-
-                    label = (
-                        f"Car {car_track_id}: "
-                        f"{result_info['text']} "
-                        f"({result_info['score']:.2f}) "
-                        f"[{status}]"
-                    )
-
-                else:
-                    label = f'Car {car_track_id}: reading...'
+                    recognized_plate = str(
+                        result_info.get('stable_text')
+                        or (
+                            result_info.get('text', '')
+                            if result_info.get('digits_locked')
+                            else ''
+                        )
+                    ).strip()
+                    if recognized_plate:
+                        label = f'Car {car_track_id} | {recognized_plate}'
 
                 car_text_labels.append(
                     (label, (px1, max(py1 - 10, 20)), box_color, 26)
@@ -4483,6 +4695,33 @@ try:
 
             draw_parking_slots(frame)
 
+            for (
+                car_track_id,
+                plate_x1,
+                plate_y1,
+                plate_x2,
+                plate_y2,
+                plate_conf,
+            ) in plate_boxes_latest:
+                cv2.rectangle(
+                    frame,
+                    (plate_x1, plate_y1),
+                    (plate_x2, plate_y2),
+                    (255, 0, 255),
+                    2,
+                )
+                cv2.putText(
+                    frame,
+                    f'Plate {resolve_car_id(car_track_id)} ({plate_conf:.2f})',
+                    (plate_x1, max(plate_y1 - 5, 16)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+
+            publish_runtime_frame(frame)
             cv2.imshow('Parking CCTV', prepare_display_frame(frame))
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord('q')):
@@ -4722,8 +4961,11 @@ except KeyboardInterrupt:
 # ============================================================
 
 finally:
+    write_worker_status('Offline')
     cap.release()
     cv2.destroyAllWindows()
+    if MODEL_EVENT_PUBLISHER:
+        MODEL_EVENT_PUBLISHER.close()
 
     if not RUNTIME_ARGS.no_export:
         try:

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
-import type { ChatTicket, NewSupportTicket } from '@/types'
+import type { ApiUser, ChatTicket, NewSupportTicket, UserStatus } from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '')
@@ -28,6 +28,42 @@ export const authService = {
   verifyToken: () => apiClient.get('/auth/verify'),
 }
 
+export interface StaffUserInput {
+  username: string
+  name: string
+  password?: string
+  user_image?: File | null
+}
+
+function staffUserFormData(data: StaffUserInput, includeRole: boolean) {
+  const form = new FormData()
+  form.append('username', data.username)
+  form.append('name', data.name)
+  if (data.password) form.append('password', data.password)
+  if (includeRole) form.append('role', 'staff')
+  if (data.user_image) form.append('user_image', data.user_image)
+  return form
+}
+
+export const userService = {
+  listStaff: () => apiClient.get<{ success: boolean; count: number; users: ApiUser[] }>('/users'),
+  createStaff: (data: StaffUserInput) =>
+    apiClient.post<{ success: boolean; user: ApiUser }>('/users', staffUserFormData(data, true), {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  updateStaff: (id: string, data: StaffUserInput) =>
+    apiClient.put<{ success: boolean; user: ApiUser }>(
+      `/users/${id}`,
+      staffUserFormData(data, false),
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ),
+  setStaffStatus: (id: string, status: Extract<UserStatus, 'offline' | 'disable'>) =>
+    apiClient.patch<{ success: boolean; user: ApiUser }>(`/users/${id}/status`, { status }),
+  remove: (id: string) => apiClient.delete<{ success: boolean; message: string }>(`/users/${id}`),
+  imageUrl: (imagePath: string | null | undefined) =>
+    imagePath ? new URL(imagePath.replace(/^\/+/, ''), `${API_ORIGIN}/`).toString() : '',
+}
+
 export const dashboardService = {
   getStats: (buildingId: string, floorId: string, vehicleType: string) =>
     apiClient.get('/staff/dashboard', {
@@ -48,6 +84,46 @@ export const parkingService = {
     }),
 }
 
+export interface ParkingLogRecord {
+    _id: string
+    owner: string | null
+    name: string
+    building: string
+    buildingId: string
+    floor: number
+    floorId: string
+    veh_type: 'car' | 'motorcycle'
+    cameraPresetId: string
+    parkingSlotName: string | null
+    brand: string
+    model: string
+    color: string
+    license_num: string
+    province: string
+    date_enter: string
+    park_time: string
+    date_exit: string | null
+    exit_time: string | null
+    park_slot: number | null
+    park_status: 'Parking' | 'Exited' | 'Not parking'
+    slotDisabled: boolean
+    createdAt: string
+    updatedAt: string
+}
+
+export const parkingLogService = {
+    list: (filters?: { buildingId?: string; floorId?: string; veh_type?: 'car' | 'motorcycle' }) =>
+      apiClient.get<{ logs: ParkingLogRecord[] }>('/parking-logs', { params: filters }),
+    export: (filters: { buildingId: string; floorId: string; veh_type: 'car' | 'motorcycle' }) =>
+      apiClient.get<Blob>('/parking-logs/export', {
+        params: filters,
+        responseType: 'blob',
+      }),
+    exportSamples: (logs: Record<string, unknown>[]) =>
+      apiClient.post<Blob>('/parking-logs/export-sample', { logs }, { responseType: 'blob' }),
+    myHistory: () => apiClient.get<{ logs: ParkingLogRecord[] }>('/parking-logs/me'),
+}
+
 export const vehicleService = {
   getByUser: (userId: string) => apiClient.get(`/vehicles/user/${userId}`),
   create: (data: any) => apiClient.post('/vehicles', data),
@@ -63,17 +139,49 @@ export interface BuildingCameraSummary {
   unknown: number
 }
 
+export interface CameraSummaryResponse {
+  summaries: Record<string, BuildingCameraSummary>
+  floorSummaries: Record<string, BuildingCameraSummary>
+}
+
+export interface DashboardCameraPreset {
+  _id: string
+  floorId: string
+  floor: number
+  veh_type: 'car' | 'motorcycle'
+  buildingId: string
+  name: string
+  cctvFileName?: string
+  cameraSelector?: string
+  cameraNo?: string
+  ipAddress?: string
+  sourceCameraName?: string
+  rtspLink?: string
+  status: 'Enable' | 'Disable'
+  sourceStatus: 'Online' | 'Offline' | 'Unknown'
+  modelEnabled: boolean
+  modelRuntimeStatus: 'Offline' | 'Starting' | 'Online' | 'Stopping' | 'Error'
+  modelRuntimeMessage: string
+  modelRuntimeUpdatedAt: string | null
+  modelRuntimeId: string
+  slotStatusRefreshVersion: number
+  parkingSlotFileId?: string
+  parkingSlotData?: unknown
+  createAt?: string
+  updateAt?: string
+}
+
 export interface ParkingBuilding {
   _id: string
   building_name: string
   building_image: string | null
-  date_add: string
-  time_add: string
+  date_updated: string
+  time_updated: string
 }
 
 export const buildingService = {
   cameraSummaries: () =>
-    apiClient.get<{ summaries: Record<string, BuildingCameraSummary> }>(
+    apiClient.get<CameraSummaryResponse>(
       '/admin/system/buildings/camera-summary',
     ),
   list: () => apiClient.get<{ buildings: ParkingBuilding[] }>('/admin/system/buildings'),
@@ -95,7 +203,17 @@ export interface ParkingSlotFile {
   original_name: string
   path: string
   size: number
+  fileType?: 'cctv' | 'parking-slot'
   sourceFloorId?: string
+  available?: boolean
+}
+
+export interface CctvSourceSearchResult {
+  matches: import('@/views/admin/cctvForm').CctvSourceMatch[]
+  camera?: import('@/views/admin/cctvForm').CctvSourceMatch
+  status: import('@/views/admin/cctvForm').CctvConnectionStatus
+  message: string
+  frameData?: string
 }
 
 export interface ParkingFloor {
@@ -103,7 +221,6 @@ export interface ParkingFloor {
   building: ParkingBuilding | null
   floor: number
   veh_type: 'car' | 'motorcycle'
-  zone: number
   parking_slot_file: string | null
   parking_slot_files?: ParkingSlotFile[]
   parking_map?: {
@@ -113,32 +230,150 @@ export interface ParkingFloor {
     layout: import('@/components/parking/parkingLayout').ParkingLayout
   } | null
   camera_presets?: import('@/views/admin/cctvForm').CctvFormCamera[]
-  status: 'available' | 'disable'
-  date_add: string
-  time_add: string
+  status: 'Available' | 'Disable'
+  date_updated: string
+  time_updated: string
 }
 
 export type ParkingFloorPayload = Pick<ParkingFloor, 'floor' | 'veh_type' | 'status'> & {
   building: string
 }
 
+export interface ParkingSlotStatusLog {
+  _id: string
+  name: string
+  role: 'staff' | 'admin'
+  building: string
+  floor: number
+  veh_type: 'car' | 'motorcycle'
+  slots: { zone: string; number: number; name: string }[]
+  date_updated: string
+  time_updated: string
+  status: 'available' | 'disabled'
+}
+
 export const floorService = {
+  updateOccupiedSlotVehicleDetails: (
+    id: string,
+    key: string,
+    license_num: string,
+    province: string,
+  ) =>
+    apiClient.patch<{
+      success: boolean
+      map: NonNullable<ParkingFloor['parking_map']>
+      log: ParkingLogRecord | null
+      activeLogFound: boolean
+      activeLogUpdated: boolean
+      removedHistoryCount: number
+    }>(
+      `/admin/system/floors/catalog/${id}/slot-vehicle-details`,
+      { key, license_num, province },
+    ),
+  slotStatusLogs: (roles: ('staff' | 'admin')[]) =>
+    apiClient.get<{ logs: ParkingSlotStatusLog[] }>('/admin/system/floors/slot-status-logs', {
+      params: { roles: roles.join(',') },
+    }),
   setSlotStatuses: (id: string, keys: string[], status: 'available' | 'disabled') =>
     apiClient.patch<{ map: NonNullable<ParkingFloor['parking_map']> }>(
       `/admin/system/floors/catalog/${id}/slot-statuses`,
       { keys, status },
     ),
   catalog: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors/catalog'),
+  get: (id: string) => apiClient.get<{ floor: ParkingFloor }>(`/admin/system/floors/${id}`),
+  setCameraModelEnabled: (floorId: string, cameraId: string, enabled: boolean) =>
+    apiClient.patch<{ floor: ParkingFloor }>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}/model`,
+      { enabled },
+    ),
+  setCameraPresetStatus: (floorId: string, cameraId: string, status: 'Enable' | 'Disable') =>
+    apiClient.patch<{ floor: ParkingFloor }>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}/status`,
+      { status },
+    ),
+  resetSlotStatuses: (id: string) =>
+    apiClient.post<{ map: NonNullable<ParkingFloor['parking_map']> }>(
+      `/admin/system/floors/catalog/${id}/reset-slot-statuses`,
+    ),
+  refreshModelSlotStatuses: (id: string) =>
+    apiClient.post<{ success: boolean; message: string; requestedSlots: number }>(
+      `/admin/system/floors/catalog/${id}/update-slot-statuses`,
+    ),
+  getCameraModelFrame: (
+    floorId: string,
+    cameraId: string,
+    signal?: AbortSignal,
+  ) =>
+    apiClient.get<Blob>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}/model-preview`,
+      { responseType: 'blob', signal },
+    ),
   saveMap: (id: string, map: unknown) => apiClient.put(`/admin/system/floors/${id}/map`, map),
-  saveCamera: (id: string, camera: import('@/views/admin/cctvForm').CctvFormCamera) =>
-    camera._id
-      ? apiClient.patch<{ floor: ParkingFloor }>(
-          `/admin/system/floors/${id}/cameras/${camera._id}`,
-          camera,
-        )
-      : apiClient.post<{ floor: ParkingFloor }>(`/admin/system/floors/${id}/cameras`, camera),
+  saveCamera: (
+    id: string,
+    camera: import('@/views/admin/cctvForm').CctvFormCamera,
+    file?: File | null,
+  ) => {
+    const url = camera._id
+      ? `/admin/system/floors/${id}/cameras/${camera._id}`
+      : `/admin/system/floors/${id}/cameras`
+    if (file) {
+      const data = new FormData()
+      Object.entries(camera).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && key !== 'parkingSlotData') {
+          data.append(key, String(value))
+        }
+      })
+      data.append('parking_slot_file', file)
+      return camera._id
+        ? apiClient.patch<{ floor: ParkingFloor }>(url, data, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+        : apiClient.post<{ floor: ParkingFloor }>(url, data, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+    }
+    return camera._id
+      ? apiClient.patch<{ floor: ParkingFloor }>(url, camera)
+      : apiClient.post<{ floor: ParkingFloor }>(url, camera)
+  },
+  removeCamera: (floorId: string, cameraId: string) =>
+    apiClient.delete<{ success: boolean; floor: ParkingFloor }>(
+      `/admin/system/floors/${floorId}/cameras/${cameraId}`,
+    ),
   sourceFiles: () =>
     apiClient.get<{ files: ParkingSlotFile[] }>('/admin/system/floors/source-files'),
+  searchCctvSource: (fileId: string, query: string) =>
+    apiClient.post<CctvSourceSearchResult>(
+      `/admin/system/floors/source-files/${fileId}/cameras/search`,
+      { query },
+    ),
+  streamCctvPreview: (
+    fileId: string,
+    recordIndex: number,
+    parkingSlotData: unknown,
+    signal: AbortSignal,
+  ) => {
+    const token = localStorage.getItem('token')
+    return fetch(
+      `${API_BASE_URL.replace(/\/+$/, '')}/admin/system/floors/source-files/${fileId}/cameras/${recordIndex}/preview`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ parkingSlotData }),
+        signal,
+      },
+    )
+  },
+  probeCctvSource: (fileId: string, recordIndex: number) =>
+    apiClient.post<
+      import('@/views/admin/cctvForm').CctvConnectionCheck & {
+        camera: import('@/views/admin/cctvForm').CctvSourceMatch
+      }
+    >(`/admin/system/floors/source-files/${fileId}/cameras/${recordIndex}/probe`),
   importSourceFiles: (files: File[]) => {
     const data = new FormData()
     files.forEach((file) => data.append('files', file))
@@ -174,6 +409,28 @@ export const floorService = {
 }
 
 export const cctvService = {
+  getDashboardPresets: (buildingName: string, floor: number, vehicleType: 'car' | 'motorcycle') =>
+    apiClient.get<{ cameras: DashboardCameraPreset[] }>('/admin/system/floors/catalog/cameras', {
+      params: { buildingName, floor, veh_type: vehicleType },
+    }),
+  getDashboardModelFrame: (floorId: string, cameraId: string, signal?: AbortSignal) =>
+    apiClient.get<Blob>(
+      `/admin/system/floors/catalog/${floorId}/cameras/${cameraId}/model-preview`,
+      { responseType: 'blob', signal },
+    ),
+  streamDashboardCameraPreview: (floorId: string, cameraId: string, signal: AbortSignal) => {
+    const token = localStorage.getItem('token')
+    return fetch(
+      `${API_BASE_URL.replace(/\/+$/, '')}/admin/system/floors/catalog/${floorId}/cameras/${cameraId}/preview`,
+      {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal,
+      },
+    )
+  },
   getCameras: (buildingId: string, floorId: string) =>
     apiClient.get('/staff/cctv/cameras', {
       params: { buildingId, floorId },

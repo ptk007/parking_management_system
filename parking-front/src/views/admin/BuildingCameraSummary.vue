@@ -1,9 +1,11 @@
 <template>
-  <section class="building-camera-summary" aria-label="Building CCTV summary" aria-live="polite">
+  <section class="building-camera-summary" aria-label="CCTV summary" aria-live="polite">
     <div class="camera-summary-heading">
       <Video :size="18" aria-hidden="true" />
       <span>CCTV</span>
-      <strong v-if="!loading && !error && summary">{{ summary.total }} cameras</strong>
+      <strong v-if="!loading && !error && summary">
+        {{ summary.total }} {{ summary.total === 1 ? 'camera' : 'cameras' }}
+      </strong>
     </div>
     <p v-if="loading" class="camera-summary-note">Loading cameras...</p>
     <div v-else-if="error || !summary" class="camera-summary-error">
@@ -46,7 +48,7 @@ defineEmits<{ retry: [] }>()
   font-size: 14px;
 }
 .camera-summary-heading strong {
-  margin-left: auto;
+  margin-left: 0;
   color: #222;
   font-size: 14px;
   font-weight: 600;

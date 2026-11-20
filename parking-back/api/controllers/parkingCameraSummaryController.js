@@ -1,37 +1,67 @@
-const mongoose = require("mongoose");
 const ParkingBuilding = require("../models/parkingBuildingModel");
+const ParkingFloor = require("../models/parkingFloorModel");
 
-// Return counts only; camera addresses and stream credentials stay on the server.
+function emptySummary() {
+  return { total: 0, online: 0, offline: 0, disabled: 0, unknown: 0 };
+}
+
+function statusCategory(presetStatus, sourceStatus) {
+  const preset = String(presetStatus || "").trim().toLowerCase();
+  const source = String(sourceStatus || "").trim().toLowerCase();
+  if (preset === "disable" || preset === "disabled") return "disabled";
+  if (source === "online" || source === "offline") return source;
+  // Continue recognizing legacy documents until their status migration runs.
+  if (preset === "online" || preset === "offline") return preset;
+  return "unknown";
+}
+
+// Count embedded CCTV presets from parking_floor, grouped for building and floor views.
 exports.listCameraSummaries = async (req, res) => {
   try {
     const [buildings, groups] = await Promise.all([
       ParkingBuilding.find().select("building_name").lean(),
-      mongoose.connection.collection("parking_cctv").aggregate([
-        { $group: { _id: { building: "$building", status: "$status" }, count: { $sum: 1 } } },
-      ]).toArray(),
+      ParkingFloor.aggregate([
+        { $unwind: "$camera_presets" },
+        {
+          $group: {
+            _id: {
+              building: "$building",
+              floor: "$_id",
+              presetStatus: "$camera_presets.status",
+              sourceStatus: "$camera_presets.sourceStatus",
+            },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
-    const summaries = Object.fromEntries(buildings.map((building) => [
-      String(building._id), { total: 0, online: 0, offline: 0, disabled: 0, unknown: 0 },
-    ]));
-    const buildingIds = new Map(buildings.map((building) => [String(building._id), String(building._id)]));
-    const buildingNames = new Map(buildings.map((building) => [building.building_name, String(building._id)]));
 
+    const summaries = Object.fromEntries(
+      buildings.map((building) => [String(building._id), emptySummary()]),
+    );
+    const floorSummaries = {};
     for (const group of groups) {
-      // Existing camera records use the building name; also accept a building ObjectId.
-      const reference = String(group._id.building ?? "");
-      const buildingId = buildingIds.get(reference) ?? buildingNames.get(reference);
-      if (!buildingId) continue;
-      const summary = summaries[buildingId];
-      const status = String(group._id.status ?? "").trim().toLowerCase();
-      const category = status === "online" || status === "offline"
-        ? status
-        : status === "disable" || status === "disabled" ? "disabled" : "unknown";
-      summary.total += group.count;
-      summary[category] += group.count;
+      const buildingId = String(group._id.building || "");
+      if (!summaries[buildingId]) continue;
+      const floorId = String(group._id.floor);
+      const summary = statusCategory(
+        group._id.presetStatus,
+        group._id.sourceStatus,
+      );
+      const count = Number(group.count) || 0;
+      floorSummaries[floorId] ||= emptySummary();
+      summaries[buildingId].total += count;
+      summaries[buildingId][summary] += count;
+      floorSummaries[floorId].total += count;
+      floorSummaries[floorId][summary] += count;
     }
-    return res.json({ success: true, summaries });
+
+    return res.json({ success: true, summaries, floorSummaries });
   } catch (error) {
-    console.error("Failed to load building camera summaries:", error.message);
-    return res.status(500).json({ success: false, message: "Failed to load camera summaries." });
+    console.error("Failed to load parking-floor CCTV summaries:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load camera summaries.",
+    });
   }
 };

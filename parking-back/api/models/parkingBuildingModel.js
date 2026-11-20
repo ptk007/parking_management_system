@@ -1,7 +1,5 @@
 const mongoose = require("mongoose");
 
-const BUILDING_STATUSES = ["available", "unavailable", "disable"];
-
 const parkingBuildingSchema = new mongoose.Schema(
   {
     building_name: {
@@ -10,24 +8,17 @@ const parkingBuildingSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
-    building_status: {
-      type: String,
-      enum: BUILDING_STATUSES,
-      default: "disable",
-    },
     building_image: {
       type: String,
       default: null,
     },
-    date_add: {
+    date_updated: {
       type: String,
       required: true,
-      immutable: true,
     },
-    time_add: {
+    time_updated: {
       type: String,
       required: true,
-      immutable: true,
     },
   },
   {
@@ -35,6 +26,5 @@ const parkingBuildingSchema = new mongoose.Schema(
     versionKey: false,
   },
 );
-
 module.exports = mongoose.model("ParkingBuilding", parkingBuildingSchema);
-module.exports.BUILDING_STATUSES = BUILDING_STATUSES;
+module.exports = mongoose.model("ParkingBuilding", parkingBuildingSchema);

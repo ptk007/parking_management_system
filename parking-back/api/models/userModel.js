@@ -32,15 +32,21 @@ const userSchema = new mongoose.Schema(
       enum: USER_STATUSES,
       default: "offline",
     },
-    date_add: {
+    date_updated: {
       type: String,
-      required: true,
-      immutable: true,
+      default: null,
     },
-    time_add: {
+    time_updated: {
+      type: String,
+      default: null,
+    },
+    date_updated: {
       type: String,
       required: true,
-      immutable: true,
+    },
+    time_updated: {
+      type: String,
+      required: true,
     },
     user_image: {
       type: String,

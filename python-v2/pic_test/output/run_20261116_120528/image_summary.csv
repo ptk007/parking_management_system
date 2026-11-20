@@ -1,0 +1,5 @@
+﻿image,width,height,car_count,slot_count,slot_candidates,car_batch_inference_ms,note
+1.webp,1200,800,2,0,,466.24,"Independent still image; slot labels are evidence only, not temporal final states."
+2.jpg,1600,1195,0,0,,466.24,"Independent still image; slot labels are evidence only, not temporal final states."
+3.jpg,739,415,1,0,,466.24,"Independent still image; slot labels are evidence only, not temporal final states."
+4.jpg,639,480,1,0,,466.24,"Independent still image; slot labels are evidence only, not temporal final states."
