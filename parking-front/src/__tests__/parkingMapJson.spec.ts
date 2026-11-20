@@ -16,9 +16,15 @@ describe('parking map JSON import', () => {
       }),
     )
     expect(slots).toEqual([
-      { number: 1, zone: 'North', status: 'available' },
-      { number: 1, zone: 'B', status: 'disabled', name: 'B01' },
-      { number: 2, zone: 'C', status: 'available', name: 'zoneC_slot02' },
+      { number: 1, zone: 'North', status: 'available', connectionStatus: 'None' },
+      { number: 1, zone: 'B', status: 'disabled', name: 'B01', connectionStatus: 'None' },
+      {
+        number: 2,
+        zone: 'C',
+        status: 'available',
+        name: 'zoneC_slot02',
+        connectionStatus: 'None',
+      },
     ])
     expect(new Set(slots.map(slotKey)).size).toBe(3)
   })

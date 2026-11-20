@@ -3,6 +3,7 @@ import { parseParkingMapJson } from './parkingMapJson'
 import { restoreParkingLayout, type ParkingLayout } from './parkingLayout'
 
 export type SlotStatus = 'available' | 'occupied' | 'incoming' | 'disabled'
+export type SlotConnectionStatus = 'Connect' | 'None' | 'Disconnect'
 export interface PreviewSlot {
   name?: string
   number: number
@@ -15,6 +16,12 @@ export interface PreviewSlot {
   time_updated?: string
   cameraPresetId?: string
   parkingSlotName?: string
+  connectionStatus?: SlotConnectionStatus
+}
+
+export function slotConnectionStatus(slot: PreviewSlot): SlotConnectionStatus {
+  if (slot.connectionStatus === 'Disconnect') return 'Disconnect'
+  return slot.cameraPresetId && slot.parkingSlotName ? 'Connect' : 'None'
 }
 
 // Row boundaries follow the existing ReferenceParkingMap floor plan.

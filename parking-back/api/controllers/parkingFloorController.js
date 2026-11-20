@@ -108,6 +108,49 @@ function getParkingSlotNames(data) {
   return names;
 }
 
+function mapWithSlotConnectionStatus(map, cameraPresets = []) {
+  if (!map || !Array.isArray(map.slots)) return map;
+  const presets = Array.from(cameraPresets || []);
+  return {
+    ...map,
+    slots: map.slots.map((slot) => {
+      if (slot.connectionStatus === "Disconnect") return slot;
+      const hasCameraPreset = Boolean(String(slot.cameraPresetId || "").trim());
+      const hasParkingSlot = Boolean(String(slot.parkingSlotName || "").trim());
+      if (!hasCameraPreset && !hasParkingSlot)
+        return { ...slot, connectionStatus: "None" };
+      if (!hasCameraPreset && hasParkingSlot)
+        return { ...slot, connectionStatus: "Disconnect" };
+      if (!hasParkingSlot) return { ...slot, connectionStatus: "None" };
+      const camera = presets.find(
+        (preset) => String(preset._id) === String(slot.cameraPresetId),
+      );
+      if (!camera) return { ...slot, connectionStatus: "Disconnect" };
+      try {
+        return {
+          ...slot,
+          connectionStatus: getParkingSlotNames(camera.parkingSlotData).includes(
+            slot.parkingSlotName,
+          )
+            ? "Connect"
+            : "Disconnect",
+        };
+      } catch {
+        return { ...slot, connectionStatus: "Disconnect" };
+      }
+    }),
+  };
+}
+
+function floorWithSlotConnectionStatus(floor) {
+  const result = typeof floor?.toObject === "function" ? floor.toObject() : { ...floor };
+  result.parking_map = mapWithSlotConnectionStatus(
+    result.parking_map,
+    result.camera_presets,
+  );
+  return result;
+}
+
 async function readParkingSlotJson(filePath) {
   const absolutePath = path.resolve(__dirname, "../../..", filePath);
   const relativePath = path.relative(FILE_ROOT, absolutePath);
@@ -253,7 +296,11 @@ exports.listFloors = async (req, res) => {
       .populate("building", BUILDING_FIELDS)
       .sort({ date_updated: -1, time_updated: -1 });
 
-    return res.json({ success: true, count: floors.length, floors });
+    return res.json({
+      success: true,
+      count: floors.length,
+      floors: floors.map(floorWithSlotConnectionStatus),
+    });
   } catch (error) {
     return sendError(res, error);
   }
@@ -280,7 +327,10 @@ exports.getFloor = async (req, res) => {
       });
     }
 
-    return res.json({ success: true, floor: parkingFloor });
+    return res.json({
+      success: true,
+      floor: floorWithSlotConnectionStatus(parkingFloor),
+    });
   } catch (error) {
     return sendError(res, error);
   }
@@ -513,10 +563,18 @@ exports.downloadSlotFile = async (req, res) => {
 exports.dashboardCatalog = async (req, res) => {
   try {
     const floors = await ParkingFloor.find()
-      .select("building floor veh_type status parking_map")
+      .select(
+        "building floor veh_type status parking_map camera_presets._id camera_presets.parkingSlotData",
+      )
       .populate("building", "_id building_name")
       .sort({ floor: 1 });
-    res.json({ floors });
+    res.json({
+      floors: floors.map((floor) => {
+        const result = floorWithSlotConnectionStatus(floor);
+        delete result.camera_presets;
+        return result;
+      }),
+    });
   } catch (error) {
     return sendError(res, error);
   }
@@ -570,6 +628,27 @@ exports.saveMap = async (req, res) => {
     }
     const floor = await ParkingFloor.findById(req.params.id);
     if (!floor) return res.status(404).json({ message: "Floor not found" });
+    const previousSlotsByKey = new Map(
+      (floor.parking_map?.slots || []).map((slot) => [
+        JSON.stringify([slot.zone, slot.number]),
+        slot,
+      ]),
+    );
+    map.slots = map.slots.map((slot) => {
+      const previous = previousSlotsByKey.get(
+        JSON.stringify([slot.zone, slot.number]),
+      );
+      const preserveDisconnect =
+        Boolean(previous) && slot.connectionStatus === "Disconnect";
+      return {
+        ...slot,
+        connectionStatus: preserveDisconnect
+          ? "Disconnect"
+          : slot.cameraPresetId && slot.parkingSlotName
+            ? "Connect"
+            : "None",
+      };
+    });
     const plateDetectionBySlot = new Map(
       (floor.parking_map?.slots || []).map((slot) => [
         JSON.stringify([slot.zone, slot.number]),
@@ -603,6 +682,7 @@ exports.saveMap = async (req, res) => {
       const hasCameraPreset = slot.cameraPresetId !== undefined;
       const hasParkingSlot = slot.parkingSlotName !== undefined;
       if (!hasCameraPreset && !hasParkingSlot) continue;
+      if (slot.connectionStatus === "Disconnect") continue;
       if (typeof slot.cameraPresetId !== "string" || !slot.cameraPresetId.trim())
         return res.status(400).json({
           message: "A parking slot name requires a CCTV preset",
@@ -637,7 +717,7 @@ exports.saveMap = async (req, res) => {
       const geometry = (value) =>
         JSON.stringify({
           layout: value?.layout,
-          slots: value?.slots?.map(({ status, ...slot }) => slot),
+          slots: value?.slots?.map(({ status, connectionStatus, ...slot }) => slot),
         });
       if (
         !previous ||
@@ -664,7 +744,7 @@ exports.saveMap = async (req, res) => {
       return res
         .status(409)
         .json({ message: "Floor status changed. Reload and try again." });
-    res.json({ floor: updated });
+    res.json({ floor: floorWithSlotConnectionStatus(updated) });
   } catch (error) {
     return sendError(res, error);
   }
@@ -803,6 +883,48 @@ exports.saveCameraPreset = async (req, res) => {
       presetStatus === "Enable" &&
       sourceStatus === "Online";
     if (existingCamera) {
+      const previousSourceIdentity = [
+        existingCamera.cameraNo || existingCamera.cameraSelector || "",
+        existingCamera.cctvFileName || "",
+      ]
+        .map((value) => String(value).trim().toLowerCase())
+        .join("\0");
+      const nextSourceIdentity = [
+        preset.cameraNo || preset.cameraSelector || "",
+        preset.cctvFileName || "",
+      ]
+        .map((value) => String(value).trim().toLowerCase())
+        .join("\0");
+      const sourceIdentityChanged = previousSourceIdentity !== nextSourceIdentity;
+      let nextParkingSlotNames = [];
+      if (hasValidSlotData) {
+        try {
+          nextParkingSlotNames = getParkingSlotNames(preset.parkingSlotData);
+        } catch {
+          nextParkingSlotNames = [];
+        }
+      }
+      if (floor.parking_map?.slots?.length) {
+        floor.parking_map = {
+          ...floor.parking_map,
+          slots: floor.parking_map.slots.map((slot) => {
+            if (
+              String(slot.cameraPresetId) !== String(existingCamera._id) ||
+              !slot.parkingSlotName ||
+              slot.connectionStatus === "Disconnect"
+            )
+              return slot;
+            if (
+              !sourceIdentityChanged &&
+              nextParkingSlotNames.includes(slot.parkingSlotName)
+            )
+              return slot;
+            const disconnected = { ...slot, connectionStatus: "Disconnect" };
+            delete disconnected.parkingSlotName;
+            return disconnected;
+          }),
+        };
+      }
       const previousIdentity = [
         existingCamera.cameraNo || existingCamera.cameraSelector || "",
         existingCamera.cctvFileName || "",
@@ -930,8 +1052,13 @@ exports.deleteCameraPreset = async (req, res) => {
         slots: map.slots.map((slot) => {
         if (String(slot.cameraPresetId) !== String(camera._id)) return slot;
         const unassigned = { ...slot };
+        const wasConnected = Boolean(slot.parkingSlotName);
         delete unassigned.cameraPresetId;
         delete unassigned.parkingSlotName;
+        unassigned.connectionStatus =
+          wasConnected || slot.connectionStatus === "Disconnect"
+            ? "Disconnect"
+            : "None";
         return unassigned;
         }),
       };

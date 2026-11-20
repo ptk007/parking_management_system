@@ -1,4 +1,4 @@
-import type { PreviewSlot, SlotStatus } from './parkingMapPreview'
+import type { PreviewSlot, SlotConnectionStatus, SlotStatus } from './parkingMapPreview'
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024
 const MAX_SLOTS = 5000
@@ -73,6 +73,7 @@ function slotOf(value: unknown, defaultZone?: string, fallbackNumber = 1): Previ
     throw new Error('Slot name must be between 1 and 100 characters.')
   const cameraPresetId = value.cameraPresetId
   const parkingSlotName = value.parkingSlotName
+  const connectionStatus = value.connectionStatus
   if (
     (cameraPresetId !== undefined &&
       (typeof cameraPresetId !== 'string' || !cameraPresetId.trim())) ||
@@ -80,6 +81,12 @@ function slotOf(value: unknown, defaultZone?: string, fallbackNumber = 1): Previ
       (typeof parkingSlotName !== 'string' || !parkingSlotName.trim()))
   )
     throw new Error('Invalid CCTV slot assignment.')
+  if (
+    connectionStatus !== undefined &&
+    !['Connect', 'None', 'Disconnect'].includes(String(connectionStatus))
+  ) {
+    throw new Error('Invalid slot connection status.')
+  }
   return {
     number,
     zone: zone.trim(),
@@ -87,6 +94,8 @@ function slotOf(value: unknown, defaultZone?: string, fallbackNumber = 1): Previ
     ...(originalName !== undefined ? { name: String(originalName).trim() } : {}),
     ...(typeof cameraPresetId === 'string' ? { cameraPresetId } : {}),
     ...(typeof parkingSlotName === 'string' ? { parkingSlotName } : {}),
+    connectionStatus: (connectionStatus as SlotConnectionStatus | undefined) ||
+      (cameraPresetId && parkingSlotName ? 'Connect' : 'None'),
   }
 }
 

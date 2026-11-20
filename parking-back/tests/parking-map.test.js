@@ -34,6 +34,7 @@ const response = () => ({
 });
 test("validates map geometry, unique slot identities and embedded-only images", () => {
   assert.equal(validateParkingMap(map()).slots.length, 2);
+  assert.equal(validateParkingMap(map()).slots[0].connectionStatus, "None");
   const empty = map();
   empty.slots = [];
   empty.layout.positions = {};
@@ -142,6 +143,14 @@ test("saves slot-to-camera category assignments only when they belong to the flo
     update.mock.calls[0].arguments[1].$set.parking_map.slots[0].parkingSlotName,
     "zoneA_slot01",
   );
+  assert.equal(
+    update.mock.calls[0].arguments[1].$set.parking_map.slots[0].connectionStatus,
+    "Connect",
+  );
+  assert.equal(
+    update.mock.calls[0].arguments[1].$set.parking_map.slots[0].status,
+    "disabled",
+  );
 
   const cameraOnlyMap = map();
   cameraOnlyMap.slots[0].cameraPresetId = cameraId;
@@ -151,6 +160,10 @@ test("saves slot-to-camera category assignments only when they belong to the flo
     cameraOnlySaved,
   );
   assert.equal(cameraOnlySaved.statusCode, 200);
+  assert.equal(
+    update.mock.calls[1].arguments[1].$set.parking_map.slots[0].connectionStatus,
+    "None",
+  );
   assert.equal(
     update.mock.calls[1].arguments[1].$set.parking_map.slots[0].cameraPresetId,
     cameraId,

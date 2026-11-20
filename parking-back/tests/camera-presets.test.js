@@ -381,7 +381,64 @@ test("deleting a CCTV preset removes its map assignment but keeps the slot", asy
     zone: "A",
     number: 1,
     status: "occupied",
+    connectionStatus: "Disconnect",
   });
+  assert.equal(floor.parking_map.slots[0].status, "occupied");
+});
+
+test("changing a CCTV source disconnects assigned map slots without changing occupancy", async (t) => {
+  const camera = {
+    _id: cameraId,
+    name: "North camera",
+    cameraNo: "CAM-1",
+    cameraSelector: "1",
+    cctvFileName: "north.json",
+    parkingSlotFileId: "slot-file-1",
+    parkingSlotData: {
+      categories: [
+        { name: "all", supercategory: "none" },
+        { name: "zoneA_slot01", supercategory: "parking-slot" },
+      ],
+    },
+    modelEnabled: false,
+    modelRuntimeStatus: "Offline",
+  };
+  const floor = makeFloor(camera);
+  floor.parking_map = {
+    slots: [
+      {
+        zone: "A",
+        number: 1,
+        status: "occupied",
+        cameraPresetId: cameraId,
+        parkingSlotName: "zoneA_slot01",
+        connectionStatus: "Connect",
+      },
+    ],
+  };
+  t.mock.method(floor, "save", async () => {});
+  t.mock.method(floor, "populate", async () => floor);
+  t.mock.method(ParkingFloor, "findById", async () => floor);
+  const res = response();
+
+  await controller.saveCameraPreset(
+    {
+      params: { id: floorId, cameraId },
+      body: {
+        name: "North camera",
+        cameraNo: "CAM-1",
+        cameraSelector: "1",
+        cctvFileName: "south.json",
+        parkingSlotData: camera.parkingSlotData,
+      },
+    },
+    res,
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(floor.parking_map.slots[0].status, "occupied");
+  assert.equal(floor.parking_map.slots[0].connectionStatus, "Disconnect");
+  assert.equal(floor.parking_map.slots[0].parkingSlotName, undefined);
 });
 
 test("rejects embedded JSON without a named parking-slot category", async (t) => {

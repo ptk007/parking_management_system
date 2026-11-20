@@ -126,5 +126,11 @@ export function nextParkingSlot(
   const numbers = new Set(slots.map((slot) => slot.number))
   const names = new Set(slots.map(slotDisplayName))
   while (numbers.has(number) || names.has(String(number))) number++
-  return { number, name: String(number), zone: 'default', status: 'disabled' }
+  return {
+    number,
+    name: String(number),
+    zone: 'default',
+    status: 'disabled',
+    connectionStatus: 'None',
+  }
 }

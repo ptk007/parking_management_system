@@ -170,6 +170,7 @@
             :key="`${floor._id}:${editorRevision}`"
             :slots="slots"
             :model-value="layout"
+            :show-connection-status="auth.canManageParking"
             :readonly="viewMode !== 'layout' || !canEditLayout"
             :autosave="autosave"
             :saving="saving"
@@ -197,6 +198,12 @@
               <div v-if="selectedSlots.length === 1" :class="['slot-preview', inspectedSlot.status]">
                 <ParkingSquare :size="36" /><strong>{{ slotDisplayName(inspectedSlot) }}</strong
                 ><span>{{ statusLabels[inspectedSlot.status] }}</span>
+                <span
+                  v-if="auth.canManageParking && slotConnectionStatus(inspectedSlot) !== 'Connect'"
+                  class="slot-connection-status connection-status-label"
+                >
+                  ({{ slotConnectionStatus(inspectedSlot) }})
+                </span>
               </div>
               <div
                 v-if="viewMode === 'layout' && canEditLayout"
@@ -384,6 +391,7 @@ import {
 import {
   isEditableSlot,
   restoreMapDraft,
+  slotConnectionStatus,
   statusLabels,
   type PreviewSlot,
   type SlotStatus,
@@ -919,6 +927,8 @@ function updateSlots(
           ...other,
           cameraPresetId: assignment.cameraPresetId,
           parkingSlotName: assignment.parkingSlotName,
+          connectionStatus:
+            assignment.cameraPresetId && assignment.parkingSlotName ? 'Connect' : 'None',
         }
       : other,
   )

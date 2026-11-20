@@ -120,6 +120,7 @@
             :key="`${selectedFloor._id}:${auth.canManageParking}`"
             :slots="slots"
             :model-value="layout"
+            :show-connection-status="auth.canManageParking && !isSample"
             readonly
             fit-to-viewport
             save-message=""

@@ -256,7 +256,7 @@
           />
           <text
             :x="slotBox(slot).width / 2"
-            :y="slotBox(slot).height / 2 + 4"
+            :y="slotBox(slot).height / 2 + (showConnectionStatus && slotConnectionStatus(slot) !== 'Connect' ? -6 : 4)"
             text-anchor="middle"
             :font-size="
               Math.min(
@@ -276,6 +276,18 @@
                 ? `${slotDisplayName(slot).slice(0, 12)}...`
                 : slotDisplayName(slot)
             }}
+          </text>
+          <text
+            v-if="showConnectionStatus && slotConnectionStatus(slot) !== 'Connect'"
+            class="connection-status-label"
+            :x="slotBox(slot).width / 2"
+            :y="slotBox(slot).height / 2 + 13"
+            text-anchor="middle"
+            :font-size="Math.min(9, Math.max(6, (slotBox(slot).width / (slotConnectionStatus(slot).length + 1)) * 1.6))"
+            fill="var(--slot-stroke)"
+            pointer-events="none"
+          >
+            ({{ slotConnectionStatus(slot) }})
           </text>
         </g>
         <rect
@@ -368,11 +380,12 @@ import {
   type ParkingLayout,
   type ParkingMapState,
 } from './parkingLayout'
-import { statusLabels, type PreviewSlot } from './parkingMapPreview'
+import { slotConnectionStatus, statusLabels, type PreviewSlot } from './parkingMapPreview'
 const props = defineProps<{
   slots: PreviewSlot[]
   modelValue: ParkingLayout
   readonly?: boolean
+  showConnectionStatus?: boolean
   fitToViewport?: boolean
   autosave?: boolean
   saving?: boolean

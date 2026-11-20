@@ -41,7 +41,9 @@ function validateParkingMap(map) {
       (slot.name !== undefined &&
         (typeof slot.name !== "string" ||
           !slot.name.trim() ||
-          slot.name.length > 100))
+          slot.name.length > 100)) ||
+      (slot.connectionStatus !== undefined &&
+        !["Connect", "None", "Disconnect"].includes(slot.connectionStatus))
     )
       throw new Error("Invalid parking slot");
     const key = JSON.stringify([slot.zone, slot.number]);
@@ -83,10 +85,16 @@ function validateParkingMap(map) {
       !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(bg.dataUrl))
   )
     throw new Error("Invalid map background");
+  const slots = map.slots.map((slot) => ({
+    ...slot,
+    connectionStatus:
+      slot.connectionStatus ||
+      (slot.cameraPresetId && slot.parkingSlotName ? "Connect" : "None"),
+  }));
   return {
     version: 2,
     sourceName: String(map.sourceName || "Parking map").slice(0, 1000),
-    slots: map.slots,
+    slots,
     layout: map.layout,
   };
 }

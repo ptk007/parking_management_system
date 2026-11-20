@@ -31,7 +31,7 @@ const mapSlots = [
   { number: 3, name: 'camera_slot_03', zone: 'default', status: 'occupied' },
 ]
 const key = (id = 'floor-one') => `parking-map-preview:v1:admin-test:${id}`
-async function createPage(seed = true) {
+async function createPage(seed = true, role: 'admin' | 'staff' | 'user' = 'admin') {
   if (seed)
     localStorage.setItem(
       key(),
@@ -51,7 +51,7 @@ async function createPage(seed = true) {
     username: 'admin',
     name: 'Admin',
     fullName: 'Admin',
-    role: 'admin',
+    role,
     status: 'online',
   }
   const router = createRouter({
@@ -106,6 +106,7 @@ describe('Parking Map workspace', () => {
     expect(wrapper.find('.details-panel').exists()).toBe(false)
     await select(wrapper, 1)
     expect(wrapper.find('.details-panel').exists()).toBe(true)
+    expect(wrapper.get('.slot-preview .connection-status-label').text()).toBe('(None)')
     await wrapper.get('[data-slot="1"]').trigger('keydown', { key: 'Enter', shiftKey: true })
     expect(wrapper.find('.details-panel').exists()).toBe(false)
     await select(wrapper, 1)
@@ -124,6 +125,14 @@ describe('Parking Map workspace', () => {
     await wrapper.get('input[type="search"]').setValue('camera_slot_02')
     expect(wrapper.get('[data-slot="2"]').attributes('opacity')).toBe('1')
     expect(wrapper.get('[data-slot="1"]').attributes('opacity')).toBe('0.18')
+  })
+  it('shows connection labels to parking managers and hides them from users', async () => {
+    const { wrapper } = await createPage()
+    expect(wrapper.findAll('.connection-status-label')).toHaveLength(3)
+    expect(wrapper.find('.connection-status-label').text()).toBe('(None)')
+
+    const userPage = await createPage(true, 'user')
+    expect(userPage.wrapper.find('.connection-status-label').exists()).toBe(false)
   })
   it('updates floor status from the controls beside the Parking Map title', async () => {
     const { wrapper } = await createPage()
@@ -224,6 +233,7 @@ describe('Parking Map workspace', () => {
     expect(savedSlot).toMatchObject({
       cameraPresetId: 'camera-1',
       parkingSlotName: 'zoneA_slot02',
+      connectionStatus: 'Connect',
     })
     expect(floorService.saveMap).toHaveBeenCalled()
 
@@ -231,6 +241,7 @@ describe('Parking Map workspace', () => {
     const unassignedNameSlot = JSON.parse(localStorage.getItem(key())!).slots[0]
     expect(unassignedNameSlot.cameraPresetId).toBe('camera-1')
     expect(unassignedNameSlot).not.toHaveProperty('parkingSlotName')
+    expect(unassignedNameSlot.connectionStatus).toBe('None')
     await flushPromises()
     expect(wrapper.get('[role="status"]').text()).toContain(
       'Map saved and shared with dashboards',
