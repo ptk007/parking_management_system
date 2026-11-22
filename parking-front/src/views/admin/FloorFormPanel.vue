@@ -31,9 +31,9 @@
         <option value="motorcycle">Motorcycle</option>
       </select>
     </label>
-    <label class="floor-field">
+    <label v-if="mode === 'edit'" class="floor-field">
       <span>Status</span>
-      <select v-model="status" :disabled="isSaving || mode === 'add'">
+      <select v-model="status" :disabled="isSaving">
         <option value="Available">Available</option>
         <option value="Disable">Disable</option>
       </select>
@@ -136,22 +136,16 @@ const saveFloor = async () => {
 
 <style scoped>
 .overlay-card.floor-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: stretch;
-  align-items: stretch;
+  display: flex;
+  flex-direction: column;
   width: min(460px, calc(100vw - 32px));
   min-height: auto;
-  gap: 16px 20px;
+  gap: 16px;
   padding: 52px 32px 28px;
 }
 
 .overlay-card.floor-form h2 {
-  grid-column: 1;
-}
-
-.overlay-card.floor-form h2 {
-  justify-self: center;
+  align-self: center;
   margin: 0;
 }
 
@@ -159,11 +153,6 @@ const saveFloor = async () => {
   width: 100%;
   max-width: none;
   font-size: 14px;
-}
-
-.overlay-card.floor-form .floor-actions,
-.overlay-card.floor-form .floor-error {
-  grid-column: 1;
 }
 
 .overlay-card.floor-form .floor-field input,
@@ -182,10 +171,6 @@ const saveFloor = async () => {
   display: flex;
   justify-content: center;
   gap: 12px;
-}
-
-.floor-actions {
-  justify-content: center;
   margin-top: 2px;
 }
 

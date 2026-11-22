@@ -2,7 +2,7 @@
   <div class="history-page">
     <section class="history-panel">
       <div class="history-heading">
-        <div>
+        <div class="history-title">
           <h2>Slot Status Log</h2>
           <p>Enable / Disable Slot Records</p>
         </div>
@@ -24,26 +24,35 @@
       <p v-if="loading" class="history-message">Loading slot status logs...</p>
       <p v-else-if="loadError" class="history-message error">{{ loadError }}</p>
       <p v-else-if="!historyEntries.length" class="history-message">No slot status changes found.</p>
-      <article v-for="entry in historyEntries" :key="entry._id" class="history-card">
-        <p>Changed by {{ entry.role === 'staff' ? 'Staff' : 'Admin' }} : {{ entry.name }}</p>
-        <p>Building : {{ entry.building }}</p>
-        <p>Floor <span>:</span> {{ entry.floor }}</p>
-        <p>Parking Slots : {{ formatSlots(entry.slots) }}</p>
-        <p>Date edited : {{ entry.date_updated }}</p>
-        <p>Time edited : {{ entry.time_updated }}</p>
-        <p>
-          Slot status changed to :
-          <strong :class="entry.status === 'available' ? 'enabled' : 'disabled'">
-            {{ entry.status === 'available' ? 'Enable' : 'Disable' }}
-          </strong>
-        </p>
-      </article>
+      <DatedLogList
+        v-else
+        v-slot="{ entries }"
+        :entries="historyEntries"
+        :get-date="(entry) => entry.date_updated"
+        heading-level="h3"
+      >
+        <article v-for="entry in entries" :key="entry._id" class="history-card">
+          <p>Changed by {{ entry.role === 'staff' ? 'Staff' : 'Admin' }} : {{ entry.name }}</p>
+          <p>Building : {{ entry.building }}</p>
+          <p>Floor <span>:</span> {{ entry.floor }}</p>
+          <p>Parking Slots : {{ formatSlots(entry.slots) }}</p>
+          <p>Date edited : {{ entry.date_updated }}</p>
+          <p>Time edited : {{ entry.time_updated }}</p>
+          <p>
+            Slot status changed to :
+            <strong :class="entry.status === 'available' ? 'enabled' : 'disabled'">
+              {{ entry.status === 'available' ? 'Enable' : 'Disable' }}
+            </strong>
+          </p>
+        </article>
+      </DatedLogList>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
+import DatedLogList from '@/components/parking/DatedLogList.vue'
 import { floorService, type ParkingSlotStatusLog } from '@/services/api'
 
 const historyEntries = ref<ParkingSlotStatusLog[]>([])
@@ -93,11 +102,18 @@ watch(selectedRoles, loadHistory)
 
 .history-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: start;
   justify-content: space-between;
   gap: 18px;
   margin: 0 0 22px;
-  padding: 0 14px;
+}
+
+.history-title {
+  border: 1px solid #bcbcbc;
+  border-radius: 6px;
+  background: #fff;
+  padding: 10px 14px;
 }
 
 .history-controls {
@@ -222,7 +238,6 @@ watch(selectedRoles, loadHistory)
   background: #fff;
   box-shadow: 0 3px 4px rgba(0, 0, 0, 0.28);
   padding: 17px 36px;
-  margin-bottom: 22px;
   display: grid;
   align-content: center;
   gap: 10px;

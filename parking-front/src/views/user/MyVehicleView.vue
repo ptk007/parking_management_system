@@ -87,12 +87,14 @@
       <p v-else-if="!displayedParkingHistory.length" class="panel-state" role="status">
         No parking history found
       </p>
-      <ParkingLogCard
-        v-for="entry in displayedParkingHistory"
-        :key="entry.id"
-        :log="entry"
-        hide-name
-      />
+      <DatedLogList
+        v-else
+        v-slot="{ entries }"
+        :entries="displayedParkingHistory"
+        :get-date="(entry) => entry.date"
+      >
+        <ParkingLogCard v-for="entry in entries" :key="entry.id" :log="entry" hide-name />
+      </DatedLogList>
     </section>
 
     <div
@@ -293,6 +295,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bike, CarFront, PencilLine, Plus, Trash2, X } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
+import DatedLogList from '@/components/parking/DatedLogList.vue'
 import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/ParkingLogCard.vue'
 import { parkingLogService, vehicleService, type ParkingLogRecord } from '@/services/api'
 import { userParkingLogSamples } from '@/data/parkingLogSamples'

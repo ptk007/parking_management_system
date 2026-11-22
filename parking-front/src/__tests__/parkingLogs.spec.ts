@@ -2,12 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import DashboardView from '@/views/staff/DashboardView.vue'
+import HistoryView from '@/views/staff/HistoryView.vue'
 import MyVehicleView from '@/views/user/MyVehicleView.vue'
 import { useAuthStore } from '@/stores/auth'
 import { floorService, parkingLogService, vehicleService } from '@/services/api'
 
 vi.mock('@/services/api', () => ({
-  floorService: { catalog: vi.fn(), setSlotStatuses: vi.fn(), resetSlotStatuses: vi.fn() },
+  floorService: {
+    catalog: vi.fn(),
+    setSlotStatuses: vi.fn(),
+    resetSlotStatuses: vi.fn(),
+    slotStatusLogs: vi.fn(),
+  },
   parkingLogService: { list: vi.fn(), myHistory: vi.fn(), export: vi.fn(), exportSamples: vi.fn() },
   vehicleService: {
     getByUser: vi.fn(),
@@ -105,6 +111,15 @@ function authenticate(role: 'admin' | 'staff' | 'user') {
 
 describe('parking log displays', () => {
   it('filters dashboard logs by a selected building, floor, and vehicle', async () => {
+    vi.mocked(parkingLogService.list).mockResolvedValue({
+      data: {
+        logs: [
+          { ...record, _id: 'older-log', date_enter: '2026-11-01' },
+          record,
+          { ...record, _id: 'same-date-log', date_enter: '04/11/2026' },
+        ],
+      },
+    } as never)
     const wrapper = mount(DashboardView, {
       global: { plugins: [authenticate('admin')] },
     })
@@ -127,6 +142,13 @@ describe('parking log displays', () => {
       floorId: 'floor-1',
       veh_type: 'car',
     })
+    expect(wrapper.findAll('.log-day-heading time').map((heading) => heading.text())).toEqual([
+      '04/11/2026',
+      '01/11/2026',
+    ])
+    expect(wrapper.findAll('.log-day').map((day) => day.findAll('.parking-log-card').length)).toEqual(
+      [2, 1],
+    )
     const logCard = wrapper.get('.parking-log-card')
     expect(logCard.text()).not.toContain('Floor')
     expect(logCard.text()).toContain('7')
@@ -155,6 +177,7 @@ describe('parking log displays', () => {
     expect(createSampleObjectUrl).toHaveBeenCalledOnce()
     expect(wrapper.get('.export-log-notification').text()).toBe('Parking log exported')
     expect(wrapper.text()).toContain('Sample preview only')
+    expect(wrapper.get('.log-day-heading time').text()).toBe('04/11/2026')
     expect(wrapper.text()).toContain('Guest 1')
     expect(wrapper.text()).toContain('Guest 2')
     expect(wrapper.text()).toContain('Guest 3')
@@ -170,6 +193,62 @@ describe('parking log displays', () => {
     await wrapper.get('select[aria-label="Vehicle"]').setValue('car')
     await flushPromises()
     expect(wrapper.text()).toContain('กข 1234')
+  })
+
+  it('frames the dashboard empty state once a staff member selects a location', async () => {
+    vi.mocked(parkingLogService.list).mockResolvedValue({ data: { logs: [] } } as never)
+    const wrapper = mount(DashboardView, {
+      global: { plugins: [authenticate('staff')] },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.findAll('.tab-button').find((button) => button.text() === 'Log')!.trigger('click')
+    expect(wrapper.find('.logs-empty').exists()).toBe(false)
+
+    await wrapper.get('.filter-toggle').trigger('click')
+    await wrapper.get('select[aria-label="Building"]').setValue('building-1')
+    await wrapper.get('select[aria-label="Floor"]').setValue('4')
+    await wrapper.get('select[aria-label="Vehicle"]').setValue('car')
+    await flushPromises()
+
+    expect(wrapper.get('.logs-empty[role="status"]').text()).toBe('No parking logs found')
+    expect(wrapper.find('.log-day').exists()).toBe(false)
+  })
+
+  it('groups slot status changes by the date edited', async () => {
+    const change = {
+      _id: 'status-change',
+      name: 'Lead admin',
+      role: 'admin',
+      building: 'E4',
+      floor: 4,
+      veh_type: 'car',
+      slots: [{ name: 'A1', number: 1, zone: 'A' }],
+      date_updated: '2026-11-04',
+      time_updated: '10:00:00',
+      status: 'available',
+    }
+    vi.mocked(floorService.slotStatusLogs).mockResolvedValue({
+      data: {
+        logs: [
+          change,
+          { ...change, _id: 'older-change', date_updated: '2026-11-02' },
+          { ...change, _id: 'staff-change', name: 'Day staff', role: 'staff' },
+        ],
+      },
+    } as never)
+    const wrapper = mount(HistoryView)
+    wrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.get('.history-title h2').text()).toBe('Slot Status Log')
+    expect(wrapper.findAll('h3 time').map((heading) => heading.attributes('datetime'))).toEqual([
+      '2026-11-04',
+      '2026-11-02',
+    ])
+    expect(wrapper.get('.log-day').findAll('.history-card')).toHaveLength(2)
+    expect(wrapper.get('.log-day').text()).toContain('Day staff')
+    expect(floorService.slotStatusLogs).toHaveBeenCalledWith(['staff', 'admin'])
   })
 
   it('exports selected location logs to Excel and displays the success notification', async () => {
@@ -254,6 +333,7 @@ describe('parking log displays', () => {
     await flushPromises()
 
     expect(parkingLogService.myHistory).toHaveBeenCalledOnce()
+    expect(wrapper.get('.log-day-heading time').text()).toBe('04/11/2026')
     expect(wrapper.text()).toContain('Building')
     expect(wrapper.text()).toContain('E4')
     expect(wrapper.text()).toContain('Floor')

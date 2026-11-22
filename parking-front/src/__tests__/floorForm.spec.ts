@@ -23,9 +23,12 @@ describe('admin floor form', () => {
     vi.mocked(floorService.create).mockResolvedValue({} as never)
     const wrapper = mount(FloorFormPanel, { props: { mode: 'add', buildings } })
     wrappers.push(wrapper)
-    expect(wrapper.findAll('select')).toHaveLength(3)
-    expect(wrapper.findAll('select')[2]!.element.value).toBe('Disable')
-    expect(wrapper.findAll('select')[2]!.attributes()).toHaveProperty('disabled')
+    const labels = wrapper.findAll('.floor-field span').map((label) => label.text())
+    expect(labels).toEqual(['Building *', 'Floor *', 'Vehicle *'])
+    expect(wrapper.findAll('select')).toHaveLength(2)
+    expect(wrapper.get('.floor-field:last-of-type').element.nextElementSibling).toBe(
+      wrapper.get('.floor-actions').element,
+    )
 
     await wrapper.findAll('select')[0]!.setValue('building-e5')
     await wrapper.findAll('input[type="number"]')[0]!.setValue('4')
@@ -75,7 +78,7 @@ describe('admin floor form', () => {
     expect(floorService.create).toHaveBeenCalledTimes(1)
   })
 
-  it('shows floor status in the ordered add and edit forms', () => {
+  it('shows editable floor status above the edit actions', () => {
     const floor: ParkingFloor = {
       _id: 'floor-2',
       building: buildings[0]!,
@@ -97,6 +100,7 @@ describe('admin floor form', () => {
 
     expect(wrapper.findAll('select')).toHaveLength(3)
     expect(wrapper.findAll('select')[2]!.element.value).toBe('Disable')
+    expect(wrapper.findAll('select')[2]!.element.disabled).toBe(false)
     const labels = wrapper.findAll('.floor-field span').map((label) => label.text())
     expect(labels).toEqual(['Building *', 'Floor *', 'Vehicle *', 'Status'])
     expect(wrapper.get('.floor-field:last-of-type').element.compareDocumentPosition(

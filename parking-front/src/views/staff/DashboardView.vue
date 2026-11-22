@@ -89,16 +89,23 @@
         <p v-else-if="!isShowingSampleLogs && logsError" class="logs-state error" role="alert">
           {{ logsError }} <button type="button" @click="loadParkingLogs">Try again</button>
         </p>
-        <p v-else-if="!displayedParkingLogs.length" class="logs-state" role="status">
+        <p v-else-if="!displayedParkingLogs.length" class="logs-state logs-empty" role="status">
           No parking logs found
         </p>
-        <ParkingLogCard
-          v-for="log in displayedParkingLogs"
-          :key="log.id"
-          :log="log"
-          hide-building
-          hide-floor
-        />
+        <DatedLogList
+          v-else
+          v-slot="{ entries }"
+          :entries="displayedParkingLogs"
+          :get-date="(log) => log.date"
+        >
+          <ParkingLogCard
+            v-for="log in entries"
+            :key="log.id"
+            :log="log"
+            hide-building
+            hide-floor
+          />
+        </DatedLogList>
       </div>
     </section>
     <div
@@ -115,6 +122,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { isAxiosError } from 'axios'
+import DatedLogList from '@/components/parking/DatedLogList.vue'
 import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/ParkingLogCard.vue'
 import DashboardMap from '@/components/parking/DashboardMap.vue'
 import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
@@ -516,6 +524,15 @@ onUnmounted(() => {
   border-radius: 5px;
   min-height: 670px;
   padding: 10px 20px 44px;
+}
+
+.logs-empty {
+  justify-self: start;
+  border: 1px solid #bcbcbc;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  padding: 10px 16px;
 }
 
 .sample-log-controls {
