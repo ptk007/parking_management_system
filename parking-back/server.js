@@ -13,6 +13,7 @@ const supportRoutes = require("./api/routes/supportRoutes");
 const parkingLogRoutes = require("./api/routes/parkingLogRoutes");
 const modelRuntimeRoutes = require("./api/routes/modelRuntimeRoutes");
 const pythonModelRuntime = require("./api/services/pythonModelRuntime");
+const ensureJwtSecret = require("./api/utils/ensureJwtSecret");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,7 @@ app.use((error, req, res, next) => {
 
 async function startServer() {
   try {
+    ensureJwtSecret(path.resolve(__dirname, ".jwt-secret"));
     await mongoose.connect(MONGODB_URI);
     await require("./api/utils/migrateParkingBuildingFields")();
     await require("./api/utils/migrateParkingFloorFields")();
@@ -86,7 +88,7 @@ async function startServer() {
     process.once("SIGINT", shutdown);
     process.once("SIGTERM", shutdown);
   } catch (error) {
-    console.error("Could not connect to MongoDB:", error.message);
+    console.error("Could not start backend:", error.message);
     process.exit(1);
   }
 }

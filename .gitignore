@@ -4,5 +4,6 @@ python/__pycache__/
 python.rar
 *.rar
 parking-back/.env
+/parking-back/.jwt-secret*
 /logs/
 parking-back/node_modules/

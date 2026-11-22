@@ -21,7 +21,7 @@ Prerequisites:
 
 - Install Node.js and npm. The backend package does not declare a Node.js engine range.
 - Have a reachable MongoDB instance and its connection URI.
-- Prepare `parking-back/.env` locally with `MONGODB_URI` and a private `JWT_SECRET`. `PORT` is optional (backend default: `3000`). Do not commit the real `.env` or copy its values into frontend files or documentation.
+- Set `MONGODB_URI` in `parking-back/.env` if using a different database URL. `PORT` is optional (backend default: `3000`). Local backend startup generates and reuses a private key in `parking-back/.jwt-secret` when `JWT_SECRET` is unset. An explicit `JWT_SECRET` in the environment or `.env` takes precedence and is required when `NODE_ENV=production`. Keep both files private and out of Git.
 - Install dependencies in each project folder if they are not installed yet.
 
 PowerShell commands from the repository root:
