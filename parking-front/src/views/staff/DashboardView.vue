@@ -1,256 +1,147 @@
 <template>
-  <div class="staff-dashboard">
+  <div :class="['staff-dashboard', { embedded }]">
     <div class="tabbar">
       <button
-        v-for="tab in tabs"
+        v-for="tab in visibleTabs"
         :key="tab.id"
         :class="['tab-button', activeTab === tab.id ? 'is-active' : '']"
-        @click="activeTab = tab.id"
+        type="button"
+        @click="selectTab(tab.id)"
       >
         {{ tab.label }}
       </button>
     </div>
 
-    <div class="dashboard-toolbar">
-      <div class="filters">
-        <label v-for="filter in filters" :key="filter.label" class="filter-control">
-          <span>{{ filter.label }} *</span>
-          <select v-model="filter.model.value" :disabled="filter.disabled">
-            <option v-for="option in filter.options" :key="option" :value="option">
-              {{ option }}
-            </option>
-          </select>
-        </label>
+    <section
+      :class="[
+        'dashboard-content',
+        { 'slots-content': activeTab === 'slots' || !authStore.canManageParking },
+      ]"
+    >
+      <DashboardMap
+        :header-only="activeTab !== 'slots' && authStore.canManageParking"
+        @location-change="onLogLocationChange"
+      />
+
+      <div v-if="activeTab === 'cctv' && authStore.canManageParking" class="cctv-grid">
+        <p v-if="selectedLocation?.isSample" class="cctv-state" role="status">
+          Sample map selected. Select a saved parking location to view its CCTV presets.
+        </p>
+        <p v-else-if="cctvLoading" class="cctv-state" role="status">Loading CCTV presets...</p>
+        <p v-else-if="cctvError" class="cctv-state error" role="alert">{{ cctvError }}</p>
+        <CameraPreviewCard
+          v-for="camera in staffCameras"
+          :key="camera._id"
+          :floor-id="camera.floorId"
+          :camera-id="camera._id"
+          :title="camera.name"
+          :source-status="camera.sourceStatus"
+          :status="camera.status"
+          :model-enabled="camera.modelEnabled"
+        />
+        <p v-if="!selectedLocation?.isSample && !cctvLoading && !cctvError && !staffCameras.length" class="cctv-state" role="status">
+          No CCTV presets are configured for this parking location.
+        </p>
       </div>
 
-      <div class="stats">
-        <div v-for="stat in stats" :key="stat.label" class="stat-card">
-          <strong :style="{ color: stat.color }">{{ stat.value }}</strong>
-          <span>{{ stat.label }}</span>
-        </div>
-      </div>
-    </div>
-
-    <section class="dashboard-content">
-      <div v-if="activeTab === 'slots'" class="slots-view">
-        <div class="parking-map">
-          <div class="map-heading">
-            <span></span>
-            <strong>E4</strong>
-            <span></span>
-          </div>
-
-          <div class="gate-label out">out</div>
-          <div class="gate-label in">in</div>
-          <div class="gate-label up">up</div>
-          <div class="gate-label down">down</div>
-
-          <div v-for="row in rowLabels" :key="row.label" class="row-label" :style="{ top: row.top }">
-            {{ row.label }}
-          </div>
-
-          <svg class="flow-lines" viewBox="0 0 1000 520" aria-hidden="true">
-            <defs>
-              <marker id="flow-arrow" markerHeight="10" markerWidth="10" orient="auto" refX="8" refY="5">
-                <path d="M0,0 L10,5 L0,10 Z" fill="rgba(255, 167, 145, 0.72)" />
-              </marker>
-            </defs>
-            <path d="M95 140 C160 205, 220 165, 245 165" marker-end="url(#flow-arrow)" />
-            <path d="M320 170 C390 168, 430 168, 485 168" marker-end="url(#flow-arrow)" />
-            <path d="M555 165 C630 160, 705 160, 760 166" marker-end="url(#flow-arrow)" />
-            <path d="M895 160 C960 200, 960 285, 900 312" marker-end="url(#flow-arrow)" />
-            <path d="M790 305 C700 302, 630 300, 535 306" marker-end="url(#flow-arrow)" />
-            <path d="M455 306 C360 310, 265 306, 165 308" marker-end="url(#flow-arrow)" />
-            <path d="M70 310 C40 260, 44 210, 78 170" marker-end="url(#flow-arrow)" />
-            <path d="M675 400 C660 350, 665 325, 700 302" marker-end="url(#flow-arrow)" />
-            <path d="M905 315 C928 415, 810 455, 705 420" marker-end="url(#flow-arrow)" />
-          </svg>
-
+      <div v-else-if="activeTab === 'log' && authStore.canManageParking" class="logs-panel">
+        <div class="sample-log-controls">
           <button
-            v-for="slot in parkingSlots"
-            :key="slot.slotNumber"
-            :class="[
-              'slot',
-              slotStatusClass(slot.slotNumber),
-              { selected: selectedSlots.has(slot.slotNumber) },
-            ]"
-            :style="slotStyle(slot)"
             type="button"
-            @click="openSlotActions(slot.slotNumber)"
+            class="sample-log-toggle"
+            :aria-pressed="isShowingSampleLogs"
+            @click="isShowingSampleLogs = !isShowingSampleLogs"
           >
-            <Check v-if="selectedSlots.has(slot.slotNumber)" class="h-4 w-4" :stroke-width="3" />
-            <span v-else>{{ slot.slotNumber }}</span>
+            {{ isShowingSampleLogs ? 'Hide sample logs' : 'View sample logs' }}
           </button>
+          <button
+            type="button"
+            class="export-log-button"
+            :disabled="
+              !isSelectedLocation ||
+              (selectedLocation?.isSample && !sampleLogsForSelectedLocation.length) ||
+              isExporting ||
+              isLoadingLogs
+            "
+            @click="exportParkingLogs"
+          >
+            {{ isExporting ? 'Exporting...' : 'Export log' }}
+          </button>
+          <span v-if="isShowingSampleLogs" class="sample-log-note">
+            Sample preview only. These logs are not saved to the database.
+          </span>
         </div>
-
-        <div class="slot-actions">
-          <div class="status-legend" aria-label="Slot status legend">
-            <span><i class="available"></i>Available</span>
-            <span><i class="incoming"></i>Incoming</span>
-            <span><i class="occupied"></i>Occupied</span>
-            <span><i class="disabled"></i>Disable</span>
-          </div>
-          <strong>Selecting : {{ selectedSlots.size }}</strong>
+        <div class="warning-banner">
+          <span>Exited and Not Parking</span> logs are shown for 24 hours; records remain in the
+          database.
         </div>
-
-        <div v-if="selectedSlotNumber !== null" class="slot-popup-backdrop" @click.self="closeSlotActions">
-          <div class="slot-popup" role="dialog" aria-modal="true" aria-labelledby="staff-slot-popup-title">
-            <div class="slot-popup-header">
-              <div>
-                <p>Parking slot</p>
-                <h3 id="staff-slot-popup-title">Slot {{ selectedSlotNumber }}</h3>
-              </div>
-              <button class="slot-popup-close" type="button" aria-label="Close slot actions" @click="closeSlotActions">
-                x
-              </button>
-            </div>
-            <div class="slot-popup-status">
-              <span>Status</span>
-              <strong :class="selectedSlotStatus">{{ selectedSlotStatusLabel }}</strong>
-            </div>
-            <div class="slot-popup-actions">
-              <button
-                class="enable"
-                type="button"
-                :disabled="!canEnableSelectedSlot"
-                @click="handleEnableSelectedSlot"
-              >
-                Enable
-              </button>
-              <button
-                class="disable"
-                type="button"
-                :disabled="!canDisableSelectedSlot"
-                @click="handleDisableSelectedSlot"
-              >
-                Disable
-              </button>
-            </div>
-            <p v-if="selectedSlotStatus === 'incoming'" class="slot-popup-note">
-              Incoming slots cannot be enabled.
-            </p>
-            <p v-else-if="selectedSlotStatus === 'occupied'" class="slot-popup-note">
-              Occupied slots cannot be changed.
-            </p>
-          </div>
+        <div class="undetected-parking-banner" role="status" aria-live="polite">
+          {{ undetectedOccupiedCount }}
+          <strong>Parking</strong>
+          with undetected license plate and province
         </div>
-      </div>
-
-      <div v-else-if="activeTab === 'cctv'" class="cctv-panel">
-        <div v-if="cameraError" class="camera-message">{{ cameraError }}</div>
-        <div v-else-if="cameras.length === 0" class="camera-message">No cameras found</div>
-
-        <div v-else class="cctv-grid">
-          <article v-for="camera in cameras" :key="camera._id" class="camera-card">
-            <header>
-              <h2>{{ camera.name }}</h2>
-              <span :class="['camera-live-state', camera.status]"><i></i>{{ camera.status === 'online' ? 'Live' : 'Offline' }}</span>
-            </header>
-            <div class="camera-feed live-feed">
-              <img
-                v-if="canShowCameraMedia(camera)"
-                :src="cameraMediaUrl(camera)"
-                :alt="camera.name"
-                @error="markCameraMediaError(camera._id)"
-              />
-              <div v-else class="camera-fallback">
-                <Video class="h-10 w-10" :stroke-width="1.8" />
-                <span>{{ camera.streamUrl ? 'Open RTSP stream' : 'No stream URL' }}</span>
-              </div>
-              <div class="timestamp">{{ camera.ipAddress || 'No IP' }}</div>
-              <Maximize2 class="expand-icon h-4 w-4" />
-            </div>
-            <footer class="camera-meta">
-              <span>{{ camera.streamProtocol?.toUpperCase() || 'N/A' }}</span>
-              <a v-if="camera.streamUrl" :href="camera.streamUrl" target="_blank" rel="noreferrer">
-                <ExternalLink class="h-4 w-4" />
-                RTSP
-              </a>
-            </footer>
-          </article>
-        </div>
-      </div>
-
-      <div v-else class="logs-panel">
-        <div class="warning-banner"><span>Exited</span> car log will reset after 24 hours</div>
-
-        <article v-for="log in parkingLogs" :key="log.id" class="log-card">
-          <CarFront class="log-car h-9 w-9" :stroke-width="2.4" />
-
-          <div class="vehicle-info">
-            <p>Name <span>:</span> {{ log.name }}</p>
-            <p>License Number <span>:</span> {{ log.licenseNumber }}</p>
-            <p>Province <span>:</span> {{ log.province }}</p>
-            <p>Vehicle Description <span>:</span> {{ log.vehicleDescription }}</p>
-          </div>
-
-          <div class="parking-info">
-            <p>Date <span>:</span> {{ log.date }}</p>
-            <p>Parking Time <span>:</span> {{ log.parkingTime }}</p>
-            <p>Exit Time <span>:</span> {{ log.exitTime }}</p>
-            <p>Parking slot number <span>:</span> {{ log.parkingSlot }}</p>
-            <p>
-              Parking Status <span>:</span>
-              <strong :class="statusClass(log.status)">{{ log.status }}</strong>
-            </p>
-          </div>
-
-          <div class="face-driver">
-            <p>Face Driver</p>
-            <div>
-              <FacePlaceholder label="Entered" />
-              <FacePlaceholder label="Exited" />
-            </div>
-          </div>
-        </article>
+        <p v-if="!isShowingSampleLogs && isLoadingLogs" class="logs-state" role="status">
+          Loading parking logs...
+        </p>
+        <p v-else-if="!isSelectedLocation" class="logs-state" role="status">
+          Select a parking location
+        </p>
+        <p v-else-if="!isShowingSampleLogs && logsError" class="logs-state error" role="alert">
+          {{ logsError }} <button type="button" @click="loadParkingLogs">Try again</button>
+        </p>
+        <p v-else-if="!displayedParkingLogs.length" class="logs-state logs-empty" role="status">
+          No parking logs found
+        </p>
+        <DatedLogList
+          v-else
+          v-slot="{ entries }"
+          :entries="displayedParkingLogs"
+          :get-date="(log) => log.date"
+        >
+          <ParkingLogCard
+            v-for="log in entries"
+            :key="log.id"
+            :log="log"
+            hide-building
+            hide-floor
+          />
+        </DatedLogList>
       </div>
     </section>
+    <div
+      v-if="exportNotification"
+      :class="['export-log-notification', exportNotificationType]"
+      role="status"
+      aria-live="polite"
+    >
+      {{ exportNotification }}
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
-import { CarFront, Check, ExternalLink, Maximize2, UserRound, Video } from 'lucide-vue-next'
-import { cctvService } from '@/services/api'
-import type { CCTVCamera } from '@/types'
-import parkingSlotsData from '@/data/parking-slots.json'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { isAxiosError } from 'axios'
+import DatedLogList from '@/components/parking/DatedLogList.vue'
+import ParkingLogCard, { type ParkingLogDisplay } from '@/components/parking/ParkingLogCard.vue'
+import DashboardMap from '@/components/parking/DashboardMap.vue'
+import CameraPreviewCard from '@/components/parking/CameraPreviewCard.vue'
+import { useAuthStore } from '@/stores/auth'
+import {
+  cctvService,
+  type DashboardCameraPreset,
+  parkingLogService,
+  type ParkingFloor,
+  type ParkingLogRecord,
+} from '@/services/api'
+import { dashboardParkingLogSamples } from '@/data/parkingLogSamples'
+
+defineProps<{ embedded?: boolean }>()
 
 type ActiveTab = 'slots' | 'cctv' | 'log'
-type SlotStatus = 'available' | 'incoming' | 'occupied' | 'disabled'
-
-interface ParkingSlot {
-  slotNumber: number
-  x: number
-  y: number
-}
-
-const FacePlaceholder = defineComponent({
-  props: {
-    label: {
-      type: String,
-      required: true,
-    },
-  },
-  setup(props) {
-    return () =>
-      h('figure', { class: 'face-placeholder' }, [
-        h('div', [h(UserRound, { class: 'h-11 w-11', strokeWidth: 1.8 })]),
-        h('figcaption', props.label),
-      ])
-  },
-})
 
 const activeTab = ref<ActiveTab>('slots')
-const selectedBuilding = ref('E4')
-const selectedFloor = ref('4')
-const selectedVehicle = ref('Cars')
-const selectedSlots = ref(new Set<number>())
-const selectedSlotNumber = ref<number | null>(null)
-const parkingSlots = ref<ParkingSlot[]>([])
-const slotStatus = ref<Record<number, SlotStatus>>({})
-const cameras = ref<CCTVCamera[]>([])
-const cameraError = ref('')
-const cameraMediaErrors = ref<Record<string, boolean>>({})
+const authStore = useAuthStore()
 
 const tabs: { id: ActiveTab; label: string }[] = [
   { id: 'slots', label: 'Slots' },
@@ -258,210 +149,242 @@ const tabs: { id: ActiveTab; label: string }[] = [
   { id: 'log', label: 'Log' },
 ]
 
-const filters = [
-  { label: 'Building', model: selectedBuilding, options: ['E4'], disabled: false },
-  { label: 'Floor', model: selectedFloor, options: ['4'], disabled: false },
-  { label: 'Vehicle', model: selectedVehicle, options: ['Cars', 'Motorcycles'], disabled: false },
-]
+const visibleTabs = computed(() =>
+  tabs.filter((tab) => tab.id === 'slots' || authStore.canManageParking),
+)
 
-const incomingSlotNumbers = [8, 9, 10, 24, 25, 26]
-const disabledSlotNumbers = [45, 46, 47]
+const selectTab = (tab: ActiveTab) => {
+  if (tab !== 'slots' && !authStore.canManageParking) return
+  activeTab.value = tab
+}
 
-const stats = computed(() => {
-  const statuses = Object.values(slotStatus.value)
-  const count = (status: SlotStatus) => statuses.filter((slot) => slot === status).length
+watch(
+  () => authStore.canManageParking,
+  (canManage) => {
+    if (!canManage) activeTab.value = 'slots'
+  },
+)
 
-  return [
-    { label: 'Total slots', value: parkingSlots.value.length || 124, color: '#3b82f6' },
-    { label: 'Available', value: count('available'), color: '#4caf50' },
-    { label: 'Incoming', value: count('incoming'), color: '#f5c443' },
-    { label: 'Occupied', value: count('occupied'), color: '#ef4444' },
-    { label: 'Disable', value: count('disabled'), color: '#7d7d7d' },
-  ]
+const staffCameras = ref<DashboardCameraPreset[]>([])
+const cctvLoading = ref(false)
+const cctvError = ref('')
+let cctvRequestSequence = 0
+
+const parkingLogs = ref<ParkingLogDisplay[]>([])
+const isShowingSampleLogs = ref(false)
+const isExporting = ref(false)
+const exportNotification = ref('')
+const exportNotificationType = ref<'success' | 'error'>('success')
+const isLoadingLogs = ref(false)
+const logsError = ref('')
+const selectedLocation = ref<{ floor: ParkingFloor; isSample: boolean } | null>(null)
+let logRequestSequence = 0
+let exportNotificationTimeout: ReturnType<typeof setTimeout> | undefined
+const isSelectedLocation = computed(() => Boolean(selectedLocation.value))
+const sampleLogsForSelectedLocation = computed(() => {
+  const location = selectedLocation.value
+  if (!location?.isSample) return []
+  return dashboardParkingLogSamples.filter(
+    (log) =>
+      log.buildingId === String(location.floor.building?._id) &&
+      log.floor === location.floor.floor &&
+      log.vehType === location.floor.veh_type,
+  )
+})
+const displayedParkingLogs = computed(() =>
+  isShowingSampleLogs.value ? sampleLogsForSelectedLocation.value : parkingLogs.value,
+)
+const undetectedOccupiedCount = computed(
+  () =>
+    selectedLocation.value?.floor.parking_map?.slots.filter(
+      (slot) => slot.status === 'occupied' && slot.licensePlateDetected === false,
+    ).length || 0,
+)
+
+const mapParkingLog = (log: ParkingLogRecord): ParkingLogDisplay => ({
+  id: log._id,
+  name: log.name,
+  brand: log.brand,
+  model: log.model,
+  color: log.color,
+  licenseNumber: log.license_num,
+  province: log.province,
+  building: log.building,
+  buildingId: log.buildingId,
+  floor: log.floor,
+  vehType: log.veh_type,
+  date: log.date_enter,
+  parkingTime: log.park_time,
+  exitDate: log.date_exit || '-',
+  exitTime: log.exit_time || '-',
+  parkingSlot: log.park_slot === null ? '-' : String(log.park_slot),
+  status: log.park_status === 'Not parking' ? 'Not Parking' : log.park_status,
+  slotDisabled: log.slotDisabled,
 })
 
-const rowLabels = [
-  { label: 'A', top: '18%' },
-  { label: 'B', top: '32%' },
-  { label: 'C', top: '42%' },
-  { label: 'D', top: '56%' },
-  { label: 'E', top: '70%' },
-  { label: 'F', top: '83%' },
-]
+const onLogLocationChange = (location: { floor: ParkingFloor; isSample: boolean } | null) => {
+  const previousLocation = selectedLocation.value
+  const sameLocation =
+    previousLocation?.floor._id === location?.floor._id &&
+    previousLocation?.isSample === location?.isSample
+  if (location?.isSample && activeTab.value === 'cctv') activeTab.value = 'slots'
+  selectedLocation.value = location
+  if (sameLocation) return
 
-const parkingLogs = [
-  {
-    id: 1,
-    name: 'Mrs. Wilayporn Nonsila',
-    licenseNumber: 'กง 1234',
-    province: 'เชียงราย',
-    vehicleDescription: 'Black Toyota Fortuner',
-    date: '12/08/2569',
-    parkingTime: '12:00:34',
-    exitTime: '-',
-    parkingSlot: '10',
-    status: 'Parking',
-  },
-  {
-    id: 2,
-    name: '*Guest555',
-    licenseNumber: 'ภค 5555',
-    province: 'ลำพูน',
-    vehicleDescription: 'Unknown',
-    date: '12/08/2569',
-    parkingTime: '14:00:34',
-    exitTime: '16:01:21',
-    parkingSlot: '54',
-    status: 'Exited',
-  },
-  {
-    id: 3,
-    name: 'Anutin Charnvirakul',
-    licenseNumber: 'รฮ 1000',
-    province: 'กรุงเทพมหานคร',
-    vehicleDescription: 'BYD blue pearl',
-    date: '12/08/2569',
-    parkingTime: '-',
-    exitTime: '-',
-    parkingSlot: '-',
-    status: 'Not Parking',
-  },
-]
-
-const slotVerticalOffset = 42
-const slotVerticalScale = 760
-
-const slotStyle = (slot: ParkingSlot) => ({
-  left: `${(slot.x / 1300) * 100}%`,
-  top: `${((slot.y + slotVerticalOffset) / slotVerticalScale) * 100}%`,
-})
-
-const slotStatusClass = (slotNumber: number) => {
-  return slotStatus.value[slotNumber] || 'available'
+  logRequestSequence += 1
+  parkingLogs.value = []
+  isLoadingLogs.value = false
+  logsError.value = ''
+  staffCameras.value = []
+  void loadCctvPresets(location)
+  if (activeTab.value === 'log') loadParkingLogs()
 }
 
-const statusClass = (status: string) => {
-  if (status === 'Parking') return 'status-parking'
-  if (status === 'Exited') return 'status-exited'
-  return 'status-muted'
-}
-
-const canShowCameraMedia = (camera: CCTVCamera) => {
-  return camera.status === 'online' && Boolean(camera.mjpegUrl || camera.snapshotUrl) && !cameraMediaErrors.value[camera._id]
-}
-
-const cameraMediaUrl = (camera: CCTVCamera) => {
-  return cctvService.getMediaUrl(camera.mjpegUrl || camera.snapshotUrl || '')
-}
-
-const markCameraMediaError = (cameraId: string) => {
-  cameraMediaErrors.value = { ...cameraMediaErrors.value, [cameraId]: true }
-}
-
-const loadCameras = async () => {
-  cameraError.value = ''
-  cameraMediaErrors.value = {}
-
-  try {
-    const response = await cctvService.getCameras(selectedBuilding.value, selectedFloor.value)
-    cameras.value = response.data
-  } catch (error: any) {
-    cameras.value = []
-    cameraError.value = error.response?.data?.message || 'Unable to load cameras'
+async function loadCctvPresets(location: { floor: ParkingFloor; isSample: boolean } | null) {
+  const sequence = ++cctvRequestSequence
+  staffCameras.value = []
+  cctvError.value = ''
+  if (!location || location.isSample || !location.floor.building?.building_name) {
+    cctvLoading.value = false
+    return
   }
-}
-
-const selectedSlotStatus = computed<SlotStatus>(() => {
-  if (selectedSlotNumber.value === null) return 'available'
-  return slotStatusClass(selectedSlotNumber.value)
-})
-
-const selectedSlotStatusLabel = computed(() => {
-  const status = selectedSlotStatus.value
-  return status.charAt(0).toUpperCase() + status.slice(1)
-})
-
-const canEnableSelectedSlot = computed(() => {
-  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
-})
-
-const canDisableSelectedSlot = computed(() => {
-  return selectedSlotStatus.value !== 'incoming' && selectedSlotStatus.value !== 'occupied'
-})
-
-const openSlotActions = (slotNumber: number) => {
-  selectedSlotNumber.value = slotNumber
-  selectedSlots.value = new Set([slotNumber])
-}
-
-const closeSlotActions = () => {
-  selectedSlotNumber.value = null
-  selectedSlots.value = new Set()
-}
-
-const handleEnableSelectedSlot = () => {
-  if (selectedSlotNumber.value === null || !canEnableSelectedSlot.value) return
-  const nextStatus = { ...slotStatus.value }
-  nextStatus[selectedSlotNumber.value] = 'available'
-  slotStatus.value = nextStatus
-  closeSlotActions()
-}
-
-const handleDisableSelectedSlot = () => {
-  if (selectedSlotNumber.value === null || !canDisableSelectedSlot.value) return
-  const nextStatus = { ...slotStatus.value }
-  nextStatus[selectedSlotNumber.value] = 'disabled'
-  slotStatus.value = nextStatus
-  closeSlotActions()
+  cctvLoading.value = true
+  try {
+    const response = await cctvService.getDashboardPresets(
+      location.floor.building.building_name,
+      location.floor.floor,
+      location.floor.veh_type,
+    )
+    if (sequence === cctvRequestSequence) staffCameras.value = response.data.cameras
+  } catch {
+    if (sequence === cctvRequestSequence)
+      cctvError.value = 'Unable to load CCTV presets for this parking location.'
+  } finally {
+    if (sequence === cctvRequestSequence) cctvLoading.value = false
+  }
 }
 
 watch(activeTab, (tab) => {
-  if (tab === 'cctv' && cameras.value.length === 0) {
-    void loadCameras()
-  }
+  if (tab === 'log' && authStore.canManageParking && selectedLocation.value)
+    loadParkingLogs()
 })
 
-watch([selectedBuilding, selectedFloor], () => {
-  if (activeTab.value === 'cctv') {
-    void loadCameras()
+async function loadParkingLogs() {
+  const requestSequence = ++logRequestSequence
+  const location = selectedLocation.value
+  const floor = location?.floor
+  if (!floor || location.isSample) {
+    parkingLogs.value = []
+    isLoadingLogs.value = false
+    logsError.value = ''
+    return
   }
-})
-
-onMounted(() => {
-  const floor4Data = (parkingSlotsData as any).E4.floor4
-  const allSlots: ParkingSlot[] = []
-
-  for (const row of Object.values(floor4Data.rows) as any[]) {
-    allSlots.push(
-      ...row.positions.map((position: any) => ({
-        slotNumber: Number(position.slot ?? position.slotNumber),
-        x: Number(position.x),
-        y: Number(position.y),
-      })),
-    )
+  isLoadingLogs.value = true
+  logsError.value = ''
+  try {
+    const response = await parkingLogService.list({
+      buildingId: floor.building!._id,
+      floorId: floor._id,
+      veh_type: floor.veh_type,
+    })
+    if (requestSequence !== logRequestSequence) return
+    parkingLogs.value = response.data.logs.map(mapParkingLog)
+  } catch {
+    if (requestSequence !== logRequestSequence) return
+    logsError.value = 'Failed to load parking logs'
+  } finally {
+    if (requestSequence === logRequestSequence) isLoadingLogs.value = false
   }
+}
 
-  parkingSlots.value = allSlots.sort((a, b) => a.slotNumber - b.slotNumber)
-  const nextStatus: Record<number, SlotStatus> = { ...floor4Data.slotStatus }
-  incomingSlotNumbers.forEach((slotNumber) => {
-    if (nextStatus[slotNumber] !== 'occupied') {
-      nextStatus[slotNumber] = 'incoming'
+function showExportNotification(message: string, type: 'success' | 'error') {
+  exportNotification.value = message
+  exportNotificationType.value = type
+  if (exportNotificationTimeout) clearTimeout(exportNotificationTimeout)
+  exportNotificationTimeout = setTimeout(() => {
+    exportNotification.value = ''
+    exportNotificationTimeout = undefined
+  }, 4500)
+}
+
+async function exportParkingLogs() {
+  const location = selectedLocation.value
+  const floor = location?.floor
+  if (!floor || isExporting.value) return
+  isExporting.value = true
+  exportNotification.value = ''
+  try {
+    const response = location.isSample
+      ? await parkingLogService.exportSamples(
+          sampleLogsForSelectedLocation.value.map((log) => ({
+            owner: !String(log.id).startsWith('sample-guest'),
+            name: log.name || '',
+            building: log.building || '',
+            floor: log.floor || floor.floor,
+            veh_type: log.vehType || floor.veh_type,
+            parkingSlotName: null,
+            brand: log.brand || '',
+            model: log.model || '',
+            color: log.color || '',
+            license_num: log.licenseNumber || '',
+            province: log.province || '',
+            date_enter: log.date || '',
+            park_time: log.parkingTime || '',
+            date_exit: log.exitDate && log.exitDate !== '-' ? log.exitDate : '',
+            exit_time: log.exitTime && log.exitTime !== '-' ? log.exitTime : '',
+            park_slot: log.parkingSlot && log.parkingSlot !== '-' ? Number(log.parkingSlot) : null,
+            park_status: log.status === 'Not Parking' ? 'Not parking' : log.status,
+            createdAt: log.date || '',
+            updatedAt: log.date || '',
+          })),
+        )
+      : await parkingLogService.export({
+          buildingId: floor.building!._id,
+          floorId: floor._id,
+          veh_type: floor.veh_type,
+        })
+    const disposition = response.headers['content-disposition'] || ''
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filenameMatch?.[1] || 'parking-logs.xlsx'
+    document.body.append(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    showExportNotification('Parking log exported', 'success')
+  } catch (cause) {
+    let message = 'Unable to export parking logs.'
+    if (isAxiosError(cause) && cause.response?.data instanceof Blob) {
+      try {
+        const errorPayload = JSON.parse(await cause.response.data.text()) as { message?: string }
+        message = errorPayload.message || message
+      } catch {
+        // Keep the fallback notification for non-JSON responses.
+      }
+    } else if (isAxiosError<{ message?: string }>(cause)) {
+      message = cause.response?.data?.message || message
     }
-  })
-  disabledSlotNumbers.forEach((slotNumber) => {
-    if (nextStatus[slotNumber] !== 'occupied') {
-      nextStatus[slotNumber] = 'disabled'
-    }
-  })
-  slotStatus.value = nextStatus
-  void loadCameras()
+    showExportNotification(message, 'error')
+  } finally {
+    isExporting.value = false
+  }
+}
+
+onUnmounted(() => {
+  cctvRequestSequence += 1
+  if (exportNotificationTimeout) clearTimeout(exportNotificationTimeout)
 })
 </script>
 
 <style scoped>
+.staff-dashboard.embedded {
+  margin-left: 0;
+}
 .staff-dashboard {
   min-height: calc(100vh - 78px);
-  margin-left: 160px;
+  margin-left: 138px;
   background: #d8d8d8;
   color: #202020;
 }
@@ -496,14 +419,14 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  padding: 12px 38px 18px 30px;
+  gap: 18px;
+  padding: 12px 25px 18px 16px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .filters {
   display: flex;
-  gap: 22px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
@@ -521,674 +444,151 @@ onMounted(() => {
 }
 
 .filter-control select {
-  width: 142px;
-  height: 45px;
+  width: 107px;
+  height: 43px;
   border-radius: 8px;
   background: #fff;
   border: 0;
-  padding: 0 18px;
+  padding: 0 16px;
   color: #242424;
-  font-size: 18px;
+  font-size: 16px;
   outline: none;
   box-shadow: inset 0 0 0 1px #e4e4e4;
 }
 
+.filter-control:nth-child(3) select {
+  width: 100px;
+}
+
 .stats {
   display: flex;
-  gap: 20px;
+  gap: 13px;
   flex-wrap: wrap;
-  padding-top: 29px;
+  padding-top: 25px;
 }
 
 .stat-card {
-  width: 104px;
-  min-height: 66px;
-  border-radius: 6px;
+  width: 74px;
+  min-height: 42px;
+  border-radius: 5px;
   background: #fff;
   display: grid;
   place-items: center;
   align-content: center;
   border: 1px solid #ececec;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
 .stat-card strong {
-  font-size: 30px;
-  line-height: 0.9;
+  font-size: 24px;
+  line-height: 0.95;
   font-weight: 800;
 }
 
 .stat-card span {
   color: #909090;
-  font-size: 14px;
+  font-size: 11px;
   text-align: center;
 }
 
 .dashboard-content {
-  padding: 18px 42px 34px;
+  padding: 16px 31px 32px;
 }
 
-.parking-map {
-  position: relative;
-  height: min(560px, calc(100vh - 320px));
-  min-height: 430px;
-  overflow: hidden;
-  border-radius: 22px;
-  border: 8px solid rgba(255, 255, 255, 0.24);
-  background:
-    linear-gradient(90deg, rgba(80, 64, 44, 0.12) 1px, transparent 1px) 0 0 / 92px 92px,
-    linear-gradient(0deg, rgba(80, 64, 44, 0.1) 1px, transparent 1px) 0 0 / 92px 92px,
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.38), transparent 34%),
-    #cabb9a;
-  box-shadow: inset 0 0 38px rgba(0, 0, 0, 0.18);
-}
-
-.map-heading {
-  position: absolute;
-  top: 22px;
-  left: 12%;
-  right: 12%;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 36px;
-  z-index: 3;
-}
-
-.map-heading span {
-  height: 2px;
-  background: #353535;
-}
-
-.map-heading strong {
-  color: #111;
-  font-size: 56px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-.gate-label,
-.row-label {
-  position: absolute;
-  z-index: 3;
-  color: #171717;
-  font-size: 27px;
-  font-weight: 400;
-}
-
-.gate-label::before,
-.gate-label::after {
-  content: '';
-  display: inline-block;
-  width: 2px;
-  height: 48px;
-  margin: 0 11px -14px;
-  background: #333;
-}
-
-.gate-label.out {
-  top: 75px;
-  left: 2.5%;
-}
-
-.gate-label.in {
-  top: 75px;
-  left: 10%;
-}
-
-.gate-label.up {
-  top: 58%;
-  left: 7%;
-}
-
-.gate-label.down {
-  top: 58%;
-  left: 39%;
-}
-
-.row-label {
-  right: 14px;
-  font-size: 35px;
-}
-
-.flow-lines {
-  position: absolute;
-  inset: 58px 44px 52px;
-  width: calc(100% - 88px);
-  height: calc(100% - 110px);
-  z-index: 1;
-  pointer-events: none;
-}
-
-.flow-lines path {
-  fill: none;
-  stroke: rgba(255, 167, 145, 0.64);
-  stroke-width: 9;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 5px rgba(255, 211, 200, 0.8));
-}
-
-.slot {
-  position: absolute;
-  z-index: 4;
-  width: clamp(25px, 2.4vw, 34px);
-  height: clamp(30px, 3vw, 42px);
-  transform: translate(-50%, -50%);
-  border: 1px solid rgba(20, 20, 20, 0.6);
-  color: #101010;
-  display: grid;
-  place-items: center;
-  font-size: clamp(10px, 0.85vw, 15px);
-  font-weight: 500;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.14);
-}
-
-.slot.available {
-  background: #4caf50;
-  color: #0f2a12;
-}
-
-.slot.incoming {
-  background: #f5c443;
-  color: #3d2a00;
-}
-
-.slot.occupied {
-  background: linear-gradient(#ff6b6b 0 55%, #dc2626 56% 100%);
-  color: #f2f2f2;
-  box-shadow:
-    inset 0 -6px 0 rgba(0, 0, 0, 0.35),
-    5px 6px 4px rgba(0, 0, 0, 0.34);
-}
-
-.slot.disabled {
-  background: #9e9e9e;
-  color: #282828;
-}
-
-.slot.selected {
-  border: 3px solid #22c7f2;
-  color: #fff;
-  box-shadow:
-    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
-    0 0 0 3px rgba(103, 220, 247, 0.65),
-    0 4px 4px rgba(0, 0, 0, 0.25);
-}
-
-.slot.selected svg {
-  width: 20px;
-  height: 20px;
-  padding: 2px;
-  border-radius: 999px;
-  background: #67dcf7;
-  color: #fff;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
-}
-
-.slot-actions {
-  min-height: 82px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  flex-wrap: wrap;
-  padding: 14px 0 0;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.slot-actions button {
-  width: 104px;
-  height: 46px;
-  border-radius: 5px;
-  color: #111;
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.slot-actions .edit {
-  background: #149cf0;
-}
-
-.slot-actions .enable {
-  background: #26df5d;
-}
-
-.slot-actions .disable {
-  background: #c7382f;
-  color: #fff;
-}
-
-.slot-actions strong {
-  color: #111;
-  font-size: 15px;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.slot-popup-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.42);
-}
-
-.slot-popup {
-  width: min(360px, 100%);
-  border-radius: 8px;
-  background: #fff;
-  color: #202020;
-  padding: 20px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
-}
-
-.slot-popup-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.slot-popup-header p {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-
-.slot-popup-header h3 {
-  color: #111827;
-  font-size: 24px;
-}
-
-.slot-popup-close {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 999px;
-  background: #f3f4f6;
-  color: #111827;
-  font-size: 18px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.slot-popup-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 22px 0;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-}
-
-.slot-popup-status span {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.slot-popup-status strong {
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 13px;
-}
-
-.slot-popup-status .available {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.slot-popup-status .incoming {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.slot-popup-status .occupied {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.slot-popup-status .disabled {
-  background: #e5e7eb;
-  color: #374151;
-}
-
-.slot-popup-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.slot-popup-actions button {
-  width: 100%;
-  min-height: 44px;
-  border: 0;
-  border-radius: 8px;
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.slot-popup-actions .enable {
-  background: #16a34a;
-}
-
-.slot-popup-actions .disable {
-  background: #dc2626;
-}
-
-.slot-popup-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.slot-popup-note {
-  margin-top: 14px;
-  color: #991b1b;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.status-legend {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  flex: 1;
-  flex-wrap: wrap;
-  min-width: 280px;
-  color: #333;
-  font-size: 14px;
-}
-
-.status-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.status-legend i {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  border: 1px solid rgba(20, 20, 20, 0.35);
-}
-
-.status-legend .available {
-  background: #4caf50;
-}
-
-.status-legend .incoming {
-  background: #f5c443;
-}
-
-.status-legend .occupied {
-  background: #dc2626;
-}
-
-.status-legend .disabled {
-  background: #9e9e9e;
-}
-
-.cctv-panel {
-  display: grid;
-  gap: 16px;
+.dashboard-content.slots-content {
+  padding-bottom: 16px;
 }
 
 .cctv-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(320px, 1fr));
-  gap: 12px 114px;
-  padding: 0 38px 0 0;
+  grid-template-columns: repeat(2, minmax(320px, 393px));
+  gap: 12px 82px;
+  justify-content: center;
 }
-
-.camera-message {
-  min-height: 220px;
-  border-radius: 8px;
+.cctv-state {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border-radius: 10px;
   background: #fff;
-  color: #555;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+  color: #475569;
+  text-align: center;
 }
-
-.camera-card {
-  border-radius: 32px;
-  background: #fff;
-  overflow: hidden;
-  padding: 0 0 10px;
-}
-
-.camera-card header {
-  height: 54px;
-  border-bottom: 1px solid #1f1f1f;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 30px;
-}
-
-.camera-card h2 {
-  color: #202020;
-  font-size: 20px;
-  font-weight: 400;
-}
-
-.camera-card header span {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: #c7352c;
-  font-size: 14px;
-}
-
-.camera-card header i {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: #c7352c;
-}
-
-.camera-live-state.offline {
-  color: #757575;
-}
-
-.camera-live-state.offline i {
-  background: #9e9e9e;
-}
-
-.camera-feed {
-  position: relative;
-  height: 260px;
-  margin: 12px 38px 0;
-  overflow: hidden;
-  border-radius: 6px;
-  background:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0)),
-    linear-gradient(115deg, #1f272a 0 18%, #777d7d 19% 36%, #c8cbc7 37% 52%, #696e6d 53% 100%);
-}
-
-.camera-feed::before {
-  content: '';
-  position: absolute;
-  inset: 44% -10% 0;
-  background:
-    linear-gradient(95deg, transparent 0 32%, rgba(255, 255, 255, 0.18) 33% 34%, transparent 35%),
-    radial-gradient(ellipse at 50% 0, rgba(255, 255, 255, 0.18), transparent 55%),
-    #676b66;
-  transform: perspective(220px) rotateX(45deg);
-  transform-origin: top;
-}
-
-.camera-feed.live-feed {
-  display: grid;
-  place-items: center;
-  background: #0f1115;
-}
-
-.camera-feed.live-feed::before {
-  display: none;
-}
-
-.camera-feed.live-feed img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.camera-fallback {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  color: #c7cad1;
-  font-size: 14px;
-}
-
-.timestamp {
-  position: absolute;
-  top: 10px;
-  left: 15px;
-  z-index: 4;
-  color: rgba(255, 255, 255, 0.78);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.48);
-  padding: 4px 7px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.pillar {
-  position: absolute;
-  top: 12px;
-  width: 54px;
-  height: 178px;
-  background: linear-gradient(#d8dddd, #b9bdbb);
-  color: #5d4030;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  z-index: 2;
-}
-
-.pillar.one {
-  left: 27%;
-}
-
-.pillar.two {
-  right: 18%;
-}
-
-.car {
-  position: absolute;
-  z-index: 3;
-  width: 110px;
-  height: 54px;
-  border-radius: 50% 50% 18px 18px;
-  background: linear-gradient(135deg, #1a1d20, #596064 52%, #151719);
-  box-shadow: 0 14px 22px rgba(0, 0, 0, 0.48);
-}
-
-.car-a {
-  left: 4%;
-  top: 70px;
-  transform: rotate(-13deg);
-}
-
-.car-b {
-  right: 16%;
-  top: 118px;
-  transform: rotate(8deg);
-  background: linear-gradient(135deg, #dde3e0, #8c9696 55%, #202427);
-}
-
-.car-c {
-  left: -4%;
-  bottom: 20px;
-  transform: rotate(18deg);
-}
-
-.direction-arrow {
-  position: absolute;
-  left: 45%;
-  bottom: 28px;
-  width: 18px;
-  height: 82px;
-  background: rgba(255, 255, 255, 0.2);
-  clip-path: polygon(35% 0, 65% 0, 65% 60%, 100% 60%, 50% 100%, 0 60%, 35% 60%);
-}
-
-.plate {
-  position: absolute;
-  right: 64px;
-  bottom: 13px;
-  color: #fff;
-  font-family: ui-serif, Georgia, serif;
-  font-weight: 800;
-  text-shadow: 0 1px 2px #000;
-}
-
-.expand-icon {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  padding: 2px;
-  border-radius: 3px;
-  background: #101524;
-  color: #fff;
-}
-
-.camera-meta {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 38px 0;
-  color: #535353;
-  font-size: 13px;
-}
-
-.camera-meta a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #9e2d25;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.scene-three,
-.scene-four {
-  background:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0)),
-    linear-gradient(110deg, #333b3c 0 12%, #b0b9b6 13% 35%, #555e5e 36% 100%);
-}
-
-.scene-four .car-b {
-  background: linear-gradient(135deg, #c56f2f, #8c341c 55%, #24120f);
+.cctv-state.error {
+  color: #b42318;
 }
 
 .logs-panel {
+  display: grid;
+  gap: 16px;
+  align-content: start;
   background: #e3e3e3;
   border-radius: 5px;
   min-height: 670px;
   padding: 10px 20px 44px;
+}
+
+.logs-empty {
+  justify-self: start;
+  border: 1px solid #bcbcbc;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  padding: 10px 16px;
+}
+
+.sample-log-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sample-log-toggle {
+  border: 1px solid #9e2d25;
+  border-radius: 5px;
+  background: #fff;
+  color: #9e2d25;
+  padding: 9px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.export-log-button {
+  border: 1px solid #15803d;
+  border-radius: 5px;
+  background: #e5e7eb;
+  color: #166534;
+  padding: 9px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.export-log-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.export-log-notification {
+  position: fixed;
+  z-index: 1000;
+  top: 22px;
+  right: 22px;
+  max-width: min(420px, calc(100vw - 44px));
+  padding: 12px 18px;
+  border: 1px solid;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-weight: 700;
+}
+.export-log-notification.success {
+  border-color: #16a34a;
+  color: #166534;
+}
+.export-log-notification.error {
+  border-color: #dc2626;
+  color: #991b1b;
+}
+
+.sample-log-note {
+  color: #555;
+  font-size: 14px;
 }
 
 .warning-banner {
@@ -1204,6 +604,22 @@ onMounted(() => {
 
 .warning-banner span {
   color: #c7352c;
+}
+.undetected-parking-banner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  min-height: 42px;
+  padding: 10px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+}
+.undetected-parking-banner strong {
+  color: #15803d;
 }
 
 .log-card {
@@ -1297,7 +713,7 @@ onMounted(() => {
   font-size: 16px;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 900px) {
   .dashboard-toolbar {
     flex-direction: column;
   }
@@ -1306,10 +722,13 @@ onMounted(() => {
     padding-top: 0;
   }
 
+  .dashboard-content.slots-content {
+    padding-bottom: 16px;
+  }
+
   .cctv-grid {
     grid-template-columns: 1fr;
     gap: 18px;
-    padding-right: 0;
   }
 
   .log-card {

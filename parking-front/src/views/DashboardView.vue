@@ -135,7 +135,7 @@
             :class="[
               'p-4 rounded-lg border-2 cursor-pointer transition text-center font-semibold text-sm',
               dashboardStore.selectedSlots.has(slot._id)
-                ? 'border-blue-500 bg-blue-50'
+                ? 'border-black bg-blue-50'
                 : slot.status === 'available'
                   ? 'border-parking-green bg-green-50 text-parking-green'
                   : slot.status === 'occupied'

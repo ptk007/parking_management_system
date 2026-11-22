@@ -1,66 +1,94 @@
 <template>
   <div class="history-page">
     <section class="history-panel">
-      <article v-for="entry in historyEntries" :key="entry.id" class="history-card">
-        <p>Staff Name : {{ entry.staffName }}</p>
-        <p>Building : {{ entry.building }}</p>
-        <p>Floor <span>:</span> {{ entry.floor }}</p>
-        <p>Parking Slot : {{ entry.parkingSlots }}</p>
-        <p>Date edited : {{ entry.dateEdited }}</p>
-        <p>Time edited : {{ entry.timeEdited }}</p>
-        <p>
-          Status changed to :
-          <strong :class="entry.statusChangedTo === 'Enable' ? 'enabled' : 'disabled'">
-            {{ entry.statusChangedTo }}
-          </strong>
-        </p>
-      </article>
+      <div class="history-heading">
+        <div class="history-title">
+          <h2>Slot Status Log</h2>
+          <p>Enable / Disable Slot Records</p>
+        </div>
+
+        <div class="history-controls">
+          <fieldset class="role-filter" aria-label="Filter by role">
+            <label><input v-model="selectedRoles" type="checkbox" value="staff" /> Staff</label>
+            <label><input v-model="selectedRoles" type="checkbox" value="admin" /> Admin</label>
+          </fieldset>
+          <div class="info-popover">
+            <button class="info-button" type="button" aria-label="About this page">!</button>
+            <div class="info-tooltip" role="tooltip">
+              Shows which parking slots were enabled or disabled, which staff member changed the slot status, and when the change happened.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="loading" class="history-message">Loading slot status logs...</p>
+      <p v-else-if="loadError" class="history-message error">{{ loadError }}</p>
+      <p v-else-if="!historyEntries.length" class="history-message">No slot status changes found.</p>
+      <DatedLogList
+        v-else
+        v-slot="{ entries }"
+        :entries="historyEntries"
+        :get-date="(entry) => entry.date_updated"
+        heading-level="h3"
+      >
+        <article v-for="entry in entries" :key="entry._id" class="history-card">
+          <p>Changed by {{ entry.role === 'staff' ? 'Staff' : 'Admin' }} : {{ entry.name }}</p>
+          <p>Building : {{ entry.building }}</p>
+          <p>Floor <span>:</span> {{ entry.floor }}</p>
+          <p>Parking Slots : {{ formatSlots(entry.slots) }}</p>
+          <p>Date edited : {{ entry.date_updated }}</p>
+          <p>Time edited : {{ entry.time_updated }}</p>
+          <p>
+            Slot status changed to :
+            <strong :class="entry.status === 'available' ? 'enabled' : 'disabled'">
+              {{ entry.status === 'available' ? 'Enable' : 'Disable' }}
+            </strong>
+          </p>
+        </article>
+      </DatedLogList>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import DatedLogList from '@/components/parking/DatedLogList.vue'
+import { floorService, type ParkingSlotStatusLog } from '@/services/api'
 
-interface HistoryEntry {
-  id: number
-  staffName: string
-  building: string
-  floor: string
-  parkingSlots: string
-  dateEdited: string
-  timeEdited: string
-  statusChangedTo: 'Enable' | 'Disable'
+const historyEntries = ref<ParkingSlotStatusLog[]>([])
+const selectedRoles = ref<Array<'staff' | 'admin'>>(['staff', 'admin'])
+const loading = ref(false)
+const loadError = ref('')
+
+async function loadHistory() {
+  loadError.value = ''
+  if (!selectedRoles.value.length) {
+    historyEntries.value = []
+    return
+  }
+  loading.value = true
+  try {
+    const response = await floorService.slotStatusLogs(selectedRoles.value)
+    historyEntries.value = response.data.logs
+  } catch {
+    loadError.value = 'Could not load slot status logs. Please try again.'
+  } finally {
+    loading.value = false
+  }
 }
 
-const historyEntries = ref<HistoryEntry[]>([
-  {
-    id: 1,
-    staffName: 'Thanathip Pitaksin',
-    building: 'E4',
-    floor: '4',
-    parkingSlots: '120, 121, 122, 123',
-    dateEdited: '11/4/2569',
-    timeEdited: '13:00:23',
-    statusChangedTo: 'Disable',
-  },
-  {
-    id: 2,
-    staffName: 'Atithan Sarapol',
-    building: 'E4',
-    floor: '4',
-    parkingSlots: '120, 121, 122, 123',
-    dateEdited: '11/4/2569',
-    timeEdited: '13:00:23',
-    statusChangedTo: 'Enable',
-  },
-])
+function formatSlots(slots: ParkingSlotStatusLog['slots']) {
+  return slots.map((slot) => slot.name || String(slot.number)).join(', ')
+}
+
+onMounted(loadHistory)
+watch(selectedRoles, loadHistory)
 </script>
 
 <style scoped>
 .history-page {
   min-height: calc(100vh - 78px);
-  margin-left: 160px;
+  margin-left: 138px;
   background: #d8d8d8;
   padding: 30px 42px 42px;
 }
@@ -72,13 +100,144 @@ const historyEntries = ref<HistoryEntry[]>([
   padding: 34px 19px;
 }
 
+.history-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 22px;
+}
+
+.history-title {
+  border: 1px solid #bcbcbc;
+  border-radius: 6px;
+  background: #fff;
+  padding: 10px 14px;
+}
+
+.history-controls {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.role-filter {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.role-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #333;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.role-filter input {
+  accent-color: #a52e28;
+}
+
+.history-message {
+  margin: 24px 14px;
+  color: #555;
+  font-size: 14px;
+}
+
+.history-message.error {
+  color: #b42318;
+}
+
+.history-heading h2 {
+  color: #111;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.history-heading p {
+  margin-top: 4px;
+  color: #777;
+  font-size: 13px;
+}
+
+.info-popover {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.info-button {
+  width: 34px;
+  height: 34px;
+  border: 2px solid #9e2d25;
+  border-radius: 999px;
+  background: #fff;
+  color: #9e2d25;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.info-button:hover,
+.info-button:focus-visible {
+  background: #fdeceb;
+}
+
+.info-tooltip {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 20;
+  width: 310px;
+  border-radius: 6px;
+  background: #2c2c2c;
+  color: #fff;
+  padding: 11px 13px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.14s ease 0s,
+    transform 0.14s ease 0s,
+    visibility 0s linear 0.14s;
+}
+
+.info-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 12px;
+  width: 12px;
+  height: 12px;
+  background: #2c2c2c;
+  transform: rotate(45deg);
+}
+
+.info-popover:hover .info-tooltip,
+.info-popover:focus-within .info-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
 .history-card {
   min-height: 228px;
   border-radius: 5px;
   background: #fff;
   box-shadow: 0 3px 4px rgba(0, 0, 0, 0.28);
   padding: 17px 36px;
-  margin-bottom: 22px;
   display: grid;
   align-content: center;
   gap: 10px;
