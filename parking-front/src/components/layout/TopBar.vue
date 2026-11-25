@@ -39,6 +39,7 @@ const chatStore = useChatStore()
 const roleLabel = computed(() => {
   if (authStore.isAdmin) return 'Admin'
   if (authStore.canManageParking) return 'Staff'
+  if (authStore.user?.role === 'public') return 'Public User'
   return 'User'
 })
 

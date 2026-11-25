@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
-import type { ApiUser, ChatTicket, NewSupportTicket, UserStatus } from '@/types'
+import type { ApiUser, ChatTicket, NewSupportTicket, RegistrationInput, UserStatus } from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '')
@@ -22,6 +22,7 @@ apiClient.interceptors.request.use((config) => {
 })
 
 export const authService = {
+  register: (data: RegistrationInput) => apiClient.post('/auth/register', data),
   login: (username: string, password: string) =>
     apiClient.post('/auth/login', { username, password }),
   logout: () => apiClient.post('/auth/logout'),

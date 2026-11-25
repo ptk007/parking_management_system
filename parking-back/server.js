@@ -4,6 +4,7 @@ require("dotenv").config({ path: path.resolve(__dirname, ".env") });
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const User = require("./api/models/userModel");
 const userRoutes = require("./api/routes/userRoutes");
 const authRoutes = require("./api/routes/authRoutes");
 const vehicleRoutes = require("./api/routes/vehicleRoutes");
@@ -66,6 +67,7 @@ async function startServer() {
       ensureLocalSecret(path.resolve(__dirname, ".model-api-key"), "PARKING_MODEL_API_KEY");
     }
     await mongoose.connect(MONGODB_URI);
+    await User.init();
     await require("./api/models/parkingLogModel").prepareSessionIndexes();
     await require("./api/utils/migrateParkingBuildingFields")();
     await require("./api/utils/migrateParkingFloorFields")();

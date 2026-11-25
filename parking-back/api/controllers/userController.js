@@ -243,6 +243,47 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
+// POST /api/auth/register - Create a self-service parking account.
+exports.register = async (req, res) => {
+  try {
+    const { accountType, name, username, password } = req.body || {};
+    if (accountType !== "public" && accountType !== "student") {
+      return res.status(400).json({
+        success: false,
+        message: "Choose Public User or Student to register",
+      });
+    }
+
+    if (typeof name !== "string" || !name.trim() ||
+        typeof username !== "string" || !username.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Full name and username are required",
+      });
+    }
+
+    if (typeof password !== "string" || !password.trim() ||
+        password.length < 8 || Buffer.byteLength(password, "utf8") > 72) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters and at most 72 UTF-8 bytes",
+      });
+    }
+
+    await User.create({
+      name: name.trim(),
+      username: username.trim(),
+      password,
+      role: accountType === "public" ? "public" : "user",
+      ...getBangkokUpdatedDateTime(),
+    });
+
+    return res.status(201).json({ success: true });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
 // POST /api/auth/login - Verify credentials, mark user online, and issue a JWT.
 exports.login = async (req, res) => {
   try {

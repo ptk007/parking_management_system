@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
-const USER_ROLES = ["user", "staff", "admin"];
+const USER_ROLES = ["user", "public", "staff", "admin"];
 const USER_STATUSES = ["online", "offline", "disable"];
 
 const userSchema = new mongoose.Schema(

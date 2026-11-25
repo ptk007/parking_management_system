@@ -1,5 +1,13 @@
-export type UserRole = 'staff' | 'admin' | 'user'
+export type UserRole = 'staff' | 'admin' | 'user' | 'public'
 export type UserStatus = 'online' | 'offline' | 'disable'
+export type RegistrationAccountType = 'public' | 'student'
+
+export interface RegistrationInput {
+  accountType: RegistrationAccountType
+  name: string
+  username: string
+  password: string
+}
 
 export interface ApiUser {
   _id: string

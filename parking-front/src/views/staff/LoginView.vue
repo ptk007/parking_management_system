@@ -1,5 +1,5 @@
 <template>
-  <div class="login-screen" :style="loginScreenStyle">
+  <div class="login-screen" :class="{ 'login-screen--register': isRegistering }" :style="loginScreenStyle">
     <div class="login-content" :class="{ 'login-content--form': selectedRole }">
       <div class="app-badge" aria-hidden="true">
         <img class="badge-crest" :src="mfuLogo" alt="" />
@@ -7,29 +7,60 @@
 
       <h1>MFU Parking Management</h1>
 
-      <div v-if="!selectedRole" class="role-options" aria-label="Choose user type">
-        <button type="button" class="role-card" @click="selectRole('student')">
-          <GraduationCap class="role-icon graduation-icon" :stroke-width="2.6" />
-          <span>Student</span>
-          <small>&#x0E19;&#x0E31;&#x0E01;&#x0E28;&#x0E36;&#x0E01;&#x0E29;&#x0E32;</small>
+      <template v-if="!selectedRole">
+        <h2 v-if="isRegistering" class="registration-heading">Choose an account type to register</h2>
+        <div class="role-options" role="group" aria-label="Choose account type">
+          <button
+            v-for="role in availableRoles"
+            :key="role"
+            type="button"
+            class="role-card"
+            @click="selectRole(role)"
+          >
+            <component
+              :is="roleConfigs[role].icon"
+              class="role-icon"
+              aria-hidden="true"
+              :stroke-width="2.6"
+            />
+            <span>{{ roleConfigs[role].label }}</span>
+            <small>{{ roleConfigs[role].description }}</small>
+          </button>
+        </div>
+
+        <button v-if="isRegistering" type="button" class="account-link" @click="isRegistering = false">
+          Back to Login
         </button>
+        <div v-else class="login-actions">
+          <button type="button" class="account-link" @click="startRegistration">Register</button>
+          <button type="button" class="account-link" @click="enterGuestDashboard">Guest User</button>
+        </div>
+      </template>
 
-        <button type="button" class="role-card" @click="selectRole('admin')">
-          <UserRound class="role-icon" :stroke-width="3" />
-          <span>Staff/Admin</span>
-          <small>เจ้าหน้าที่ / ผู้ดูแลระบบ</small>
-        </button>
-      </div>
-
-      <button v-if="!selectedRole" type="button" class="guest-link" @click="enterGuestDashboard">
-        Guest User
-      </button>
-
-      <form v-else class="login-form" @submit.prevent="handleLogin">
-        <button type="button" class="back-role" @click="clearRole">
+      <form v-else class="login-form" @input="error = ''" @submit.prevent="handleSubmit">
+        <button type="button" class="back-role" :disabled="isLoading" @click="clearRole">
           <ArrowLeft class="back-icon" :stroke-width="2.4" />
           <span>&#x0E22;&#x0E49;&#x0E2D;&#x0E19;&#x0E01;&#x0E25;&#x0E31;&#x0E1A;</span>
         </button>
+
+        <h2 class="form-heading">
+          {{ roleConfigs[selectedRole].label }} {{ isRegistering ? 'Registration' : 'Login' }}
+        </h2>
+        <p v-if="registered" class="login-success" role="status">Account created. Please log in.</p>
+
+        <div v-if="isRegistering" class="field">
+          <label for="full-name" class="sr-only">Full name</label>
+          <input
+            id="full-name"
+            v-model="form.name"
+            name="name"
+            autocomplete="name"
+            placeholder="Full name"
+            class="login-input"
+            :readonly="isLoading"
+            required
+          />
+        </div>
 
         <div class="field">
           <label for="username" class="sr-only">Username</label>
@@ -41,7 +72,7 @@
             autocomplete="username"
             placeholder="Username"
             class="login-input"
-            :aria-invalid="Boolean(error)"
+            :readonly="isLoading"
             required
           />
         </div>
@@ -53,23 +84,47 @@
             v-model="form.password"
             type="password"
             name="password"
-            autocomplete="current-password"
-            placeholder="Password"
+            :autocomplete="isRegistering ? 'new-password' : 'current-password'"
+            :minlength="isRegistering ? 8 : undefined"
+            :placeholder="isRegistering ? 'Password (at least 8 characters)' : 'Password'"
             class="login-input"
-            :aria-invalid="Boolean(error)"
+            :readonly="isLoading"
             required
           />
         </div>
 
-        <div v-if="error" class="login-error">
+        <div v-if="isRegistering" class="field">
+          <label for="confirm-password" class="sr-only">Confirm password</label>
+          <input
+            id="confirm-password"
+            v-model="form.confirmPassword"
+            type="password"
+            name="confirmPassword"
+            autocomplete="new-password"
+            placeholder="Confirm password"
+            class="login-input"
+            :readonly="isLoading"
+            required
+          />
+        </div>
+
+        <div v-if="error" class="login-error" role="alert">
           {{ error }}
         </div>
 
         <button type="submit" :disabled="isLoading" class="login-button">
-          <span v-if="isLoading">Logging in...</span>
-          <span v-else>Login</span>
+          {{ submitLabel }}
         </button>
       </form>
+      <button
+        v-if="selectedRole && selectedRole !== 'staff' && !isRegistering && !registered"
+        type="button"
+        class="account-link"
+        :disabled="isLoading"
+        @click="startRegistration"
+      >
+        Register
+      </button>
     </div>
   </div>
 </template>
@@ -77,29 +132,29 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, GraduationCap, UserRound } from 'lucide-vue-next'
+import { isAxiosError } from 'axios'
+import { ArrowLeft, GraduationCap, UserRound, Users } from 'lucide-vue-next'
+import { authService } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
-import type { UserRole } from '@/types'
+import type { RegistrationAccountType, UserRole } from '@/types'
 import loginBackground from '@/assets/mba-mfu.jpg'
 import mfuLogo from '@/assets/mae-fah-luang-university.png'
 
-type LoginRole = 'student' | 'admin' | 'guest'
-
-interface RoleConfig {
-  label: string
-  apiRoles: UserRole[]
-  route: string
-}
+type LoginRole = RegistrationAccountType | 'staff'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const form = reactive({
+  name: '',
   username: '',
   password: '',
+  confirmPassword: '',
 })
 
 const selectedRole = ref<LoginRole | null>(null)
+const isRegistering = ref(false)
+const registered = ref(false)
 const isLoading = ref(false)
 const error = ref('')
 
@@ -107,40 +162,55 @@ const loginScreenStyle = {
   '--login-bg-image': `url(${loginBackground})`,
 }
 
-const roleConfigs: Record<LoginRole, RoleConfig> = {
+const roleConfigs: Record<
+  LoginRole,
+  { label: string; description: string; icon: typeof Users; apiRoles: UserRole[] }
+> = {
+  public: {
+    label: 'Public User',
+    description: 'บุคคลทั่วไป',
+    icon: Users,
+    apiRoles: ['public'],
+  },
   student: {
     label: 'Student',
+    description: 'นักศึกษา',
+    icon: GraduationCap,
     apiRoles: ['user'],
-    route: '/dashboard',
   },
-  admin: {
+  staff: {
     label: 'Staff/Admin',
+    description: 'เจ้าหน้าที่ / ผู้ดูแลระบบ',
+    icon: UserRound,
     apiRoles: ['staff', 'admin'],
-    route: '/admin/dashboard',
-  },
-  guest: {
-    label: 'Guest User',
-    apiRoles: ['user'],
-    route: '/dashboard',
   },
 }
 
-const selectedRoleConfig = computed(() => {
-  return selectedRole.value ? roleConfigs[selectedRole.value] : roleConfigs.student
+const registrationRoles: RegistrationAccountType[] = ['public', 'student']
+const loginRoles: LoginRole[] = [...registrationRoles, 'staff']
+const availableRoles = computed(() => (isRegistering.value ? registrationRoles : loginRoles))
+const submitLabel = computed(() => {
+  if (isRegistering.value) return isLoading.value ? 'Registering...' : 'Register'
+  return isLoading.value ? 'Logging in...' : 'Login'
 })
-
-const selectRole = (role: LoginRole) => {
-  selectedRole.value = role
-  form.username = ''
-  form.password = ''
-  error.value = ''
-}
 
 const clearRole = () => {
   selectedRole.value = null
+  form.name = ''
   form.username = ''
   form.password = ''
+  form.confirmPassword = ''
   error.value = ''
+  registered.value = false
+}
+
+const selectRole = (role: LoginRole) => {
+  selectedRole.value = role
+}
+
+const startRegistration = () => {
+  clearRole()
+  isRegistering.value = true
 }
 
 const enterGuestDashboard = async () => {
@@ -148,43 +218,67 @@ const enterGuestDashboard = async () => {
   await router.push('/dashboard')
 }
 
-const handleLogin = async () => {
-  if (!selectedRole.value) return
+const register = async (accountType: RegistrationAccountType, username: string) => {
+  const name = form.name.trim()
+  if (!name) {
+    error.value = 'Please enter your full name'
+    return
+  }
+
+  if (form.password !== form.confirmPassword) {
+    error.value = 'Passwords do not match'
+    return
+  }
+
+  try {
+    await authService.register({ accountType, name, username, password: form.password })
+    form.name = ''
+    form.username = username
+    form.password = ''
+    form.confirmPassword = ''
+    isRegistering.value = false
+    registered.value = true
+  } catch (err) {
+    error.value =
+      (isAxiosError<{ message?: string }>(err) && err.response?.data?.message) ||
+      'Registration failed. Please try again.'
+  }
+}
+
+const handleSubmit = async () => {
+  const role = selectedRole.value
+  if (!role || isLoading.value) return
 
   isLoading.value = true
   error.value = ''
 
   try {
     const username = form.username.trim()
-    const password = form.password
-
-    if (!username || !password) {
+    if (!username || !form.password) {
       error.value = 'Please enter username and password'
       return
     }
 
-    const config = selectedRoleConfig.value
-
-    if (selectedRole.value === 'guest') {
-      authStore.loginGuest(username)
-      await router.push(config.route)
+    if (isRegistering.value && role !== 'staff') {
+      await register(role, username)
       return
     }
 
-    const success = await authStore.login(username, password)
+    const success = await authStore.login(username, form.password)
 
     if (!success) {
       error.value = authStore.error || 'Login failed'
       return
     }
 
+    const config = roleConfigs[role]
     if (!authStore.user || !config.apiRoles.includes(authStore.user.role)) {
       await authStore.logout()
       error.value = `This account is not allowed for ${config.label}`
       return
     }
 
-    await router.push(authStore.user.role === 'staff' ? '/dashboard' : config.route)
+    await router.push(authStore.user.role === 'admin' ? '/admin/dashboard' : '/dashboard')
   } finally {
     isLoading.value = false
   }
@@ -269,14 +363,17 @@ h1 {
 }
 
 .role-options {
+  width: 100%;
   display: flex;
   justify-content: center;
-  gap: 29px;
+  gap: 16px;
 }
 
 .role-card {
-  width: 122px;
+  flex: 0 1 122px;
+  min-width: 0;
   height: 104px;
+  padding: 6px 4px;
   border: 0;
   border-radius: 12px;
   background: #d9d9d9;
@@ -298,7 +395,7 @@ h1 {
 }
 
 .role-card:focus-visible,
-.guest-link:focus-visible,
+.account-link:focus-visible,
 .back-role:focus-visible,
 .login-input:focus-visible,
 .login-button:focus-visible {
@@ -312,10 +409,6 @@ h1 {
   color: #000;
 }
 
-.graduation-icon {
-  width: 61px;
-}
-
 .role-card span {
   margin-top: 3px;
   font-size: 13px;
@@ -323,18 +416,43 @@ h1 {
 }
 
 .role-card small {
+  min-height: 2.3em;
   font-size: 12px;
   line-height: 1.15;
 }
 
-.guest-link {
-  margin-top: 13px;
+.login-actions {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.account-link {
+  margin-top: 12px;
+  min-height: 32px;
+  padding: 0 6px;
   border: 0;
+  border-radius: 4px;
   background: transparent;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 500;
+  color: #2e1112;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
+}
+
+.form-heading,
+.registration-heading {
+  margin: 0;
+  color: #2e1112;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.registration-heading {
+  margin-bottom: 16px;
 }
 
 .login-form {
@@ -403,18 +521,23 @@ h1 {
   box-shadow: 0 0 0 3px rgba(255, 180, 0, 0.34);
 }
 
-.login-input[aria-invalid='true'] {
-  border-color: rgba(255, 202, 202, 0.82);
+.login-error,
+.login-success {
+  width: 100%;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
 }
 
 .login-error {
-  width: 100%;
   border: 1px solid rgba(255, 205, 205, 0.32);
-  border-radius: 8px;
   background: rgba(74, 8, 10, 0.32);
   color: #ffe7e7;
-  padding: 9px 11px;
-  font-size: 12px;
+}
+
+.login-success {
+  background: #edf7ed;
+  color: #1d522a;
 }
 
 .login-button {
@@ -444,7 +567,9 @@ h1 {
   transform: translateY(-1px);
 }
 
-.login-button:disabled {
+.login-button:disabled,
+.back-role:disabled,
+.account-link:disabled {
   cursor: not-allowed;
   opacity: 0.72;
   transform: none;
@@ -537,6 +662,10 @@ h1 {
     padding: 112px 16px 24px;
   }
 
+  .login-screen--register {
+    padding-top: 32px;
+  }
+
   .login-content {
     width: min(420px, 100%);
     min-height: auto;
@@ -568,11 +697,10 @@ h1 {
   }
 
   .role-options {
-    gap: 18px;
+    gap: 8px;
   }
 
   .role-card {
-    width: 116px;
     height: 102px;
   }
 
