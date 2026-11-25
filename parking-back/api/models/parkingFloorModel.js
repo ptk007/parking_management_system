@@ -67,11 +67,6 @@ const parkingFloorSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    parking_slot_files: [{
-      original_name: { type: String, required: true },
-      path: { type: String, required: true },
-      size: { type: Number, required: true },
-    }],
     parking_map: { type: mongoose.Schema.Types.Mixed, default: null },
     camera_presets: [cameraPresetSchema],
     status: {

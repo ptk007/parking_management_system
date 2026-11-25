@@ -145,11 +145,38 @@ function mapWithSlotConnectionStatus(map, cameraPresets = []) {
 
 function floorWithSlotConnectionStatus(floor) {
   const result = typeof floor?.toObject === "function" ? floor.toObject() : { ...floor };
+  delete result.parking_slot_files;
   result.parking_map = mapWithSlotConnectionStatus(
     result.parking_map,
     result.camera_presets,
   );
   return result;
+}
+
+async function hydrateOccupiedVehicleDetails(floors) {
+  const occupiedFloors = floors.filter((floor) =>
+    Array.isArray(floor.parking_map?.slots) &&
+    floor.parking_map.slots.some((slot) => slot.status === "occupied"),
+  );
+  if (!occupiedFloors.length) return;
+  const logs = await ParkingLog.find({
+    floorId: { $in: occupiedFloors.map((floor) => floor._id) },
+    park_status: "Parking",
+  }).select("floorId cameraPresetId parkingSlotName park_slot license_num province").lean();
+  const key = (floorId, camera, name, number) =>
+    JSON.stringify([String(floorId), String(camera), name, number]);
+  const logsBySlot = new Map(logs.map((log) => [
+    key(log.floorId, log.cameraPresetId, log.parkingSlotName, log.park_slot), log,
+  ]));
+  for (const floor of occupiedFloors) {
+    for (const slot of floor.parking_map.slots) {
+      if (slot.status !== "occupied") continue;
+      const log = logsBySlot.get(key(floor._id, slot.cameraPresetId, slot.parkingSlotName, slot.number));
+      if (!log) continue;
+      slot.license_num = log.license_num;
+      slot.province = log.province;
+    }
+  }
 }
 
 async function readParkingSlotJson(filePath) {
@@ -329,24 +356,7 @@ exports.getFloor = async (req, res) => {
     }
 
     const floor = floorWithSlotConnectionStatus(parkingFloor);
-    const slots = floor.parking_map?.slots;
-    const occupied = Array.isArray(slots) ? slots.filter((slot) => slot.status === "occupied") : [];
-    if (occupied.length) {
-      const logs = await ParkingLog.find({
-        floorId: floor._id,
-        park_status: "Parking",
-      }).select("cameraPresetId parkingSlotName park_slot license_num province").lean();
-      const slotKey = (camera, name, number) => JSON.stringify([String(camera), name, number]);
-      const logsBySlot = new Map(logs.map((log) => [
-        slotKey(log.cameraPresetId, log.parkingSlotName, log.park_slot), log,
-      ]));
-      for (const slot of occupied) {
-        const log = logsBySlot.get(slotKey(slot.cameraPresetId, slot.parkingSlotName, slot.number));
-        if (!log) continue;
-        slot.license_num = log.license_num;
-        slot.province = log.province;
-      }
-    }
+    await hydrateOccupiedVehicleDetails([floor]);
     return res.json({ success: true, floor });
   } catch (error) {
     return sendError(res, error);
@@ -463,20 +473,10 @@ exports.deleteFloor = async (req, res) => {
     }
 
     await parkingFloor.deleteOne();
-    for (const file of parkingFloor.parking_slot_files || []) {
-      try {
-        if (
-          !(await require("../models/parkingSourceFileModel").exists({
-            path: file.path,
-          }))
-        )
-          await deleteParkingSlotFile(file.path);
-      } catch (error) {
-        console.error(error);
-      }
-    }
     try {
-      await deleteParkingSlotFile(parkingFloor.parking_slot_file);
+      const filePath = parkingFloor.parking_slot_file;
+      if (filePath && !(await ParkingSourceFile.exists({ path: filePath })))
+        await deleteParkingSlotFile(filePath);
     } catch (fileError) {
       console.error(fileError);
     }
@@ -487,116 +487,43 @@ exports.deleteFloor = async (req, res) => {
   }
 };
 
-// Store the original slot JSON files on the selected floor.
-exports.importSlotFiles = async (req, res) => {
-  const files = req.files || [];
-  let saved = false;
-  try {
-    if (!isValidId(req.params.id))
-      return res.status(400).json({ message: "Invalid floor id" });
-    const floor = await ParkingFloor.findById(req.params.id);
-    if (!floor) return res.status(404).json({ message: "Floor not found" });
-    if (!files.length)
-      return res.status(400).json({ message: "Choose at least one JSON file" });
-    const existing = floor.parking_slot_files || [];
-    if (
-      files.reduce((sum, file) => sum + file.size, 0) +
-        existing.reduce((sum, file) => sum + file.size, 0) >
-      5 * 1024 * 1024
-    )
-      return res
-        .status(400)
-        .json({ message: "The files for a floor must total 5 MB or less" });
-    const names = new Set(existing.map((file) => file.original_name));
-    for (const file of files) {
-      if (names.has(file.originalname))
-        return res
-          .status(409)
-          .json({ message: `File already imported: ${file.originalname}` });
-      names.add(file.originalname);
-      if (!(await isValidJsonFile(file)))
-        return res
-          .status(400)
-          .json({ message: `Invalid JSON: ${file.originalname}` });
-    }
-    // An atomic append preserves concurrent imports into the same floor.
-    const updated = await ParkingFloor.findOneAndUpdate(
-      {
-        _id: floor._id,
-        ...(existing.length
-          ? { parking_slot_files: floor.parking_slot_files }
-          : {
-              $or: [
-                { parking_slot_files: [] },
-                { parking_slot_files: { $exists: false } },
-              ],
-            }),
-      },
-      {
-        $push: {
-          parking_slot_files: {
-            $each: files.map((file) => ({
-              original_name: file.originalname,
-              path: getFilePath(file),
-              size: file.size,
-            })),
-          },
-        },
-        $set: getUpdatedAt(),
-      },
-      { new: true, runValidators: true },
-    ).populate("building", BUILDING_FIELDS);
-    if (!updated)
-      return res
-        .status(409)
-        .json({ message: "The floor changed. Reload and try again." });
-    saved = true;
-    return res.status(201).json({ success: true, floor: updated });
-  } catch (error) {
-    return sendError(res, error);
-  } finally {
-    if (!saved) await Promise.allSettled(files.map(removeUploadedFile));
-  }
-};
-
-exports.downloadSlotFile = async (req, res) => {
-  try {
-    if (!isValidId(req.params.id) || !isValidId(req.params.fileId))
-      return res.status(400).json({ message: "Invalid floor or file id" });
-    const floor = await ParkingFloor.findById(req.params.id);
-    const file = floor?.parking_slot_files?.id(req.params.fileId);
-    if (!file) return res.status(404).json({ message: "File not found" });
-    const absolutePath = path.resolve(__dirname, "../../..", file.path);
-    const relative = path.relative(FILE_ROOT, absolutePath);
-    if (relative.startsWith("..") || path.isAbsolute(relative))
-      throw new Error("Invalid slot file path");
-    return res.download(absolutePath, file.original_name);
-  } catch (error) {
-    return sendError(res, error);
-  }
-};
-
 // Shared dashboard catalog contains floor maps, without camera connection credentials.
 exports.dashboardCatalog = async (req, res) => {
   try {
+    const role = req.currentUser?.role;
+    const canManage = role === "admin" || role === "staff";
     const floors = await ParkingFloor.find()
       .select(
-        "building floor veh_type status parking_map camera_presets._id camera_presets.parkingSlotData",
+        "building floor veh_type status parking_map camera_presets._id camera_presets.name camera_presets.status camera_presets.modelEnabled camera_presets.parkingSlotData.categories",
       )
       .populate("building", "_id building_name")
       .sort({ floor: 1 });
-    res.json({
-      floors: floors.map((floor) => {
-        const result = floorWithSlotConnectionStatus(floor);
-        delete result.camera_presets;
-        if (Array.isArray(result.parking_map?.slots)) {
-          result.parking_map.slots = result.parking_map.slots.map(
-            ({ license_num, province, ...slot }) => slot,
-          );
-        }
-        return result;
-      }),
+    const result = floors.map((floor) => {
+      const projected = floorWithSlotConnectionStatus(floor);
+      if (canManage) {
+        projected.mapPresets = (projected.camera_presets || []).map((camera) => ({
+          _id: camera._id,
+          name: camera.name,
+          status: camera.status,
+          modelEnabled: camera.modelEnabled,
+          ...(role === "admin" && {
+            slotNames: (Array.isArray(camera.parkingSlotData?.categories)
+              ? camera.parkingSlotData.categories : [])
+              .filter((category) => category?.supercategory === "parking-slot" &&
+                typeof category.name === "string" && category.name.trim())
+              .map((category) => category.name.trim()),
+          }),
+        }));
+      } else if (Array.isArray(projected.parking_map?.slots)) {
+        projected.parking_map.slots = projected.parking_map.slots.map(
+          ({ license_num, province, date_updated, time_updated, ...slot }) => slot,
+        );
+      }
+      delete projected.camera_presets;
+      return projected;
     });
+    if (canManage) await hydrateOccupiedVehicleDetails(result);
+    return res.json({ floors: result });
   } catch (error) {
     return sendError(res, error);
   }
@@ -771,6 +698,77 @@ exports.saveMap = async (req, res) => {
     return sendError(res, error);
   }
 };
+exports.setSlotAssignment = async (req, res) => {
+  try {
+    const { keys, cameraPresetId, parkingSlotName } = req.body || {};
+    if (
+      !isValidId(req.params.id) ||
+      !Array.isArray(keys) || !keys.length || keys.length > 5000 ||
+      !keys.every((key) => typeof key === "string" && key.length <= 256) ||
+      (cameraPresetId !== null && !isValidId(cameraPresetId)) ||
+      (parkingSlotName !== null &&
+        (typeof parkingSlotName !== "string" || !parkingSlotName.trim() ||
+          parkingSlotName.length > 128 || !cameraPresetId || keys.length !== 1))
+    )
+      return res.status(400).json({ message: "Invalid slot assignment" });
+    const floor = await ParkingFloor.findById(req.params.id);
+    const map = floor?.parking_map;
+    if (!Array.isArray(map?.slots))
+      return res.status(404).json({ message: "Parking map not found" });
+
+    const keyFor = (slot) => JSON.stringify([slot.zone, slot.number]);
+    const selected = new Set(keys);
+    if (map.slots.filter((slot) => selected.has(keyFor(slot))).length !== selected.size)
+      return res.status(404).json({ message: "Selected parking slot not found" });
+    const camera = floor.camera_presets?.find((preset) => String(preset._id) === cameraPresetId);
+    if (cameraPresetId && !camera)
+      return res.status(400).json({ message: "Selected CCTV preset does not belong to this floor" });
+    const category = parkingSlotName && Array.isArray(camera.parkingSlotData?.categories)
+      ? camera.parkingSlotData.categories.find((entry) =>
+        entry?.supercategory === "parking-slot" && typeof entry.name === "string" &&
+        entry.name.trim() === parkingSlotName,
+      )
+      : null;
+    if (parkingSlotName) {
+      if (!category)
+        return res.status(400).json({ message: "Selected parking slot does not belong to this CCTV preset" });
+      if (map.slots.some((slot) => !selected.has(keyFor(slot)) &&
+        slot.cameraPresetId === cameraPresetId && slot.parkingSlotName === parkingSlotName))
+        return res.status(409).json({ message: "This CCTV parking slot is already assigned to another map slot" });
+    }
+    const slots = map.slots.map((slot) => {
+      if (!selected.has(keyFor(slot))) return slot;
+      const next = { ...slot, connectionStatus: cameraPresetId && parkingSlotName ? "Connect" : "None" };
+      if (cameraPresetId) next.cameraPresetId = cameraPresetId;
+      else delete next.cameraPresetId;
+      if (parkingSlotName) next.parkingSlotName = parkingSlotName;
+      else delete next.parkingSlotName;
+      return next;
+    });
+    const filter = { _id: floor._id, parking_map: map };
+    if (camera) {
+      filter.camera_presets = { $elemMatch: {
+        _id: camera._id,
+        ...(category && {
+          "parkingSlotData.categories": {
+            $elemMatch: { supercategory: "parking-slot", name: category.name },
+          },
+        }),
+      } };
+    }
+    const updated = await ParkingFloor.findOneAndUpdate(
+      filter,
+      { $set: { parking_map: { ...map, slots }, ...getUpdatedAt() } },
+      { returnDocument: "after" },
+    );
+    if (!updated)
+      return res.status(409).json({ message: "Map or CCTV presets changed. Reload and try again." });
+    return res.json({ map: floorWithSlotConnectionStatus(updated).parking_map });
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
 exports.saveCameraPreset = async (req, res) => {
   const uploadedFile = req.file;
   let sourceFile;
@@ -1237,27 +1235,6 @@ exports.listCameraParkingSlotCategories = async (req, res) => {
 };
 exports.listSourceFiles = async (req, res) => {
   try {
-    const floors = await ParkingFloor.find().select("parking_slot_files");
-    const legacy = floors.flatMap((floor) =>
-      Array.from(floor.parking_slot_files || []),
-    );
-    if (legacy.length)
-      await ParkingSourceFile.bulkWrite(
-        legacy.map((file) => ({
-          updateOne: {
-            filter: { _id: file._id },
-            update: {
-              $setOnInsert: {
-                original_name: file.original_name,
-                path: file.path,
-                size: file.size,
-              },
-              $set: { fileType: "parking-slot" },
-            },
-            upsert: true,
-          },
-        })),
-      );
     const files = await ParkingSourceFile.find().sort({ createdAt: -1 });
     const filesWithAvailability = await Promise.all(
       files.map(async (file) => {
@@ -1366,6 +1343,7 @@ exports.setSlotStatuses = async (req, res) => {
     if (
       !isValidId(req.params.id) ||
       !Array.isArray(keys) ||
+      !keys.length ||
       keys.length > 5000 ||
       !keys.every((key) => typeof key === "string") ||
       !["available", "disabled"].includes(status)
@@ -1378,6 +1356,7 @@ exports.setSlotStatuses = async (req, res) => {
     const selected = new Set(keys);
     const slots = floor.parking_map.slots.map((slot) =>
       selected.has(JSON.stringify([slot.zone, slot.number])) &&
+      slot.status !== status &&
       ["available", "disabled"].includes(slot.status)
         ? (() => {
             const updatedSlot = { ...slot, status };
@@ -1391,6 +1370,9 @@ exports.setSlotStatuses = async (req, res) => {
         : slot,
     );
     const map = { ...floor.parking_map, slots };
+    const changedSlots = getChangedEmptySlots(originalSlots, slots);
+    if (!changedSlots.length)
+      return res.json({ map: floorWithSlotConnectionStatus(floor).parking_map, changedSlots: 0 });
     const updated = await ParkingFloor.findOneAndUpdate(
       { _id: floor._id, parking_map: floor.parking_map },
       { $set: { parking_map: map, ...getUpdatedAt() } },
@@ -1400,9 +1382,8 @@ exports.setSlotStatuses = async (req, res) => {
       return res
         .status(409)
         .json({ message: "Map changed. Reload and try again." });
-    const changedSlots = getChangedEmptySlots(originalSlots, slots);
     await recordSlotStatusChange(user, floor, changedSlots, status);
-    res.json({ map });
+    res.json({ map: floorWithSlotConnectionStatus(updated).parking_map, changedSlots: changedSlots.length });
   } catch (error) {
     return sendError(res, error);
   }

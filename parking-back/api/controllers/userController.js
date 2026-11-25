@@ -386,11 +386,12 @@ exports.requireAuth = async (req, res, next) => {
   }
 
   try {
-    const user = await User.findById(auth.userId).select("status");
+    const user = await User.findById(auth.userId).select("role status");
     if (!user || user.status === "disable") {
       return res.status(401).json({ success: false, message: "Invalid or disabled user" });
     }
     req.auth = auth;
+    req.currentUser = user;
     return next();
   } catch (error) {
     return sendError(res, error);

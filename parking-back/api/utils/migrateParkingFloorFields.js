@@ -207,6 +207,7 @@ async function migrateParkingFloorFields() {
         date_add: "",
         time_add: "",
         zone: "",
+        parking_slot_files: "",
       },
     };
     if (
@@ -215,7 +216,8 @@ async function migrateParkingFloorFields() {
       status !== floor.status ||
       floor.date_add !== undefined ||
       floor.time_add !== undefined ||
-      floor.zone !== undefined
+      floor.zone !== undefined ||
+      floor.parking_slot_files !== undefined
     ) {
       return [{ updateOne: { filter: { _id: floor._id }, update } }];
     }

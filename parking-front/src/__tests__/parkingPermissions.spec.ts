@@ -8,7 +8,11 @@ import { floorService, parkingLogService } from '@/services/api'
 import { emptyParkingLayout } from '@/components/parking/parkingLayout'
 import type { UserRole } from '@/types'
 vi.mock('@/services/api', () => ({
-  floorService: { catalog: vi.fn(), setSlotStatuses: vi.fn() },
+  floorService: {
+    catalog: vi.fn(),
+    setSlotStatuses: vi.fn(),
+    updateOccupiedSlotVehicleDetails: vi.fn(),
+  },
   parkingLogService: {
     list: vi.fn().mockResolvedValue({
       data: {
@@ -59,6 +63,8 @@ const floors = [
     building: { _id: 'b1', building_name: 'E4' },
     floor: 4,
     veh_type: 'car',
+    status: 'Available',
+    mapPresets: [{ _id: 'camera-1', name: 'North camera', slotNames: ['slot-1'] }],
     parking_map: map,
   },
   {
@@ -100,7 +106,9 @@ async function selectLocation(wrapper: VueWrapper, building = 'b1', floor = '4',
 }
 beforeEach(() => {
   vi.resetAllMocks()
-  vi.mocked(floorService.catalog).mockResolvedValue({ data: { floors } } as never)
+  vi.mocked(floorService.catalog).mockImplementation(async () => ({
+    data: { floors: structuredClone(floors) },
+  }) as never)
   vi.mocked(parkingLogService.list).mockResolvedValue({
     data: {
       logs: [
@@ -260,17 +268,23 @@ describe('dashboard parking locations and permissions', () => {
       const { wrapper } = await createDashboard(role)
       await selectLocation(wrapper)
       await wrapper.get('[data-slot="1"]').trigger('keydown', { key: 'Enter' })
+      expect(wrapper.find('.map-actions').exists()).toBe(false)
+      expect(wrapper.get('.details-panel').text()).toContain('Slot details')
+      expect(wrapper.find('#slot-cctv').exists()).toBe(false)
+      expect(wrapper.find('#slot-parking-name').exists()).toBe(false)
       vi.mocked(floorService.setSlotStatuses).mockResolvedValue({
         data: {
+          changedSlots: 1,
           map: {
             ...map,
             slots: map.slots.map((s) => ({ ...s, status: s.number === 1 ? 'disabled' : s.status })),
           },
         },
       } as never)
-      await wrapper.findAll('.map-actions button')[1]!.trigger('click')
+      await wrapper.get('.details-panel .disable-button').trigger('click')
       await flushPromises()
       expect(floorService.setSlotStatuses).toHaveBeenCalledWith('f1', ['["default",1]'], 'disabled')
+      expect(wrapper.get('.details-panel').text()).toContain('recorded in Slot Status Log')
       await wrapper
         .findAll('.tab-button')
         .find((b) => b.text() === 'CCTV')!
@@ -300,6 +314,28 @@ describe('dashboard parking locations and permissions', () => {
       expect(text).not.toContain('Face Driver')
     },
   )
+  it('lets staff correct occupied vehicle details while keeping the slot status locked', async () => {
+    const { wrapper } = await createDashboard('staff')
+    await selectLocation(wrapper)
+    await wrapper.get('[data-slot="2"]').trigger('keydown', { key: 'Enter' })
+    const panel = wrapper.get('.details-panel')
+    expect(panel.find('#slot-cctv').exists()).toBe(false)
+    expect(panel.get<HTMLButtonElement>('.disable-button').element.disabled).toBe(true)
+    expect(panel.get<HTMLInputElement>('#slot-license-plate').element.value).toBe('Unknown')
+    await panel.get('#slot-license-plate').setValue('AB 1234')
+    const province = panel.get('#slot-province').findAll('option')
+      .find((option) => option.element.value && option.element.value !== 'Unknown')!.element.value
+    await panel.get('#slot-province').setValue(province)
+    vi.mocked(floorService.updateOccupiedSlotVehicleDetails).mockResolvedValue({
+      data: { map, activeLogUpdated: true, removedHistoryCount: 0 },
+    } as never)
+    await panel.get('form').trigger('submit')
+    await flushPromises()
+    expect(floorService.updateOccupiedSlotVehicleDetails).toHaveBeenCalledWith(
+      'f1', '["default",2]', 'AB 1234', province,
+    )
+    expect(panel.text()).toContain('active parking log')
+  })
   it('revokes restricted tabs and controls when the account is disabled', async () => {
     const { wrapper, auth } = await createDashboard('staff')
     await selectLocation(wrapper)

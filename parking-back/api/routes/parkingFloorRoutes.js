@@ -98,6 +98,7 @@ router.post(
 );
 router.get("/source-files/:fileId", floorController.downloadSourceFile);
 router.put("/:id/map", floorController.saveMap);
+router.patch("/:id/map/slot-assignment", floorController.setSlotAssignment);
 router.post(
   "/:id/cameras",
   presetFileUpload.single("parking_slot_file"),
@@ -119,8 +120,6 @@ router.patch(
   presetFileUpload.single("parking_slot_file"),
   floorController.saveCameraPreset,
 );
-router.post("/:id/slot-files", slotUpload.array("files", 20), floorController.importSlotFiles);
-router.get("/:id/slot-files/:fileId", floorController.downloadSlotFile);
 router.get("/:id", floorController.getFloor);
 router.patch(
   "/:id",
