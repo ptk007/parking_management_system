@@ -192,6 +192,9 @@ exports.sync = async (req, res) => {
       const message = duplicateProfile
         ? "Multiple active Python profiles match this CCTV preset"
         : profileIssue(profile, { floor, camera });
+      const mappedSlots = (floor.parking_map?.slots || []).filter(
+        (slot) => String(slot.cameraPresetId) === String(camera._id) && slot.parkingSlotName,
+      );
       const disabledParkingSlotNames = [
         ...new Set(
           (floor.parking_map?.slots || [])
@@ -204,6 +207,15 @@ exports.sync = async (req, res) => {
             .filter(Boolean),
         ),
       ];
+      const manualVehicleDetails = mappedSlots
+        .filter((slot) =>
+          slot.status === "occupied" && slot.date_updated && slot.license_num && slot.province,
+        )
+        .map((slot) => ({
+          parkingSlotName: slot.parkingSlotName,
+          license_num: slot.license_num,
+          province: slot.province,
+        }));
       const worker = workerStatuses.get(key);
       const enabled = Boolean(camera.modelEnabled && camera.status === "Enable");
       const runtimeStatus = !enabled
@@ -232,6 +244,7 @@ exports.sync = async (req, res) => {
         message,
         slotStatusRefreshVersion: Number(camera.slotStatusRefreshVersion || 0),
         disabledParkingSlotNames,
+        manualVehicleDetails,
         mappedParkingSlotNames: getMappedCategories(floor, camera),
       });
     }

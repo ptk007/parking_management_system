@@ -1,6 +1,8 @@
 const mongoose = require("mongoose");
 
 const PARKING_LOG_STATUSES = ["Parking", "Exited", "Not parking"];
+const UNKNOWN_VEHICLE_DETAIL = "Unknown";
+const LEGACY_ACTIVE_VEHICLE_INDEX = "buildingId_1_floorId_1_veh_type_1_license_num_1_province_1";
 
 const parkingLogSchema = new mongoose.Schema(
   {
@@ -32,6 +34,8 @@ const parkingLogSchema = new mongoose.Schema(
       required: true,
     },
     parkingSlotName: { type: String, default: null },
+    trackedSlotSession: Boolean,
+    vehicleDetailsEdited: Boolean,
     brand: { type: String, default: "Unknown" },
     model: { type: String, default: "Unknown" },
     color: { type: String, default: "Unknown" },
@@ -64,8 +68,23 @@ parkingLogSchema.index(
     province: 1,
   },
   {
+    name: "active_identified_vehicle",
     unique: true,
-    partialFilterExpression: { park_status: "Parking" },
+    partialFilterExpression: {
+      park_status: "Parking",
+      $or: [
+        { license_num: { $lt: UNKNOWN_VEHICLE_DETAIL } },
+        { license_num: { $gt: UNKNOWN_VEHICLE_DETAIL } },
+      ],
+    },
+  },
+);
+parkingLogSchema.index(
+  { floorId: 1, cameraPresetId: 1, parkingSlotName: 1, park_slot: 1 },
+  {
+    name: "active_tracked_slot_session",
+    unique: true,
+    partialFilterExpression: { park_status: "Parking", trackedSlotSession: true },
   },
 );
 parkingLogSchema.index({ owner: 1, updatedAt: -1 });
@@ -73,3 +92,13 @@ parkingLogSchema.index({ park_status: 1, updatedAt: -1 });
 
 module.exports = mongoose.model("ParkingLog", parkingLogSchema);
 module.exports.PARKING_LOG_STATUSES = PARKING_LOG_STATUSES;
+module.exports.UNKNOWN_VEHICLE_DETAIL = UNKNOWN_VEHICLE_DETAIL;
+module.exports.prepareSessionIndexes = async function prepareSessionIndexes() {
+  // Install the replacement uniqueness constraint before removing the old one.
+  await this.createIndexes();
+  try {
+    await this.collection.dropIndex(LEGACY_ACTIVE_VEHICLE_INDEX);
+  } catch (error) {
+    if (error.code !== 27) throw error;
+  }
+};

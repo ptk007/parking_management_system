@@ -184,6 +184,9 @@ describe('Parking Map workspace', () => {
     const { wrapper } = await createPage()
     await select(wrapper, 3)
     expect(wrapper.find('.vehicle-detail-form').exists()).toBe(true)
+    expect(wrapper.get<HTMLInputElement>('#slot-license-plate').element.value).toBe('Unknown')
+    expect(wrapper.get<HTMLSelectElement>('#slot-province').element.value).toBe('Unknown')
+    expect(wrapper.get<HTMLButtonElement>('.vehicle-detail-save').element.disabled).toBe(true)
     await wrapper.get('#slot-license-plate').setValue('ABC 1234')
     const provinceSelect = wrapper.get<HTMLSelectElement>('#slot-province')
     const province = provinceSelect.findAll('option').find((option) => !option.element.disabled)!

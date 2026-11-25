@@ -7,12 +7,8 @@ const {
   writeFileSync,
 } = require("node:fs");
 
-module.exports = function ensureJwtSecret(secretPath) {
-  if (process.env.JWT_SECRET?.trim()) return;
-
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Set JWT_SECRET before starting the backend in production.");
-  }
+module.exports = function ensureLocalSecret(secretPath, envName) {
+  if (process.env[envName]?.trim()) return;
 
   if (!existsSync(secretPath)) {
     const pendingPath = `${secretPath}-${randomUUID()}`;
@@ -33,8 +29,10 @@ module.exports = function ensureJwtSecret(secretPath) {
 
   const secret = readFileSync(secretPath, "utf8").trim();
   if (!/^[a-f0-9]{64}$/.test(secret)) {
-    throw new Error("The local .jwt-secret file is invalid. Set JWT_SECRET or restore the file.");
+    throw new Error(
+      `The local secret file ${secretPath} is invalid. Set ${envName} or restore the file.`,
+    );
   }
 
-  process.env.JWT_SECRET = secret;
+  process.env[envName] = secret;
 };

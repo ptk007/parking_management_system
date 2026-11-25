@@ -1,220 +1,165 @@
-<div align="center">
+# MFU Parking Management System
 
-# 🅿️ MFU Parking Management System
+ระบบจัดการลานจอดรถของมหาวิทยาลัยแม่ฟ้าหลวง สำหรับดูสถานะช่องจอดบนแผนผัง จัดการอาคารและกล้อง CCTV และบันทึกประวัติการจอดจากระบบตรวจจับรถและอ่านป้ายทะเบียน
 
-**A web portal for parking operations at Mae Fah Luang University**
+[เริ่มใช้งาน](#getting-started) · [ตั้งค่ากล้องและโมเดล](#cctv-and-detection) · [การยืนยันตัวตนและ API](#authentication-and-api) · [โครงสร้างโปรเจกต์](#project-structure)
 
-Vue 3 · TypeScript · Pinia · Node.js · MongoDB
+## Features
 
-[Getting started](#getting-started) · [Authentication](#authentication) · [Project structure](#project-structure) · [Documentation](#documentation)
-
-</div>
-
----
-
-## Overview
-
-MFU Parking Management System brings parking availability, CCTV access, vehicle logs, and staff workflows into one web interface. The repository contains a Vue frontend, a Node.js API backed by MongoDB, and an optional Python CCTV viewer.
-
-ระบบจัดการลานจอดรถสำหรับมหาวิทยาลัยแม่ฟ้าหลวง รวมหน้าจอสำหรับเจ้าหน้าที่และผู้ดูแลระบบ การตรวจสอบช่องจอด กล้อง CCTV และประวัติการเข้า–ออกของรถ
-
-> **Development status:** This is a development prototype with demo authentication and incomplete access controls. The behavior below is based on the current source code. Review [current limitations](#current-limitations) before using real accounts or exposing the API.
-
-## Features and implementation status
-
-| Area | Current implementation |
+| ผู้ใช้งาน | ความสามารถ |
 | --- | --- |
-| Login | Shared admin/staff login page; local demo accounts and database login |
-| Parking dashboard | Slot totals and availability, filtered by building, floor, and vehicle type |
-| Parking operations | Slot status updates and staff change history |
-| Vehicle records | Parking logs and resource APIs for vehicles and related records |
-| CCTV | Camera listings, stream metadata, and FFmpeg snapshot/MJPEG proxy |
-| Administration | Admin dashboard and generic database CRUD endpoints |
-| Staff profile | Profile lookup and password/PIN updates; assigned area currently fixed to E4, floor 4 |
-| Chat | Frontend components and service calls exist; backend returns HTTP 501 because persistence is not implemented |
+| Guest | เปิด Dashboard และดูแผนผังตัวอย่าง E4 ชั้น 4 |
+| Student (`user`) | ดูแผนผังและสถานะช่องจอด จัดการข้อมูลรถ ดูประวัติการจอดของตนเอง และส่งคำร้องถึงเจ้าหน้าที่ |
+| Staff (`staff`) | ดูช่องจอดและกล้องตามอาคาร ชั้น และประเภทรถ ปรับสถานะช่องจอด ดูประวัติการเปลี่ยนแปลง ส่งออกประวัติการจอดเป็น Excel และตอบคำร้อง |
+| Admin (`admin`) | จัดการบัญชีเจ้าหน้าที่ อาคาร ชั้น แผนผัง และ CCTV preset รวมถึงสั่งเปิดหรือปิดการตรวจจับของแต่ละกล้อง |
 
-## Technology
-
-| Layer | Tools |
-| --- | --- |
-| Frontend | Vue 3, TypeScript, Vite, Vue Router, Pinia |
-| Interface | Tailwind CSS, PrimeVue, Lucide icons |
-| HTTP client | Axios with a bearer-token request interceptor |
-| API | Node.js built-in `http` server; routing and authentication in `src/server.js` |
-| Database | MongoDB with Mongoose |
-| Camera media | FFmpeg for the web API; Python/OpenCV for the optional desktop viewer |
-| Development checks | Vue type checking, Vitest, Playwright, ESLint, Oxlint |
+เว็บใช้ Vue 3, TypeScript, Vite, Pinia, Vue Router, Tailwind CSS และ PrimeVue ฝั่ง API ใช้ Node.js, Express และ MongoDB ผ่าน Mongoose ส่วน `python-v2` รับภาพจากกล้อง RTSP ผ่าน OpenCV ใช้ YOLO ตรวจจับรถและป้ายทะเบียน ใช้ BoT-SORT ติดตามรถ และใช้ EasyOCR อ่านป้ายทะเบียนไทย
 
 ## Getting started
 
-### Prerequisites
+ใช้ Node.js **22.12 ขึ้นไป** พร้อม npm และ MongoDB ที่รันอยู่ แนะนำ Node.js 24 สำหรับการพัฒนา เว็บและ API เริ่มใช้งานได้ก่อนติดตั้ง Python หรือเชื่อมต่อกล้อง
 
-- Node.js **22.12 or newer** and npm; Node.js 24 is a suitable development choice.
-- A running MongoDB instance.
-- FFmpeg on the backend machine if you need CCTV snapshots or MJPEG streams.
-- Access to the camera network for live CCTV. Camera viewing is optional for starting the web app.
-
-### 1. Clone the repository
-
-```bash
+```powershell
 git clone https://github.com/ptk007/parking_management_system.git
 cd parking_management_system
 ```
 
-### 2. Start the API
+### 1. เปิด Backend
 
-```bash
-cd parking-backend
+จากโฟลเดอร์หลักของโปรเจกต์
+
+```powershell
+cd parking-back
 npm ci
 npm start
 ```
 
-The API connects to MongoDB, creates indexes, and imports the bundled CCTV JSON files into their corresponding collections only when those collections are empty. It does **not** automatically create login accounts or populate parking slots and logs. Use a disposable local database and synthetic data for development.
+ค่าเริ่มต้นคือพอร์ต `3000` และฐานข้อมูล `mongodb://127.0.0.1:27017/parking_management_system` เมื่อเชื่อมต่อ MongoDB และปรับฟิลด์เดิมของอาคาร ชั้น และผู้ใช้เรียบร้อยแล้ว API จะเริ่มรับคำขอ เปิด `http://localhost:3000/` เพื่อตรวจสอบว่า API ตอบกลับ
 
-Health endpoint: `http://localhost:3000/health`.
+สร้างไฟล์ `parking-back/.env` เมื่อต้องการเปลี่ยนค่าเริ่มต้นหรือตั้งค่ากล้อง
 
-### 3. Start the frontend
+| ตัวแปร | การใช้งาน |
+| --- | --- |
+| `PORT` | พอร์ตของ API ค่าเริ่มต้นคือ `3000` |
+| `MONGODB_URI` | URI ของ MongoDB |
+| `JWT_SECRET` | คีย์สำหรับลงนาม JWT ในโหมดพัฒนา Backend จะสร้างและเก็บคีย์ใน `parking-back/.jwt-secret` ถ้าเว้นค่านี้ไว้ เมื่อกำหนด `NODE_ENV=production` ต้องตั้งคีย์เอง |
+| `PARKING_MODEL_API_KEY` | คีย์ร่วมระหว่าง Backend กับ Python สำหรับโหลด preset ซิงก์สถานะ runtime และรับเหตุการณ์จากโมเดล |
+| `PARKING_PYTHON_EXECUTABLE` | พาธ Python สำหรับทดสอบการเชื่อมต่อและดูภาพ RTSP ค่าเริ่มต้นบน Windows คือ `C:\py_venv\.venv\Scripts\python.exe` และบนระบบอื่นคือ `python3` |
 
-In another terminal, from the repository root:
+### 2. เปิด Frontend
 
-```bash
+เปิดอีกเทอร์มินัลจากโฟลเดอร์หลักของโปรเจกต์
+
+```powershell
 cd parking-front
 npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite, normally `http://localhost:5173`.
+เปิด URL ที่ Vite แสดง โดยปกติคือ `http://localhost:5173` เว็บจะเรียก API ที่ `http://localhost:3000/api` หาก Backend ใช้ URL อื่น ให้ตั้ง `VITE_API_BASE_URL` ใน `parking-front/.env.development.local` แล้วเปิด Vite ใหม่ สำหรับ production build ให้ตั้งตัวแปรนี้เป็น URL จริงก่อน build เพราะค่าใน `.env.production` เป็นตัวอย่าง
 
-### 4. Choose a login path
+### 3. เข้าสู่ระบบบนฐานข้อมูลใหม่
 
-- **UI demo:** The login page displays the built-in demo accounts. The frontend accepts them locally even with no backend running. Data operations still need the API. Backend demo access is intended for isolated local demonstrations only and does not make every demo operation work.
-- **Database login:** Use a separately provisioned test account in the `users` collection whose username is different from the built-in demo accounts. The current implementation compares the stored password directly. Database roles are numeric: `1` = user, `2` = staff, `3` = admin; status `3` disables login. There is no dedicated registration or user-seeding command.
+เลือก **Guest User** เพื่อเปิด Dashboard และดูแผนผังตัวอย่างได้ทันที ข้อมูลจริงและเมนูเจ้าหน้าที่ใช้บัญชีใน MongoDB สำหรับฐานข้อมูลใหม่ ให้สร้าง Admin คนแรกด้วยคำสั่งด้านล่างใน PowerShell จาก `parking-back` หลังจากติดตั้ง npm dependencies และเปิด MongoDB แล้ว
 
-## Authentication
+```powershell
+@'
+require("dotenv").config({ quiet: true });
+const mongoose = require("mongoose");
+const { randomBytes } = require("node:crypto");
+const User = require("./api/models/userModel");
+const { getBangkokUpdatedDateTime } = require("./api/utils/dateTime");
 
-### Components
+async function createLocalAdmin() {
+  const uri = process.env.MONGODB_URI ||
+    "mongodb://127.0.0.1:27017/parking_management_system";
+  await mongoose.connect(uri);
 
-| Component | Responsibility |
-| --- | --- |
-| [`src/views/staff/LoginView.vue`](parking-front/src/views/staff/LoginView.vue) | Active login form; calls the store and routes admins to `/admin/dashboard`, other roles to `/dashboard` |
-| [`src/stores/auth.ts`](parking-front/src/stores/auth.ts) | Checks demo accounts first; otherwise calls the API; stores user/token; clears local state on logout |
-| [`src/services/api.ts`](parking-front/src/services/api.ts) | Axios client, auth endpoints, bearer header, and token-bearing CCTV URLs |
-| [`src/App.vue`](parking-front/src/App.vue) | Restores local storage on mount and redirects when no token is present |
-| [`src/router/index.ts`](parking-front/src/router/index.ts) | Declares routes; currently has no global authentication or role guard |
-| [`src/server.js`](parking-backend/src/server.js) | User schema, login/logout/verify handlers, token signing/verification, staff API and resource routing |
+  const username = "local-admin";
+  if (await User.exists({ username })) {
+    throw new Error("The username local-admin already exists.");
+  }
 
-The separate `parking-front/src/views/LoginView.vue` exists, but the router imports the login view under `views/staff/`.
+  const password = randomBytes(18).toString("hex");
+  await User.create({
+    username,
+    password,
+    name: "Local Admin",
+    role: "admin",
+    ...getBangkokUpdatedDateTime(),
+  });
+  console.log({ username, password });
+}
 
-### Login and request flow
-
-```mermaid
-flowchart TD
-    Form["Login form"] --> Store["Pinia auth store"]
-    Store --> Check{"Built-in demo match?"}
-    Check -->|Yes| Demo["Create local demo token and user"]
-    Check -->|No| API["POST /api/auth/login"]
-    API --> DB["Match MongoDB user and password"]
-    DB --> Result{"Account accepted?"}
-    Result -->|No| Error["401: login error"]
-    Result -->|Yes| Sign["Sign token with 24-hour expiry"]
-    Demo --> Save["Save token and user in localStorage"]
-    Sign --> Save
-    Save --> Route["Redirect using user role"]
-    Route --> Request["Axios sends bearer token"]
-    Request --> Staff["Staff API verifies token"]
+createLocalAdmin().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+}).finally(() => mongoose.disconnect());
+'@ | node
 ```
 
-For database login, `handleAuth()` uses this lookup:
+นำชื่อผู้ใช้และรหัสผ่านที่แสดงไปล็อกอินผ่าน **Staff/Admin** จากนั้นสร้างบัญชีเจ้าหน้าที่ใน **Staff Manager** และเพิ่มอาคารกับชั้นใน **System Setup** คำสั่งใช้ User model เพื่อให้ระบบแฮชรหัสผ่านก่อนบันทึก
 
-```js
-const user = await User.findOne({
-  username: body.username,
-  password: body.password,
-  status: { $ne: 3 },
-})
-```
+## CCTV and detection
 
-A successful login sets status to `1` (online) and returns `{ token, user }`. `userDto()` omits the password and PIN and converts the numeric role into its frontend label. The form password is sent as JSON; the auth store persists the returned user and token, not the submitted password.
+การตรวจจับแบบสดผ่าน `python-v2` ใช้ Windows, Python Launcher (`py`) และ NVIDIA GPU ที่ใช้ CUDA ได้ เครื่องที่รัน Backend ต้องเข้าถึงเครือข่ายของกล้อง RTSP และจะใช้ไฟล์โมเดลรถกับป้ายทะเบียนใน `python-v2/models/`
 
-### Credentials and tokens
+1. จาก `python-v2` เตรียม virtual environment ที่ runner ใช้ แล้วติดตั้ง dependencies
 
-| Item | Actual handling |
+   ```powershell
+   if (-not (Test-Path 'C:\py_venv\.venv\Scripts\python.exe')) {
+     py -m venv C:\py_venv\.venv
+   }
+   .\install.bat
+   ```
+
+2. ตั้ง `PARKING_MODEL_API_KEY` ใน `parking-back/.env` แล้วเปิด Backend ใหม่ บน Windows Backend จะเรียก `python-v2/run.bat` เพื่อรอคำสั่งตรวจจับ และหยุด Python runtime เมื่อปิด Backend
+3. ใน **System Setup** เพิ่มอาคารและชั้น นำเข้าไฟล์ JSON แหล่งกล้อง แล้วสร้าง CCTV preset พร้อมแหล่ง RTSP และไฟล์ JSON ที่ระบุตำแหน่งช่องจอดแบบ COCO
+4. ใน **Parking Map** ตั้งชั้นเป็น **Disable** เพื่อแก้แผนผังและผูกช่องบนแผนผังกับช่องจอดจาก preset แล้วตั้งชั้นกลับเป็น **Available**
+5. เปิด **Detection** ในรายการกล้องหากยังปิดอยู่ กล้องแต่ละตัวจะใช้ worker ของตัวเอง การผูกช่องจอดช่วยให้ผลตรวจจับอัปเดตแผนผังและบันทึกเหตุการณ์เข้า–ออกจากช่องจอด ส่วนการดูภาพตรวจจับทำได้ก่อนผูกช่อง
+
+ภาพดิบจากกล้องใช้ Python/OpenCV และดูได้ขณะปิด Detection เมื่อเปิด Detection เว็บจะแสดงเฟรมที่ worker ประมวลผลแล้ว ดูรายละเอียดการรันและไฟล์ผลลัพธ์เพิ่มเติมใน [Python runtime README](python-v2/README.md)
+
+## Authentication and API
+
+บัญชีจริงใช้รหัสผ่านที่แฮชด้วย bcrypt และ Bearer JWT อายุ 8 ชั่วโมง Backend ตรวจ JWT และสถานะบัญชีบนเส้นทางที่ใช้ middleware ฝั่งเว็บมี route guard สำหรับหน้าผู้ดูแลระบบและหน้าประวัติการจัดการช่องจอด ส่วน Guest มี session ในหน่วยความจำของเว็บจนกว่าจะรีเฟรชหรือออกจากระบบ
+
+| กลุ่ม API | หน้าที่ |
 | --- | --- |
-| Account password and PIN | String fields in MongoDB. Password login uses direct equality; profile updates write supplied password/PIN values without hashing. PIN is not checked during login. |
-| API token format | Custom two-part `base64url(payload).HMAC-SHA256-signature`; not a standard three-part JWT. Payload includes `id`, `username`, numeric `role`, and a millisecond `exp` timestamp. Signing does not encrypt the payload. |
-| API token verification | Checks the HMAC using `timingSafeEqual` after a length check, then checks expiry. Normal tokens expire 24 hours after issuance. |
-| Browser persistence | `token` and serialized `user` are saved in `localStorage` and copied into Pinia state. They are readable and editable by browser JavaScript. No HttpOnly cookie session is implemented. |
-| API requests | Axios reads `localStorage.token` and sets `Authorization: Bearer <token>`. The interceptor is shared across the API client. |
-| CCTV media requests | `getMediaUrl()` adds `?token=...`; `handleStaff()` accepts a query token when no header token is present. Token-bearing URLs can appear in logs. |
-| Demo tokens | Frontend creates `demo_token_<timestamp>`. If demo auth is enabled, backend accepts any token matching that pattern as a synthetic staff identity with ID `demo`; the timestamp is not validated as an expiry. |
-| Refresh and revocation | No refresh-token mechanism or token revocation list is implemented. |
+| `/api/auth` | เข้าและออกจากระบบ ตรวจ token และอ่านข้อมูลบัญชีปัจจุบัน |
+| `/api/users` | จัดการบัญชีเจ้าหน้าที่โดย Admin |
+| `/api/vehicles` | ข้อมูลรถและการค้นหารถตามเจ้าของ |
+| `/api/admin/system/buildings` และ `/api/admin/system/floors` | จัดการอาคาร ชั้น แผนผัง ไฟล์ช่องจอด และกล้อง รวมถึง catalog ที่ Dashboard ใช้ |
+| `/api/parking-logs` | ประวัติการจอดของผู้ใช้และเจ้าหน้าที่ ส่งออก Excel และรับเหตุการณ์จากโมเดล |
+| `/api/support/tickets` | เปิดคำร้อง สนทนา รับเรื่อง และเปลี่ยนสถานะคำร้อง |
+| `/api/model-runtime` | ส่ง preset ให้ Python และซิงก์สถานะ worker ผ่าน `x-model-api-key` |
 
-### Verification, restoration, and logout
-
-| Endpoint or action | Behavior |
-| --- | --- |
-| `POST /api/auth/login` | Accepts `{ username, password }`; returns token/user or HTTP 401 |
-| `GET /api/auth/verify` | Requires a header token; looks up the user and returns `{ valid, user }`. A missing user can produce HTTP 200 with `valid: false`. |
-| App initialization | Restores local storage and considers any nonempty token authenticated. It does not call the verification endpoint. |
-| Store `verifyToken()` | Checks HTTP status 200 only, without inspecting the response's `valid` field; it is not wired into app initialization. |
-| `POST /api/auth/logout` | Requires a header token and sets the database user's status to offline. It does not revoke the token. |
-| Local logout cleanup | Clears Pinia and both local-storage keys in `finally`, even if the API call fails |
-
-Demo tokens have no MongoDB user ObjectId. Handlers that look up that identity, including verification, logout, and profile operations, can fail. A demo admin role in the browser is also not preserved by backend demo verification, which always returns role `2`.
-
-### Current limitations
-
-These are implementation gaps, not guarantees provided by the application:
-
-- **Generic resource APIs have no authentication check.** `requestHandler()` routes endpoints such as `/api/users` directly to `handleResource()`. They can read or modify records without a token, and user reads return raw documents including password/PIN fields.
-- **Staff APIs verify tokens but do not enforce roles or current account status.** A signed role claim and frontend role-based navigation do not provide server-side authorization. Disabling an account after login does not by itself invalidate an issued token.
-- **Password hashing is not implemented.** Add password hashing and input validation before using real credentials.
-- **Demo bypass is enabled by default on the backend.** Disable backend demo access and remove or gate the frontend demo branch before deployment.
-- **Browser token presence is trusted for navigation.** Add route guards, server verification on restoration, and expired-token handling; server authorization is still required independently.
-- **Logout does not revoke issued tokens.** A copied token remains usable until expiry under the current verifier.
-- **Camera credentials need protection.** Source contains fallback RTSP credentials, and camera DTOs/stream responses can include credential-bearing source URLs. Keep credentials server-side, redact responses, and rotate any real credentials that have been committed. Do not publish real camera inventories as sample data.
-
-Older [login documentation](docs/md_file/main/LOGIN_PAGE.md) describes bcrypt, JWT/session handling, and role checks as though implemented. The [API integration guide](parking-front/API_INTEGRATION.md) also contains illustrative responses. Use this README and the linked source for current behavior; those older documents are design references where they disagree.
+ใช้ข้อมูลทดสอบเมื่อรันในเครื่อง ปัจจุบัน `/api/vehicles` เป็น public endpoint ควรจำกัดการเข้าถึง Backend ก่อนเปิดใช้งานภายนอก และเก็บคีย์กับข้อมูลเชื่อมต่อกล้องไว้ฝั่งเซิร์ฟเวอร์ ดูเส้นทางและ middleware ใน [Backend routes](parking-back/api/routes/)
 
 ## Project structure
 
-| Path | Contents |
+| โฟลเดอร์ | เนื้อหา |
 | --- | --- |
-| [`parking-front/`](parking-front/) | Vue application, views, components, stores, API services, and frontend guides |
-| [`parking-backend/`](parking-backend/) | Node.js server, MongoDB models and camera seed data |
-| [`python/`](python/) | Optional Windows-oriented Python RTSP viewer and setup scripts |
-| [`cctv/`](cctv/) | Camera inventory assets; review sensitive data before sharing |
-| [`docs/`](docs/) | Proposal, UI design references, database examples, and feature notes |
+| [`parking-front/`](parking-front/) | เว็บ Vue, หน้าจอตามบทบาท, Pinia stores และ API client |
+| [`parking-back/`](parking-back/) | Express API, โมเดล MongoDB, migrations และชุดทดสอบ |
+| [`python-v2/`](python-v2/) | ตัวอ่าน RTSP, ตัวควบคุม worker, โมเดลตรวจจับ และตัวส่งเหตุการณ์กลับ Backend |
+| [`images/`](images/) และ [`json_file/parking_slots/`](json_file/parking_slots/) | รูปอาคารและผู้ใช้ รวมถึงไฟล์ JSON ช่องจอดที่ Backend จัดเก็บ |
+| [`cctv/`](cctv/) | ไฟล์รายการกล้อง |
+| [`docs/`](docs/) | รายงานโครงงานและแบบอ้างอิง UI |
 
 ## Development commands
 
-Run these from the indicated directory:
-
-| Directory | Command | Purpose |
+| โฟลเดอร์ | คำสั่ง | การใช้งาน |
 | --- | --- | --- |
-| `parking-front` | `npm run dev` | Start Vite development server |
-| `parking-front` | `npm run build` | Type-check and build frontend |
-| `parking-front` | `npm run preview` | Preview the frontend build locally |
-| `parking-front` | `npm run type-check` | Check Vue/TypeScript types |
-| `parking-front` | `npm run test:unit -- --run` | Run Vitest once |
-| `parking-front` | `npm run test:e2e` | Run Playwright tests; browser installation may be required |
-| `parking-front` | `npm run lint` | Run configured linters with automatic fixes |
-| `parking-backend` | `npm start` | Start API server |
-| `parking-backend` | `npm test` | JavaScript syntax check only; not an authentication or integration test suite |
+| `parking-back` | `npm run dev` | เปิด API ด้วย Nodemon |
+| `parking-back` | `npm test` | รัน Node.js tests โดย integration tests ใช้ MongoDB ในเครื่องที่พอร์ต `27017` |
+| `parking-front` | `npm run build` | ตรวจชนิดข้อมูลและ build เว็บ |
+| `parking-front` | `npm run test:unit -- --run` | รัน Vitest หนึ่งรอบ |
+| `parking-front` | `npx playwright install` แล้ว `npm run test:e2e` | ติดตั้งเบราว์เซอร์และรัน Playwright |
 
 ## Documentation
 
-- [Frontend tooling and commands](parking-front/README.md)
-- [Frontend setup guide](parking-front/SETUP.md)
-- [API integration reference](parking-front/API_INTEGRATION.md)
-- [Original login design](docs/md_file/main/LOGIN_PAGE.md)
-- [Python CCTV viewer](python/README.md)
-- [UI design references](docs/UI/)
-
-## Contributing
-
-Keep changes focused and open a pull request explaining the problem, resulting behavior, and checks performed. Use synthetic test accounts and camera data. Update the documentation when API contracts or authentication behavior change.
-
-## License
-
-No repository-wide `LICENSE` file is currently included. The backend package metadata declares ISC, but this does not establish a clear license for every asset in the repository.
+- [การตั้งค่าเครื่องมือและคำสั่ง Frontend](parking-front/README.md)
+- [การติดตั้งและใช้งาน Python CCTV Runtime](python-v2/README.md)
+- [รายงานโมเดลตรวจจับรถ](docs/Parking_Detection_Model_Project_Report.md)
+- [ภาพอ้างอิง UI](docs/UI/)

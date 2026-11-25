@@ -463,6 +463,7 @@ def _write_disabled_slot_state(
     path: Path,
     disabled_names: List[str],
     mapped_names: List[str] | None = None,
+    manual_vehicle_details: List[Dict[str, Any]] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = path.with_suffix(path.suffix + ".tmp")
@@ -471,6 +472,7 @@ def _write_disabled_slot_state(
             {
                 "disabledParkingSlotNames": disabled_names,
                 "mappedParkingSlotNames": mapped_names or [],
+                "manualVehicleDetails": manual_vehicle_details or [],
             },
             ensure_ascii=False,
         ),
@@ -607,10 +609,12 @@ def _run_remote_controlled(
                                 mapped_names = command.get("mappedParkingSlotNames", [])
                                 if not isinstance(mapped_names, list):
                                     mapped_names = []
+                                manual_details = command.get("manualVehicleDetails", [])
                                 _write_disabled_slot_state(
                                     Path(job["disabled_slot_file"]),
                                     [str(name).strip() for name in disabled_names if str(name).strip()],
                                     [str(name).strip() for name in mapped_names if str(name).strip()],
+                                    manual_details if isinstance(manual_details, list) else [],
                                 )
                             except OSError as error:
                                 print(

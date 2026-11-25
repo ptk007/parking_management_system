@@ -9,6 +9,7 @@ const ParkingLog = require("../models/parkingLogModel");
 const User = require("../models/userModel");
 const Vehicle = require("../models/vehicleModel");
 const { getBangkokDateTime } = require("../utils/dateTime");
+const { UNKNOWN_VEHICLE_DETAIL } = ParkingLog;
 
 const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MODEL_EVENTS = ["Parking", "Exited", "Not parking"];
@@ -120,49 +121,41 @@ async function updateMapSlot(
   status,
   eventTime,
   licensePlateDetected,
+  log,
 ) {
   if (targetSlot.status === "disabled") return true;
 
-  const currentMap = floor.parking_map;
-  const nextMap = {
-    ...currentMap,
-    slots: currentMap.slots.map((slot) => {
-      if (slot.number !== targetSlot.number || slot.zone !== targetSlot.zone)
-        return slot;
-      const updated = { ...slot, status };
-      if (status === "available") {
-        delete updated.licensePlateDetected;
-        delete updated.license_num;
-        delete updated.province;
-        delete updated.date_updated;
-        delete updated.time_updated;
-      } else if (typeof licensePlateDetected === "boolean") {
-        updated.licensePlateDetected = licensePlateDetected;
-      }
-      return updated;
-    }),
-  };
-  const nextSlot = nextMap.slots.find(
-    (slot) => slot.number === targetSlot.number && slot.zone === targetSlot.zone,
-  );
-  if (
-    targetSlot.status === status &&
-    targetSlot.licensePlateDetected === nextSlot?.licensePlateDetected
-  )
-    return true;
+  const updated = { status };
+  if (status === "available") {
+    for (const field of ["licensePlateDetected", "license_num", "province", "date_updated", "time_updated"])
+      updated[field] = undefined;
+  } else if (log && !targetSlot.date_updated) {
+    updated.license_num = log.license_num;
+    updated.province = log.province;
+    updated.licensePlateDetected = log.license_num !== UNKNOWN_VEHICLE_DETAIL;
+  } else if (!targetSlot.date_updated && typeof licensePlateDetected === "boolean") {
+    updated.licensePlateDetected = licensePlateDetected;
+  }
+  const changes = Object.entries(updated).filter(([field, value]) => targetSlot[field] !== value);
+  if (!changes.length) return true;
+
+  // Compare only this slot so workers for other cameras on the floor can update their own slots.
+  const expectedSlot = Object.fromEntries([
+    "zone", "number", "cameraPresetId", "parkingSlotName", "status",
+    "licensePlateDetected", "license_num", "province", "date_updated", "time_updated",
+  ].map((field) => [field, targetSlot[field] === undefined ? { $exists: false } : targetSlot[field]]));
   const timestamp = getBangkokDateTime(eventTime);
-  const updated = await ParkingFloor.findOneAndUpdate(
-    { _id: floor._id, parking_map: currentMap },
-    {
-      $set: {
-        parking_map: nextMap,
-        date_updated: timestamp.date_add,
-        time_updated: timestamp.time_add,
-      },
-    },
-    { returnDocument: "after" },
+  const update = { $set: { date_updated: timestamp.date_add, time_updated: timestamp.time_add } };
+  for (const [field, value] of changes) {
+    const key = `parking_map.slots.$.${field}`;
+    if (value === undefined) (update.$unset ??= {})[key] = "";
+    else update.$set[key] = value;
+  }
+  const result = await ParkingFloor.updateOne(
+    { _id: floor._id, "parking_map.slots": { $elemMatch: expectedSlot } },
+    update,
   );
-  return Boolean(updated);
+  return result.matchedCount === 1;
 }
 
 async function findVehicle(licenseNum, province, vehicleType) {
@@ -308,6 +301,56 @@ function getLogFields({
     exit_time: null,
     park_slot: slot?.number ?? null,
   };
+}
+
+function activeSlotFilter(floor, slot) {
+  return {
+    floorId: floor._id,
+    cameraPresetId: slot.cameraPresetId,
+    parkingSlotName: slot.parkingSlotName,
+    park_slot: slot.number,
+    park_status: "Parking",
+  };
+}
+
+async function startSlotSession(filter, fields, eventTime) {
+  try {
+    const log = await ParkingLog.create({
+      ...fields,
+      trackedSlotSession: true,
+      park_status: "Parking",
+      createdAt: eventTime,
+      updatedAt: eventTime,
+    });
+    return { log, created: true };
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+    const log = await ParkingLog.findOne(filter);
+    if (!log) throw error;
+    return { log, created: false };
+  }
+}
+
+function resolveBuilding(floor) {
+  return floor.building?.building_name
+    ? floor.building
+    : ParkingBuilding.findById(String(floor.building?._id || floor.building || ""));
+}
+
+async function closeSlotSession(active, eventTime) {
+  const timestamp = getBangkokDateTime(eventTime);
+  return ParkingLog.findOneAndUpdate(
+    { _id: active._id, park_status: "Parking" },
+    {
+      $set: {
+        park_status: "Exited",
+        date_exit: timestamp.date_add,
+        exit_time: timestamp.time_add,
+        updatedAt: eventTime,
+      },
+    },
+    { returnDocument: "after", timestamps: false },
+  );
 }
 
 async function addSlotDisabled(logs) {
@@ -548,24 +591,24 @@ exports.createModelEvent = async (req, res) => {
       slot = result.slot;
     }
 
-    const buildingId = String(floor.building?._id || floor.building || "");
-    const building =
-      typeof floor.building === "object" && floor.building?.building_name
-        ? floor.building
-        : await ParkingBuilding.findById(buildingId);
+    if (licenseNum.toLowerCase() === UNKNOWN_VEHICLE_DETAIL.toLowerCase())
+      return fail(res, 400, "A recognized license plate is required for a plate event");
+    const building = await resolveBuilding(floor);
     if (!building) return fail(res, 404, "Building not found");
 
     const registeredVehicle = rawProvince
       ? await findVehicle(licenseNum, rawProvince.trim(), floor.veh_type)
       : await findVehicleByPlate(licenseNum, floor.veh_type);
-    const province = rawProvince?.trim() || registeredVehicle?.province || "Unknown";
+    const province = rawProvince?.trim() || registeredVehicle?.province || UNKNOWN_VEHICLE_DETAIL;
     const matchedVehicle = registeredVehicle;
     const vehicle =
       getOwnerId(matchedVehicle) && getOwnerName(matchedVehicle)
         ? matchedVehicle
         : null;
     if (event === "Parking") {
-      const sessionFilter = {
+      const filter = activeSlotFilter(floor, slot);
+      const active = await ParkingLog.findOne(filter);
+      const vehicleFilter = {
         buildingId: building._id,
         floorId: floor._id,
         veh_type: floor.veh_type,
@@ -573,67 +616,64 @@ exports.createModelEvent = async (req, res) => {
         province,
         park_status: "Parking",
       };
-      const existing = await ParkingLog.findOne(sessionFilter);
-      if (existing) {
-        if (
-          existing.park_slot !== slot.number ||
-          String(existing.cameraPresetId) !== resolvedCameraPresetId ||
-          existing.parkingSlotName !== parkingSlotName
-        )
-          return fail(res, 409, "Vehicle already has an active parking session");
-        if (!(await updateMapSlot(floor, slot, "occupied", eventTime, true)))
-          return fail(res, 409, "Parking map changed; retry the event");
-        return res.json({
-          success: true,
-          log: existing,
-          matchedVehicle: Boolean(vehicle),
-          created: false,
-        });
+      let log = active;
+      let created = false;
+      if (!log) {
+        const existing = await ParkingLog.findOne(vehicleFilter);
+        if (existing) {
+          if (
+            existing.park_slot !== slot.number ||
+            String(existing.cameraPresetId) !== resolvedCameraPresetId ||
+            existing.parkingSlotName !== parkingSlotName
+          )
+            return fail(res, 409, "Vehicle already has an active parking session");
+          log = existing;
+        } else {
+          ({ log, created } = await startSlotSession(filter, getLogFields({
+            vehicle,
+            guestName: vehicle ? undefined : await getNextGuestName(),
+            floor,
+            building,
+            cameraPresetId: resolvedCameraPresetId,
+            slot,
+            licenseNum,
+            province,
+            eventTime,
+          }), eventTime));
+        }
       }
-      if (!(await updateMapSlot(floor, slot, "occupied", eventTime, true)))
+      if (log.license_num === UNKNOWN_VEHICLE_DETAIL) {
+        const identified = await ParkingLog.findOneAndUpdate(
+          { _id: log._id, park_status: "Parking", license_num: UNKNOWN_VEHICLE_DETAIL },
+          {
+            $set: {
+              owner: getOwnerId(vehicle),
+              name: getOwnerName(vehicle) || log.name,
+              brand: vehicle?.brand || UNKNOWN_VEHICLE_DETAIL,
+              model: vehicle?.model || UNKNOWN_VEHICLE_DETAIL,
+              color: vehicle?.color || UNKNOWN_VEHICLE_DETAIL,
+              license_num: licenseNum,
+              province,
+            },
+          },
+          { returnDocument: "after" },
+        );
+        log = identified || await ParkingLog.findOne(filter);
+        if (!log) return fail(res, 409, "Parking session changed; retry the event");
+      }
+      if (!(await updateMapSlot(floor, slot, "occupied", eventTime, true, log)))
         return fail(res, 409, "Parking map changed; retry the event");
 
-      const fields = getLogFields({
-        vehicle,
-        guestName: vehicle ? undefined : await getNextGuestName(),
-        floor,
-        building,
-        cameraPresetId: resolvedCameraPresetId,
-        slot,
-        licenseNum,
-        province,
-        eventTime,
-      });
-      const log = await ParkingLog.create({
-        ...fields,
-        park_status: "Parking",
-        createdAt: eventTime,
-        updatedAt: eventTime,
-      });
-      return res.status(201).json({
+      return res.status(created ? 201 : 200).json({
         success: true,
         log,
-        matchedVehicle: Boolean(vehicle),
-        created: true,
+        matchedVehicle: Boolean(log.owner),
+        created,
       });
     }
 
     if (event === "Exited") {
-      const active = await ParkingLog.findOne({
-        buildingId: building._id,
-        floorId: floor._id,
-        veh_type: floor.veh_type,
-        license_num: licenseNum,
-        province,
-        park_status: "Parking",
-      });
-      if (
-        active &&
-        (active.park_slot !== slot.number ||
-          String(active.cameraPresetId) !== resolvedCameraPresetId ||
-          active.parkingSlotName !== parkingSlotName)
-      )
-        return fail(res, 409, "Exit event does not match the active parking slot");
+      const active = await ParkingLog.findOne(activeSlotFilter(floor, slot));
       if (!active) {
         if (!(await updateMapSlot(floor, slot, "available", eventTime)))
           return fail(res, 409, "Parking map changed; retry the event");
@@ -643,25 +683,19 @@ exports.createModelEvent = async (req, res) => {
           matchedVehicle: Boolean(vehicle),
         });
       }
+      if (
+        !active.vehicleDetailsEdited &&
+        active.license_num !== UNKNOWN_VEHICLE_DETAIL &&
+        active.license_num !== licenseNum
+      )
+        return fail(res, 409, "Exit event does not match the active parking slot");
       if (eventTime.getTime() < new Date(active.createdAt).getTime())
         return fail(res, 400, "Exit event is earlier than the parking event");
-      const timestamp = getBangkokDateTime(eventTime);
-      const log = await ParkingLog.findOneAndUpdate(
-        { _id: active._id, park_status: "Parking" },
-        {
-          $set: {
-            park_status: "Exited",
-            date_exit: timestamp.date_add,
-            exit_time: timestamp.time_add,
-            updatedAt: eventTime,
-          },
-        },
-        { returnDocument: "after", timestamps: false },
-      );
+      const log = await closeSlotSession(active, eventTime);
       if (!log) return fail(res, 409, "Parking session changed; retry the event");
       if (!(await updateMapSlot(floor, slot, "available", eventTime)))
         return fail(res, 409, "Parking map changed; retry the event");
-      return res.json({ success: true, log, matchedVehicle: Boolean(vehicle) });
+      return res.json({ success: true, log, matchedVehicle: Boolean(log.owner) });
     }
 
     const active = await ParkingLog.findOne({
@@ -766,13 +800,37 @@ exports.updateModelSlotStatus = async (req, res) => {
       return fail(res, 400, "Parking slot category does not belong to this CCTV preset");
     const result = getSlot(floor, String(camera._id), parkingSlotName);
     if (result.error) return fail(res, 404, result.error);
+    const { slot } = result;
+    const filter = activeSlotFilter(floor, slot);
+    let log = slotStatus === "incoming" ? null : await ParkingLog.findOne(filter);
+    let created = false;
+    if (slotStatus === "occupied" && !log && licensePlateDetected !== true) {
+      const building = await resolveBuilding(floor);
+      if (!building) return fail(res, 404, "Building not found");
+      ({ log, created } = await startSlotSession(filter, getLogFields({
+        guestName: await getNextGuestName(),
+        floor,
+        building,
+        cameraPresetId: String(camera._id),
+        slot,
+        licenseNum: UNKNOWN_VEHICLE_DETAIL,
+        province: UNKNOWN_VEHICLE_DETAIL,
+        eventTime,
+      }), eventTime));
+    }
+    if (slotStatus === "available" && log) {
+      if (eventTime < new Date(log.createdAt))
+        return fail(res, 409, "Availability event is earlier than the parking session");
+      log = await closeSlotSession(log, eventTime);
+    }
     if (
       !(await updateMapSlot(
         floor,
-        result.slot,
+        slot,
         slotStatus,
         eventTime,
         licensePlateDetected,
+        log,
       ))
     )
       return fail(res, 409, "Parking map changed; retry the slot status update");
@@ -780,10 +838,12 @@ exports.updateModelSlotStatus = async (req, res) => {
     return res.json({
       success: true,
       parkingSlotName,
-      slotStatus: result.slot.status === "disabled" ? "disabled" : slotStatus,
+      slotStatus: slot.status === "disabled" ? "disabled" : slotStatus,
+      log,
+      created,
       licensePlateDetected:
-        slotStatus === "occupied" && typeof licensePlateDetected === "boolean"
-          ? licensePlateDetected
+        slotStatus === "occupied"
+          ? (log ? log.license_num !== UNKNOWN_VEHICLE_DETAIL : licensePlateDetected)
           : undefined,
     });
   } catch (error) {

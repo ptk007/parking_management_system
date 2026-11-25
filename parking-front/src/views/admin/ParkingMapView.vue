@@ -270,7 +270,7 @@
                     <span>Date Updated</span><strong>{{ inspectedSlot.date_updated }}</strong>
                     <span>Time Updated</span><strong>{{ inspectedSlot.time_updated || '-' }}</strong>
                   </div>
-                  <button class="vehicle-detail-save" type="submit" :disabled="savingVehicleDetails">
+                  <button class="vehicle-detail-save" type="submit" :disabled="savingVehicleDetails || !canSaveVehicleDetails">
                     {{ savingVehicleDetails ? 'Saving...' : 'Save' }}
                   </button>
                 </div>
@@ -426,6 +426,11 @@ const vehicleDetailsMessage = ref('')
 const vehicleDetailsError = ref(false)
 const hasCustomProvince = computed(
   () => Boolean(manualProvince.value) && !thaiProvinces.includes(manualProvince.value),
+)
+const canSaveVehicleDetails = computed(() =>
+  Boolean(manualLicensePlate.value.trim()) &&
+  manualLicensePlate.value.trim().toLowerCase() !== 'unknown' &&
+  Boolean(manualProvince.value.trim()),
 )
 const autosave = ref(true),
   dirty = ref(false),
@@ -782,7 +787,8 @@ async function saveOccupiedSlotVehicleDetails() {
     slot.status !== 'occupied' ||
     selectedSlots.value.length !== 1 ||
     viewMode.value !== 'preview' ||
-    savingVehicleDetails.value
+    savingVehicleDetails.value ||
+    !canSaveVehicleDetails.value
   )
     return
   savingVehicleDetails.value = true
@@ -1068,8 +1074,8 @@ watch(inspectedSlot, (slot) => {
   if (key !== lastInspectedKey || slot.status !== 'occupied')
     vehicleDetailsMessage.value = ''
   lastInspectedKey = key
-  manualLicensePlate.value = slot.license_num || ''
-  manualProvince.value = slot.province || ''
+  manualLicensePlate.value = slot.license_num || (slot.status === 'occupied' ? 'Unknown' : '')
+  manualProvince.value = slot.province || (slot.status === 'occupied' ? 'Unknown' : '')
 })
 watch(
   () => auth.isAdmin,

@@ -30,7 +30,7 @@ from parking_export import export_results
 from parking_model_events import ParkingModelEventPublisher, write_worker_status
 from parking_slot_status import (
     consume_slot_status_refresh_request,
-    read_disabled_parking_slot_names,
+    read_parking_slot_state,
     resolve_slot_display,
 )
 from project_paths import (
@@ -966,22 +966,24 @@ _last_runtime_frame_at = 0.0
 _last_runtime_frame_error_at = 0.0
 
 
-def _refresh_map_disabled_slots():
+def _refresh_map_slot_state():
     if not RUNTIME_DISABLED_SLOT_FILE:
         return
 
     try:
-        disabled_names = read_disabled_parking_slot_names(
+        disabled_names, vehicle_details = read_parking_slot_state(
             RUNTIME_DISABLED_SLOT_FILE
         )
     except FileNotFoundError:
         disabled_names = set()
+        vehicle_details = {}
     except (OSError, json.JSONDecodeError) as error:
-        print(f'[Parking API] Could not read disabled parking-slot state: {error}')
+        print(f'[Parking API] Could not read parking-slot state: {error}')
         return
 
     for slot in parking_slots:
         slot['map_disabled'] = slot['name'] in disabled_names
+        slot['manual_vehicle_details'] = vehicle_details.get(slot['name'])
 
 
 def publish_runtime_frame(frame):
@@ -3714,6 +3716,7 @@ def _publish_slot_map_status(state, previous_status, slot_name):
         MODEL_EVENT_PUBLISHER.publish_slot_status(
             map_status,
             slot_name,
+            occurred_at=(state.get('parking_started_at') or '') if map_status == 'occupied' else '',
             license_plate_detected=license_plate_detected,
         )
 
@@ -3740,7 +3743,7 @@ def _publish_requested_slot_status_refresh():
 
 
 def update_parking_states(car_boxes, frame_idx):
-    _refresh_map_disabled_slots()
+    _refresh_map_slot_state()
     assignments, lock_reasons = match_cars_to_slots(car_boxes)
 
     for slot in parking_slots:
@@ -3993,6 +3996,7 @@ def update_parking_states(car_boxes, frame_idx):
 # ============================================================
 
 def draw_parking_slots(frame):
+    vehicle_labels = []
     for slot in parking_slots:
         name = slot['name']
         state = parking_state[name]
@@ -4063,6 +4067,13 @@ def draw_parking_slots(frame):
             2,
             cv2.LINE_AA
         )
+        details = slot.get('manual_vehicle_details')
+        if status == 'parking' and details:
+            plate, province = details
+            vehicle_labels.append(
+                (f'{plate} | {province}', (label_x, max(40, label_y + 16)), color, 20)
+            )
+    draw_unicode_labels(frame, vehicle_labels)
 
 
 def parking_status_counts():
@@ -4648,6 +4659,12 @@ try:
             # ====================================================
 
             car_text_labels = []
+            corrected_plates = {}
+            for slot in parking_slots:
+                state = parking_state[slot['name']]
+                details = slot.get('manual_vehicle_details')
+                if state['status'] == 'parking' and details and state.get('car_id') is not None:
+                    corrected_plates[resolve_car_id(state['car_id'])] = details[0]
 
             for (
                 car_track_id,
@@ -4671,7 +4688,9 @@ try:
                 )
 
                 label = f'Car {car_track_id}'
-                if result_info:
+                if car_track_id in corrected_plates:
+                    label = f'Car {car_track_id} | {corrected_plates[car_track_id]}'
+                elif result_info:
                     recognized_plate = str(
                         result_info.get('stable_text')
                         or (

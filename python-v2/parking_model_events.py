@@ -335,11 +335,12 @@ class ParkingModelEventPublisher:
             except HTTPError as error:
                 if 400 <= error.code < 500:
                     details = error.read().decode("utf-8", errors="replace").strip()
-                    print(
-                        f"[Parking API] {label} event rejected "
-                        f"(HTTP {error.code}): {details or 'no error details returned'}"
-                    )
-                    return
+                    if error.code != 409 or "retry" not in details.lower():
+                        print(
+                            f"[Parking API] {label} event rejected "
+                            f"(HTTP {error.code}): {details or 'no error details returned'}"
+                        )
+                        return
                 status = f"HTTP {error.code}"
             except (URLError, TimeoutError, OSError, RuntimeError, ValueError) as error:
                 status = str(error)

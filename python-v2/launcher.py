@@ -10,6 +10,7 @@ import re
 
 PROJECT_DIR = Path(__file__).resolve().parent
 BACKEND_ENV_FILE = PROJECT_DIR.parent / "parking-back" / ".env"
+BACKEND_MODEL_KEY_FILE = BACKEND_ENV_FILE.with_name(".model-api-key")
 
 
 def _read_backend_setting(name: str) -> str:
@@ -35,6 +36,14 @@ def configure_backend_sync() -> None:
     """Connect run.bat's Python runtime to this repository's backend by default."""
     if not os.environ.get("PARKING_MODEL_API_KEY", "").strip():
         key = _read_backend_setting("PARKING_MODEL_API_KEY")
+        environment = os.environ.get("NODE_ENV", "").strip() or _read_backend_setting("NODE_ENV")
+        if not key and environment != "production":
+            try:
+                saved_key = BACKEND_MODEL_KEY_FILE.read_text(encoding="utf-8").strip()
+            except OSError:
+                saved_key = ""
+            if re.fullmatch(r"[0-9a-f]{64}", saved_key):
+                key = saved_key
         if key:
             os.environ["PARKING_MODEL_API_KEY"] = key
 
@@ -49,9 +58,9 @@ def configure_backend_sync() -> None:
         os.environ.pop("PARKING_MODEL_RUNTIME_URL", None)
         os.environ.pop("PARKING_MODEL_EVENTS_URL", None)
         print(
-            "[Parking API] Backend sync is not configured: set PARKING_MODEL_API_KEY "
-            "in parking-back/.env or the environment. Backend preset startup "
-            "cannot continue without this key."
+            "[Parking API] Backend sync is not configured. Start the local backend to "
+            "generate a model API key, or set PARKING_MODEL_API_KEY in parking-back/.env "
+            "or the environment."
         )
     else:
         print("[Parking API] Backend preset control and parking-log sync are configured.")

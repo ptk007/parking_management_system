@@ -20,7 +20,7 @@ from parking_model_events import (
 )
 from parking_slot_status import (
     consume_slot_status_refresh_request,
-    read_disabled_parking_slot_names,
+    read_parking_slot_state,
     resolve_slot_display,
 )
 
@@ -222,14 +222,19 @@ class ParkingModelEventPublisherTests(unittest.TestCase):
 
         self.assertEqual(frame_path.name, expected_name)
 
-    def test_disabled_map_slots_are_written_for_live_worker_refresh(self):
+    def test_runtime_slot_state_passes_manual_details_to_worker_and_clears_them(self):
         with tempfile.TemporaryDirectory() as directory:
             status_path = Path(directory) / "runtime" / "disabled-slots.json"
+            _write_disabled_slot_state(status_path, ["zoneA_slot01"], manual_vehicle_details=[{
+                "parkingSlotName": "zoneA_slot02",
+                "license_num": "กข1234",
+                "province": "เชียงราย",
+            }])
+            disabled_names, details = read_parking_slot_state(status_path)
+            self.assertEqual(disabled_names, {"zoneA_slot01"})
+            self.assertEqual(details, {"zoneA_slot02": ("กข1234", "เชียงราย")})
             _write_disabled_slot_state(status_path, ["zoneA_slot01"])
-
-            disabled_names = read_disabled_parking_slot_names(status_path)
-
-        self.assertEqual(disabled_names, {"zoneA_slot01"})
+            self.assertEqual(read_parking_slot_state(status_path)[1], {})
 
     def test_disabled_slot_display_has_priority_and_marks_parking(self):
         self.assertEqual(

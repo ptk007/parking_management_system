@@ -39,6 +39,11 @@ before(async () => {
     ParkingFloor.init(),
     ParkingLog.init(),
   ]);
+  await ParkingLog.collection.createIndex(
+    { buildingId: 1, floorId: 1, veh_type: 1, license_num: 1, province: 1 },
+    { unique: true, partialFilterExpression: { park_status: "Parking" } },
+  );
+  await ParkingLog.prepareSessionIndexes();
   owner = await User.create({
     username: "parking-log-owner",
     password: "test-password",
@@ -438,19 +443,19 @@ test("model events reject ambiguous camera/source bindings", async () => {
   assert.match(ambiguous.body.message, /ambiguous/i);
 });
 
-test("YOLO map-only status updates follow map names without writing parking history", async () => {
+test("unknown vehicles get their own slot sessions and a later OCR read keeps the same log", async () => {
   floor.parking_map.slots[0].status = "available";
   floor.markModified("parking_map");
   await floor.save();
   const before = await ParkingLog.countDocuments({ floorId: floor._id });
-  const updateSlotStatus = (slotStatus, licensePlateDetected) =>
+  const updateSlotStatus = (slotStatus, licensePlateDetected, parkingSlotName = "zoneA_slot01") =>
     request("/model-slot-status", {
       method: "POST",
       modelKey: process.env.PARKING_MODEL_API_KEY,
       body: {
         floorId: String(floor._id),
         cameraPresetId: cameraId,
-        parkingSlotName: "zoneA_slot01",
+        parkingSlotName,
         slotStatus,
         ...(licensePlateDetected !== undefined ? { licensePlateDetected } : {}),
       },
@@ -464,17 +469,40 @@ test("YOLO map-only status updates follow map names without writing parking hist
 
   const occupied = await updateSlotStatus("occupied", false);
   assert.equal(occupied.status, 200);
+  assert.equal(occupied.body.log.license_num, "Unknown");
+  assert.equal(occupied.body.log.province, "Unknown");
+  assert.equal(occupied.body.log.owner, null);
+  const repeated = await updateSlotStatus("occupied", false);
+  assert.equal(repeated.body.log._id, occupied.body.log._id);
   savedFloor = await ParkingFloor.findById(floor._id);
   assert.equal(savedFloor.parking_map.slots[0].status, "occupied");
   assert.equal(savedFloor.parking_map.slots[0].licensePlateDetected, false);
-  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before);
+  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before + 1);
+
+  savedFloor.camera_presets[0].parkingSlotData.categories.push({
+    name: "zoneA_slot02", supercategory: "parking-slot",
+  });
+  savedFloor.markModified("camera_presets.0.parkingSlotData");
+  savedFloor.parking_map.slots.push({
+    number: 8, zone: "default", status: "available", cameraPresetId: cameraId,
+    parkingSlotName: "zoneA_slot02",
+  });
+  savedFloor.markModified("parking_map");
+  await savedFloor.save();
+  const second = await updateSlotStatus("occupied", false, "zoneA_slot02");
+  assert.equal(second.status, 200);
+  assert.notEqual(second.body.log._id, occupied.body.log._id);
+  assert.equal(second.body.log.license_num, "Unknown");
+  await updateSlotStatus("available", undefined, "zoneA_slot02");
 
   const available = await updateSlotStatus("available");
   assert.equal(available.status, 200);
+  assert.equal(available.body.log._id, occupied.body.log._id);
+  assert.equal(available.body.log.park_status, "Exited");
   savedFloor = await ParkingFloor.findById(floor._id);
   assert.equal(savedFloor.parking_map.slots[0].status, "available");
   assert.equal(savedFloor.parking_map.slots[0].licensePlateDetected, undefined);
-  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before);
+  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before + 2);
 
   const occupiedWithoutPlate = await updateSlotStatus("occupied", false);
   assert.equal(occupiedWithoutPlate.status, 200);
@@ -490,14 +518,97 @@ test("YOLO map-only status updates follow map names without writing parking hist
       parkingSlotName: "zoneA_slot01",
     },
   });
-  assert.equal(recognizedPlateEvent.status, 201);
+  assert.equal(recognizedPlateEvent.status, 200);
+  assert.equal(recognizedPlateEvent.body.log._id, occupiedWithoutPlate.body.log._id);
+  assert.equal(recognizedPlateEvent.body.log.date_enter, occupiedWithoutPlate.body.log.date_enter);
+  assert.equal(recognizedPlateEvent.body.log.park_time, occupiedWithoutPlate.body.log.park_time);
   savedFloor = await ParkingFloor.findById(floor._id);
   assert.equal(savedFloor.parking_map.slots[0].licensePlateDetected, true);
-  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before + 1);
+  assert.equal(await ParkingLog.countDocuments({ floorId: floor._id }), before + 3);
+  await updateSlotStatus("available");
+});
+
+test("admin identifies an unknown session, reconnects history, and syncs CCTV details", async () => {
+  await ParkingFloor.deleteMany({ building: building._id, floor: 5 });
+  const modelKey = process.env.PARKING_MODEL_API_KEY;
+  const occupied = await request("/model-slot-status", {
+    method: "POST",
+    modelKey,
+    body: { ...event("Parking"), slotStatus: "occupied", licensePlateDetected: false },
+  });
+  assert.equal(occupied.status, 200);
+  assert.equal(occupied.body.log.license_num, "Unknown");
+  const sessionId = occupied.body.log._id;
+  const floorsUrl = origin.replace(/\/parking-logs$/, "/admin/system/floors");
+  const floorDetails = () => request(`/${floor._id}`, { actor: "admin", baseUrl: floorsUrl });
+  const unknownDetails = (await floorDetails()).body.floor.parking_map.slots[0];
+  assert.equal(unknownDetails.license_num, "Unknown");
+  assert.equal(unknownDetails.province, "Unknown");
+
+  const oldHistoryCount = (await request("/me", { actor: "owner" })).body.logs.length;
+  const edit = (license_num, province) => request(`/catalog/${floor._id}/slot-vehicle-details`, {
+    method: "PATCH",
+    actor: "admin",
+    baseUrl: floorsUrl,
+    body: { key: '["default",7]', license_num, province },
+  });
+  const firstMatch = await edit("TEST-123", event("Parking").province);
+  assert.equal(firstMatch.status, 200);
+  assert.equal(firstMatch.body.removedHistoryCount, 0);
+  assert.equal((await request("/me", { actor: "owner" })).body.logs.length, oldHistoryCount + 1);
+  const guest = await edit("MANUAL-GUEST-1", "Bangkok");
+  assert.equal(guest.status, 200);
+  assert.equal(guest.body.log._id, sessionId);
+  assert.equal(guest.body.log.owner, null);
+  assert.equal((await floorDetails()).body.floor.parking_map.slots[0].license_num, "MANUAL-GUEST-1");
+  const registered = await edit("TEST-123", event("Parking").province);
+  assert.equal(registered.status, 200);
+  assert.equal(registered.body.log._id, sessionId);
+  assert.equal(registered.body.log.owner, String(owner._id));
+  assert.equal(registered.body.log.park_time, occupied.body.log.park_time);
+  assert.equal((await floorDetails()).body.floor.parking_map.slots[0].license_num, "TEST-123");
+  const history = await request("/me", { actor: "owner" });
+  assert.ok(history.body.logs.some((log) => log._id === sessionId));
+
+  const runtimeUrl = origin.replace(/\/parking-logs$/, "/model-runtime");
+  const sync = await request("/sync", {
+    method: "POST",
+    modelKey,
+    baseUrl: runtimeUrl,
+    body: {
+      runtimeId: "manual-details-test",
+      profiles: [{
+        cameraNo: "CAM-1",
+        cctvFileName: "camera-source.json",
+        parkingEnabled: true,
+        parkingSlotNames: ["zoneA_slot01", "zoneA_slot02"],
+      }],
+      workers: [],
+    },
+  });
+  assert.deepEqual(sync.body.commands[0].manualVehicleDetails, [{
+    parkingSlotName: "zoneA_slot01",
+    license_num: "TEST-123",
+    province: event("Parking").province,
+  }]);
+
+  const misread = {
+    ...event("Parking"),
+    license_plate: "OCR-MISREAD-1",
+  };
+  const ocr = await request("/model-events", { method: "POST", body: misread, modelKey });
+  assert.equal(ocr.status, 200);
+  assert.equal(ocr.body.log.license_num, "TEST-123");
+  const exit = await request("/model-events", {
+    method: "POST", body: { ...misread, event: "Exited" }, modelKey,
+  });
+  assert.equal(exit.status, 200);
+  assert.equal(exit.body.log._id, sessionId);
+  assert.equal(exit.body.log.park_status, "Exited");
+  assert.equal((await floorDetails()).body.floor.parking_map.slots[0].license_num, undefined);
 });
 
 test("disabled map slots are sent to Python while normal parking logs are retained", async () => {
-  await ParkingFloor.deleteMany({ building: building._id, floor: 5 });
   floor.parking_map.slots[0].status = "disabled";
   floor.markModified("parking_map");
   await floor.save();

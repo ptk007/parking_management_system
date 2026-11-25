@@ -390,6 +390,10 @@ test("manual vehicle details update the matching active parking log", async (t) 
     province: "Chiang Mai",
     owner: vehicleOwnerId,
     name: "Registered Owner",
+    brand: "Unknown",
+    model: "Unknown",
+    color: "Unknown",
+    vehicleDetailsEdited: true,
   });
   assert.deepEqual(deleteHistory.mock.calls[0].arguments[0], {
     owner: vehicleOwnerId,

@@ -13,7 +13,7 @@ const supportRoutes = require("./api/routes/supportRoutes");
 const parkingLogRoutes = require("./api/routes/parkingLogRoutes");
 const modelRuntimeRoutes = require("./api/routes/modelRuntimeRoutes");
 const pythonModelRuntime = require("./api/services/pythonModelRuntime");
-const ensureJwtSecret = require("./api/utils/ensureJwtSecret");
+const ensureLocalSecret = require("./api/utils/ensureLocalSecret");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,8 +57,16 @@ app.use((error, req, res, next) => {
 
 async function startServer() {
   try {
-    ensureJwtSecret(path.resolve(__dirname, ".jwt-secret"));
+    if (process.env.NODE_ENV === "production") {
+      if (!process.env.JWT_SECRET?.trim()) {
+        throw new Error("Set JWT_SECRET before starting the backend in production.");
+      }
+    } else {
+      ensureLocalSecret(path.resolve(__dirname, ".jwt-secret"), "JWT_SECRET");
+      ensureLocalSecret(path.resolve(__dirname, ".model-api-key"), "PARKING_MODEL_API_KEY");
+    }
     await mongoose.connect(MONGODB_URI);
+    await require("./api/models/parkingLogModel").prepareSessionIndexes();
     await require("./api/utils/migrateParkingBuildingFields")();
     await require("./api/utils/migrateParkingFloorFields")();
     await require("./api/utils/migrateUserFields")();

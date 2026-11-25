@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const ParkingBuilding = require("../models/parkingBuildingModel");
 const ParkingFloor = require("../models/parkingFloorModel");
 const ParkingLog = require("../models/parkingLogModel");
+const { UNKNOWN_VEHICLE_DETAIL } = ParkingLog;
 const ParkingLogCounter = require("../models/parkingLogCounterModel");
 const ParkingSlotStatusLog = require("../models/parkingSlotStatusLogModel");
 const ParkingSourceFile = require("../models/parkingSourceFileModel");
@@ -327,10 +328,26 @@ exports.getFloor = async (req, res) => {
       });
     }
 
-    return res.json({
-      success: true,
-      floor: floorWithSlotConnectionStatus(parkingFloor),
-    });
+    const floor = floorWithSlotConnectionStatus(parkingFloor);
+    const slots = floor.parking_map?.slots;
+    const occupied = Array.isArray(slots) ? slots.filter((slot) => slot.status === "occupied") : [];
+    if (occupied.length) {
+      const logs = await ParkingLog.find({
+        floorId: floor._id,
+        park_status: "Parking",
+      }).select("cameraPresetId parkingSlotName park_slot license_num province").lean();
+      const slotKey = (camera, name, number) => JSON.stringify([String(camera), name, number]);
+      const logsBySlot = new Map(logs.map((log) => [
+        slotKey(log.cameraPresetId, log.parkingSlotName, log.park_slot), log,
+      ]));
+      for (const slot of occupied) {
+        const log = logsBySlot.get(slotKey(slot.cameraPresetId, slot.parkingSlotName, slot.number));
+        if (!log) continue;
+        slot.license_num = log.license_num;
+        slot.province = log.province;
+      }
+    }
+    return res.json({ success: true, floor });
   } catch (error) {
     return sendError(res, error);
   }
@@ -572,6 +589,11 @@ exports.dashboardCatalog = async (req, res) => {
       floors: floors.map((floor) => {
         const result = floorWithSlotConnectionStatus(floor);
         delete result.camera_presets;
+        if (Array.isArray(result.parking_map?.slots)) {
+          result.parking_map.slots = result.parking_map.slots.map(
+            ({ license_num, province, ...slot }) => slot,
+          );
+        }
         return result;
       }),
     });
@@ -1400,6 +1422,7 @@ exports.updateOccupiedSlotVehicleDetails = async (req, res) => {
       key.length > 256 ||
       typeof license_num !== "string" ||
       !license_num.trim() ||
+      license_num.trim().toLowerCase() === UNKNOWN_VEHICLE_DETAIL.toLowerCase() ||
       license_num.trim().length > 100 ||
       typeof province !== "string" ||
       !province.trim() ||
@@ -1498,6 +1521,10 @@ exports.updateOccupiedSlotVehicleDetails = async (req, res) => {
         province: province.trim(),
         owner: ownerId,
         name: logName,
+        brand: vehicle?.brand || UNKNOWN_VEHICLE_DETAIL,
+        model: vehicle?.model || UNKNOWN_VEHICLE_DETAIL,
+        color: vehicle?.color || UNKNOWN_VEHICLE_DETAIL,
+        vehicleDetailsEdited: true,
       };
     }
     const timestamp = getUpdatedAt();
@@ -1509,6 +1536,7 @@ exports.updateOccupiedSlotVehicleDetails = async (req, res) => {
               ...slot,
               license_num: license_num.trim(),
               province: province.trim(),
+              licensePlateDetected: true,
               ...timestamp,
             }
           : slot,
@@ -1531,7 +1559,13 @@ exports.updateOccupiedSlotVehicleDetails = async (req, res) => {
         { new: true },
       );
       activeLogUpdated = Boolean(updatedLog);
-      if (activeLogUpdated && vehicle && activeLogUpdate.owner) {
+      if (
+        activeLogUpdated &&
+        activeLog.license_num !== UNKNOWN_VEHICLE_DETAIL &&
+        (activeLog.license_num !== activeLogUpdate.license_num ||
+          activeLog.province !== activeLogUpdate.province) &&
+        vehicle && activeLogUpdate.owner
+      ) {
         const deletion = await ParkingLog.deleteMany({
           owner: activeLogUpdate.owner,
           veh_type: floor.veh_type,
