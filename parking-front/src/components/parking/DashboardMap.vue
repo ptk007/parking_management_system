@@ -94,13 +94,8 @@
         </div>
       </div>
 
-<<<<<<< HEAD
-      <div :class="['map-surface', { 'filters-open': expanded }]">
-        <div v-if="loading" class="map-empty" role="status">{{ t('Loading parking locations...') }}</div>
-=======
       <div :class="['map-surface', { 'filters-open': expanded, 'with-slot-details': showSlotDetails }]">
-        <div v-if="loading" class="map-empty" role="status">Loading parking locations...</div>
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
+        <div v-if="loading" class="map-empty" role="status">{{ t('Loading parking locations...') }}</div>
         <div v-else-if="error" class="map-empty" role="alert">
           {{ t(error) }} <button @click="load()">{{ t('Try again') }}</button>
         </div>
@@ -145,23 +140,13 @@
           >
             <template #feedback>
               <p v-if="slotMessage" :class="{ 'slot-action-error': slotError }" role="status">
-                {{ slotMessage }}
+                {{ t(slotMessage) }}
               </p>
             </template>
           </ParkingSlotDetails>
         </template>
       </div>
       <div class="map-footer">
-<<<<<<< HEAD
-        <div v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample" class="map-actions">
-          <button :disabled="saving || !selection.length" @click="setStatus('available')">
-            {{ t('Enable') }}</button
-          ><button :disabled="saving || !selection.length" @click="setStatus('disabled')">
-            {{ t('Disable') }}</button
-          ><span>{{ t('Selected:') }} {{ selection.length }}</span>
-        </div>
-=======
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
         <div class="status-legend">
           <span v-for="(label, status) in statusLabels" :key="status"
             ><i :class="status" />{{ t(label) }}</span

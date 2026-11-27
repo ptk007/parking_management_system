@@ -1,12 +1,6 @@
 <template>
   <section class="parking-map-page">
-<<<<<<< HEAD
-    <div v-if="assignmentNotification" class="assignment-notification" role="alert" aria-live="assertive">
-      {{ t(assignmentNotification) }}
-    </div>
-=======
-    <div v-if="mapNotice" class="map-notice" role="status">{{ mapNotice }}</div>
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
+    <div v-if="mapNotice" class="map-notice" role="status">{{ t(mapNotice) }}</div>
     <header class="page-heading">
       <RouterLink to="/admin/setup" class="back-button" :aria-label="t('Back to Parking Setup')"
         ><ArrowLeft :size="20"
@@ -198,128 +192,6 @@
             @save="persistDraft"
           />
         </section>
-<<<<<<< HEAD
-        <aside
-          v-if="selectedSlots.length > 0"
-          class="details-panel"
-          :aria-label="t('Slot details and actions')"
-        >
-          <div class="details-heading">
-            <h2>{{ t('Slot details') }}</h2>
-            <span>{{ t(['{count} selected', { count: selectedSlots.length }]) }}</span>
-          </div>
-          <template v-if="inspectedSlot">
-            <div class="detail-body">
-              <div v-if="selectedSlots.length === 1" :class="['slot-preview', inspectedSlot.status]">
-                <ParkingSquare :size="36" /><strong>{{ slotDisplayName(inspectedSlot) }}</strong
-                ><span>{{ t(statusLabels[inspectedSlot.status]) }}</span>
-                <span
-                  v-if="auth.canManageParking && slotConnectionStatus(inspectedSlot) !== 'Connect'"
-                  class="slot-connection-status connection-status-label"
-                >
-                  ({{ t(slotConnectionStatus(inspectedSlot)) }})
-                </span>
-              </div>
-              <div
-                v-if="viewMode === 'layout' && canEditLayout"
-                class="slot-assignment"
-              >
-                <label for="slot-cctv">{{ t('Select CCTV') }}</label>
-                <select
-                  id="slot-cctv"
-                  v-model="selectedCctvPresetId"
-                  :disabled="!floor.camera_presets?.length"
-                >
-                  <option value="">{{ t(floor.camera_presets?.length ? 'Select CCTV' : 'None') }}</option>
-                  <option
-                    v-for="camera in floor.camera_presets || []"
-                    :key="camera._id"
-                    :value="camera._id"
-                  >
-                    {{ camera.name }}
-                  </option>
-                </select>
-                <template v-if="selectedSlots.length === 1">
-                  <label for="slot-parking-name">{{ t('Select Parking Slot') }}</label>
-                  <select
-                    id="slot-parking-name"
-                    v-model="selectedParkingSlotName"
-                    :disabled="!selectedCctvPresetId || !parkingSlotNames.length"
-                  >
-                    <option value="">
-                      {{ t(parkingSlotNames.length ? 'Select Parking Slot' : 'None') }}
-                    </option>
-                    <option v-for="name in parkingSlotNames" :key="name" :value="name">
-                      {{ name }}
-                    </option>
-                  </select>
-                </template>
-              </div>
-              <form
-                v-if="viewMode === 'preview' && selectedSlots.length === 1 && inspectedSlot.status === 'occupied'"
-                class="vehicle-detail-form"
-                @submit.prevent="saveOccupiedSlotVehicleDetails"
-              >
-                <label for="slot-license-plate">{{ t('License Plate') }}</label>
-                <input
-                  id="slot-license-plate"
-                  v-model.trim="manualLicensePlate"
-                  type="text"
-                  maxlength="100"
-                  autocomplete="off"
-                  required
-                />
-                <label for="slot-province">{{ t('Province') }}</label>
-                <select id="slot-province" v-model="manualProvince" required>
-                  <option disabled value="">{{ t('Select Province') }}</option>
-                  <option v-if="hasCustomProvince" :value="manualProvince">
-                    {{ manualProvince === 'Unknown' ? t('Unknown') : manualProvince }}
-                  </option>
-                  <option v-for="province in thaiProvinces" :key="province" :value="province">
-                    {{ province }}
-                  </option>
-                </select>
-                <p v-if="vehicleDetailsMessage" :class="['vehicle-detail-message', { error: vehicleDetailsError }]" role="status">
-                  {{ t(vehicleDetailsMessage) }}
-                </p>
-                <div class="vehicle-detail-actions">
-                  <div v-if="inspectedSlot.date_updated" class="vehicle-detail-updated">
-                    <span>{{ t('Date Updated') }}</span>
-                    <strong>{{ inspectedSlot.date_updated }}</strong>
-                    <span>{{ t('Time Updated') }}</span>
-                    <strong>{{ inspectedSlot.time_updated || '-' }}</strong>
-                  </div>
-                  <button class="vehicle-detail-save" type="submit" :disabled="savingVehicleDetails || !canSaveVehicleDetails">
-                    {{ t(savingVehicleDetails ? 'Saving...' : 'Save') }}
-                  </button>
-                </div>
-              </form>
-              <p
-                v-if="selectedSlots.length === 1 && !isEditableSlot(inspectedSlot)"
-                class="locked-note"
-              >
-                <LockKeyhole :size="15" />
-                {{ t('Occupied and incoming statuses are controlled by the camera.') }}
-              </p>
-            </div>
-          </template>
-          <div class="detail-body selection-section">
-            <h3>{{ t(['{count} parking slots selected', { count: selectedSlots.length }]) }}</h3>
-            <p>{{ t('Shift-click slots to select more than one.') }}</p>
-            <div class="selection-actions">
-              <button class="enable-button" :disabled="!canEnable" @click="setStatus('available')">
-                <CheckCircle2 :size="16" />{{ t('Enable') }}</button
-              ><button
-                class="disable-button"
-                :disabled="!canDisable"
-                @click="setStatus('disabled')"
-              >
-                <Ban :size="16" />{{ t('Disable') }}
-              </button>
-            </div>
-            <p :class="['save-message', { failed: storageError }]" role="status">
-              {{ t(saveMessage) }}
-=======
         <ParkingSlotDetails
           v-if="auth.canManageParking"
           :floor-id="floor._id"
@@ -338,11 +210,12 @@
         >
           <template #feedback>
             <p v-if="slotActionMessage" :class="{ 'slot-action-error': slotActionError }" role="status">
-              {{ slotActionMessage }}
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
+              {{ t(slotActionMessage) }}
             </p>
-            <p v-if="dirty || !floor.parking_map">Save the map before changing slot status.</p>
-            <p :class="['save-message', { failed: storageError }]" role="status">{{ saveMessage }}</p>
+            <p v-if="dirty || !floor.parking_map">
+              {{ t('Save the map before changing slot status.') }}
+            </p>
+            <p :class="['save-message', { failed: storageError }]" role="status">{{ t(saveMessage) }}</p>
             <button v-if="dirty && !autosave && auth.isAdmin" class="primary" @click="persistDraft">
               {{ t('Save changes') }}
             </button>
@@ -417,12 +290,9 @@ import { floorService, type ParkingFloor, type ParkingFloorPayload } from '@/ser
 import ToggleSwitch from '@/components/ToggleSwitch.vue'
 import { useAuthStore } from '@/stores/auth'
 import ParkingLayoutEditor from '@/components/parking/ParkingLayoutEditor.vue'
-<<<<<<< HEAD
+import ParkingSlotDetails from '@/components/parking/ParkingSlotDetails.vue'
 import { createDashboardLayout } from '@/components/parking/dashboardLayoutTemplate'
 import { t, type LocalizedText } from '@/i18n'
-=======
-import ParkingSlotDetails from '@/components/parking/ParkingSlotDetails.vue'
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
 import {
   defaultSlotBox,
   emptyParkingLayout,
@@ -432,11 +302,7 @@ import {
   type ParkingMapState,
 } from '@/components/parking/parkingLayout'
 import {
-<<<<<<< HEAD
   createPreviewSlots,
-  isEditableSlot,
-=======
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
   restoreMapDraft,
   statusLabels,
   type PreviewSlot,
@@ -462,38 +328,18 @@ const editorRevision = ref(0)
 const defaultMapSource = 'Default map (E4 / Floor 4 / Cars)'
 const sourceName = ref('New map'),
   viewMode = ref<'preview' | 'layout'>('preview')
-<<<<<<< HEAD
 const displaySourceName = computed(() =>
   sourceName.value === 'New map' || sourceName.value === defaultMapSource
     ? t(sourceName.value)
     : sourceName.value,
 )
-const selected = ref(new Set<string>()),
-  inspectedKey = ref<string | null>(null)
-const assignmentNotification = ref<LocalizedText>('')
-let assignmentNotificationTimeout: ReturnType<typeof setTimeout> | undefined
-const manualLicensePlate = ref('')
-const manualProvince = ref('')
-const savingVehicleDetails = ref(false)
-const vehicleDetailsMessage = ref<LocalizedText>('')
-const vehicleDetailsError = ref(false)
-const hasCustomProvince = computed(
-  () => Boolean(manualProvince.value) && !thaiProvinces.includes(manualProvince.value),
-)
-const canSaveVehicleDetails = computed(() =>
-  Boolean(manualLicensePlate.value.trim()) &&
-  manualLicensePlate.value.trim().toLowerCase() !== 'unknown' &&
-  Boolean(manualProvince.value.trim()),
-)
-=======
 const selected = ref(new Set<string>())
 const editingSlot = ref(false)
 const savingVehicleDetails = ref(false)
 const slotActionMessage = ref('')
 const slotActionError = ref(false)
-const mapNotice = ref('')
+const mapNotice = ref<LocalizedText>('')
 let mapNoticeTimeout: ReturnType<typeof setTimeout> | undefined
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
 const autosave = ref(true),
   dirty = ref(false),
   saving = ref(false),
@@ -514,78 +360,9 @@ let loadVersion = 0,
   importVersion = 0
 const leaveTarget = ref<RouteLocationRaw | null>(null)
 let allowLeave = false
-<<<<<<< HEAD
-const inspectedSlot = computed(() =>
-  slots.value.find((slot) => slotKey(slot) === inspectedKey.value),
-)
-const selectedCctvPresetId = computed({
-  get: () => {
-    if (selectedSlots.value.length > 1) {
-      const presetIds = new Set(selectedSlots.value.map((slot) => slot.cameraPresetId || ''))
-      return presetIds.size === 1 ? [...presetIds][0]! : ''
-    }
-    return inspectedSlot.value?.cameraPresetId || ''
-  },
-  set: (cameraPresetId: string) => {
-    updateSelectedSlots({
-      cameraPresetId: cameraPresetId || undefined,
-      parkingSlotName: undefined,
-    })
-  },
-})
-const selectedCameraPreset = computed(() =>
-  floor.value?.camera_presets?.find(
-    (camera) => camera._id === selectedCctvPresetId.value,
-  ),
-)
-const parkingSlotNames = computed(() => {
-  const slot = inspectedSlot.value
-  const assignedNames = new Set(
-    slots.value
-      .filter(
-        (other) =>
-          other.cameraPresetId === selectedCctvPresetId.value &&
-          other.parkingSlotName &&
-          (!slot || slotKey(other) !== slotKey(slot)),
-      )
-      .map((other) => other.parkingSlotName!),
-  )
-  return getCameraSlotNames(selectedCameraPreset.value).filter(
-    (name) => !assignedNames.has(name),
-  )
-})
-const selectedParkingSlotName = computed({
-  get: () => inspectedSlot.value?.parkingSlotName || '',
-  set: (parkingSlotName: string) => {
-    const slot = inspectedSlot.value
-    if (
-      parkingSlotName &&
-      slot &&
-      slots.value.some(
-        (other) =>
-          slotKey(other) !== slotKey(slot) &&
-          other.cameraPresetId === slot.cameraPresetId &&
-          other.parkingSlotName === parkingSlotName,
-      )
-    ) {
-      showAssignmentNotification([
-        'Parking slot "{name}" is already assigned to another map slot.',
-        { name: parkingSlotName },
-      ])
-      return
-    }
-    assignmentNotification.value = ''
-    updateInspectedSlot({
-      cameraPresetId: slot?.cameraPresetId,
-      parkingSlotName: parkingSlotName || undefined,
-    })
-  },
-})
-=======
 const mapPresets = computed(() => (floor.value?.camera_presets || []).flatMap((camera) =>
   camera._id ? [{ _id: camera._id, name: camera.name, slotNames: getCameraSlotNames(camera) }] : [],
 ))
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
 const selectedSlots = computed(() =>
   slots.value.filter((slot) => selected.value.has(slotKey(slot))),
 )
@@ -836,35 +613,12 @@ async function setStatus(status: 'available' | 'disabled') {
   slotActionMessage.value = ''
   slotActionError.value = false
   try {
-<<<<<<< HEAD
-    const response = await floorService.updateOccupiedSlotVehicleDetails(
-      currentFloor._id,
-      slotKey(slot),
-      manualLicensePlate.value.trim(),
-      manualProvince.value.trim(),
-    )
-    const map = response.data.map
-    currentFloor.parking_map = map
-    slots.value = map.slots
-    const count = response.data.removedHistoryCount
-    vehicleDetailsMessage.value = response.data.activeLogUpdated
-      ? count > 0
-        ? [
-            'Vehicle details saved to the slot and active parking log. {count} older history record(s) deleted.',
-            { count },
-          ]
-        : 'Vehicle details saved to the slot and active parking log. No older history records found.'
-      : response.data.activeLogFound
-        ? 'Vehicle details saved to the slot, but the active parking log changed before it could be updated.'
-        : 'Vehicle details saved to the slot. No active parking log was found.'
-=======
     const { data } = await floorService.setSlotStatuses(currentFloor._id, targets.map(slotKey), status)
     applySlotMap(currentFloor._id, data.map)
     if (floor.value?._id === currentFloor._id)
       slotActionMessage.value = data.changedSlots
         ? 'Slot status updated and recorded in Slot Status Log.'
         : 'No eligible slot statuses changed.'
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
   } catch (cause) {
     if (floor.value?._id !== currentFloor._id) return
     slotActionError.value = true
@@ -938,16 +692,10 @@ async function updateModelSlotStatuses() {
     const refreshedFloor = await floorService.get(currentFloor._id)
     floor.value = refreshedFloor.data.floor
     slots.value = refreshedFloor.data.floor.parking_map?.slots || []
-<<<<<<< HEAD
-    showAssignmentNotification([
+    showMapNotice([
       'Enabled Detection models will update their assigned parking slots ({count} slots).',
       { count: response.data.requestedSlots },
     ])
-=======
-    showMapNotice(
-      `${response.data.message} (${response.data.requestedSlots} slots).`,
-    )
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
   } catch (cause) {
     showMapNotice(
       isAxiosError<{ message?: string }>(cause)
@@ -964,7 +712,7 @@ async function confirmResetParkingSlotStatuses() {
   resetConfirmationOpen.value = false
   await resetParkingSlotStatuses()
 }
-function showMapNotice(message: string) {
+function showMapNotice(message: LocalizedText) {
   mapNotice.value = message
   if (mapNoticeTimeout) clearTimeout(mapNoticeTimeout)
   mapNoticeTimeout = setTimeout(() => { mapNotice.value = '' }, 4000)
@@ -973,7 +721,19 @@ function changeSelectedPreset(cameraPresetId: string) {
   updateSlots({ cameraPresetId: cameraPresetId || undefined, parkingSlotName: undefined })
 }
 function changeSelectedParkingSlot(parkingSlotName: string, cameraPresetId: string) {
-  if (selectedSlots.value.length !== 1) return
+  const [slot] = selectedSlots.value
+  if (selectedSlots.value.length !== 1 || !slot || slot.cameraPresetId !== cameraPresetId) return
+  if (parkingSlotName && slots.value.some((other) =>
+    slotKey(other) !== slotKey(slot) &&
+    other.cameraPresetId === cameraPresetId &&
+    other.parkingSlotName === parkingSlotName,
+  )) {
+    showMapNotice([
+      'Parking slot "{name}" is already assigned to another map slot.',
+      { name: parkingSlotName },
+    ])
+    return
+  }
   updateSlots({
     cameraPresetId: cameraPresetId || undefined,
     parkingSlotName: parkingSlotName || undefined,
@@ -993,17 +753,6 @@ function updateSlots(assignment: Pick<PreviewSlot, 'cameraPresetId' | 'parkingSl
   )
   changed()
 }
-<<<<<<< HEAD
-function showAssignmentNotification(message: LocalizedText) {
-  assignmentNotification.value = message
-  if (assignmentNotificationTimeout) clearTimeout(assignmentNotificationTimeout)
-  assignmentNotificationTimeout = setTimeout(() => {
-    assignmentNotification.value = ''
-    assignmentNotificationTimeout = undefined
-  }, 4000)
-}
-=======
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
 
 function getCameraSlotNames(camera?: CctvFormCamera) {
   const data = camera?.parkingSlotData
@@ -1032,7 +781,6 @@ function replaceMap(next: ParkingMapState, source: string) {
   layout.value = withPositions(next.slots, next.layout)
   sourceName.value = source
   selected.value.clear()
-  inspectedKey.value = null
   clearFilters()
   editorRevision.value++
   changed()
@@ -1096,15 +844,6 @@ async function importJson(event: Event) {
         nextLayout = restoreParkingLayout(parsed.layout)
     }
     if (version !== importVersion || targetKey !== draftKey.value || !canEditLayout.value) return
-<<<<<<< HEAD
-=======
-    slots.value = nextSlots
-    layout.value = withPositions(nextSlots, nextLayout)
-    sourceName.value = files.map((file) => file.name).join(', ')
-    selected.value.clear()
-      clearFilters()
-    editorRevision.value++
->>>>>>> 38e9909cde02d01092944264b6a947429c18423c
     importing.value = false
     replaceMap({ slots: nextSlots, layout: nextLayout }, files.map((file) => file.name).join(', '))
     importMessage.value = [

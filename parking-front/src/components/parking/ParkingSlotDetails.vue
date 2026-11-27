@@ -1,43 +1,43 @@
 <template>
-  <aside v-if="selectedSlots.length" class="details-panel" aria-label="Slot details and actions">
+  <aside v-if="selectedSlots.length" class="details-panel" :aria-label="t('Slot details and actions')">
     <div class="details-heading">
-      <h2>Slot details</h2>
-      <span>{{ selectedSlots.length }} selected</span>
+      <h2>{{ t('Slot details') }}</h2>
+      <span>{{ t(['{count} selected', { count: selectedSlots.length }]) }}</span>
     </div>
     <div class="detail-body">
       <div v-if="singleSlot" :class="['slot-preview', singleSlot.status]">
         <ParkingSquare :size="36" aria-hidden="true" />
         <strong>{{ slotDisplayName(singleSlot) }}</strong>
-        <span>{{ statusLabels[singleSlot.status] }}</span>
+        <span>{{ t(statusLabels[singleSlot.status]) }}</span>
         <span
           v-if="slotConnectionStatus(singleSlot) !== 'Connect'"
           class="slot-connection-status connection-status-label"
         >
-          ({{ slotConnectionStatus(singleSlot) }})
+          ({{ t(slotConnectionStatus(singleSlot)) }})
         </span>
       </div>
       <div v-if="allowAssignment" class="slot-assignment">
-        <label for="slot-cctv">Select CCTV</label>
+        <label for="slot-cctv">{{ t('Select CCTV') }}</label>
         <select
           id="slot-cctv"
           :value="presetId"
           :disabled="busy || !presets.length"
           @change="emit('camera-change', inputValue($event))"
         >
-          <option value="">{{ presets.length ? 'Select CCTV' : 'None' }}</option>
+          <option value="">{{ t(presets.length ? 'Select CCTV' : 'None') }}</option>
           <option v-for="preset in presets" :key="preset._id" :value="preset._id">
             {{ preset.name }}
           </option>
         </select>
         <template v-if="singleSlot">
-          <label for="slot-parking-name">Select Parking Slot</label>
+          <label for="slot-parking-name">{{ t('Select Parking Slot') }}</label>
           <select
             id="slot-parking-name"
             :value="singleSlot.parkingSlotName || ''"
             :disabled="busy || !presetId || (!parkingSlotNames.length && !singleSlot.parkingSlotName)"
             @change="emit('parking-slot-change', inputValue($event), presetId)"
           >
-            <option value="">{{ parkingSlotNames.length ? 'Select Parking Slot' : 'None' }}</option>
+            <option value="">{{ t(parkingSlotNames.length ? 'Select Parking Slot' : 'None') }}</option>
             <option v-for="name in parkingSlotNames" :key="name" :value="name">{{ name }}</option>
           </select>
         </template>
@@ -47,48 +47,48 @@
         class="vehicle-detail-form"
         @submit.prevent="saveVehicleDetails"
       >
-        <label for="slot-license-plate">License Plate</label>
+        <label for="slot-license-plate">{{ t('License Plate') }}</label>
         <input id="slot-license-plate" v-model.trim="licensePlate" type="text" maxlength="100" autocomplete="off" required />
-        <label for="slot-province">Province</label>
+        <label for="slot-province">{{ t('Province') }}</label>
         <select id="slot-province" v-model="province" required>
-          <option disabled value="">Select Province</option>
-          <option v-if="customProvince" :value="province">{{ province }}</option>
+          <option disabled value="">{{ t('Select Province') }}</option>
+          <option v-if="customProvince" :value="province">{{ province === 'Unknown' ? t('Unknown') : province }}</option>
           <option v-for="value in thaiProvinces" :key="value" :value="value">{{ value }}</option>
         </select>
         <p v-if="vehicleMessage" :class="['vehicle-detail-message', { error: vehicleError }]" role="status">
-          {{ vehicleMessage }}
+          {{ t(vehicleMessage) }}
         </p>
         <div class="vehicle-detail-actions">
           <div v-if="singleSlot.date_updated" class="vehicle-detail-updated">
-            <span>Date Updated</span><strong>{{ singleSlot.date_updated }}</strong>
-            <span>Time Updated</span><strong>{{ singleSlot.time_updated || '-' }}</strong>
+            <span>{{ t('Date Updated') }}</span><strong>{{ singleSlot.date_updated }}</strong>
+            <span>{{ t('Time Updated') }}</span><strong>{{ singleSlot.time_updated || '-' }}</strong>
           </div>
           <button class="vehicle-detail-save" type="submit" :disabled="busy || savingVehicle || !canSaveVehicle">
-            {{ savingVehicle ? 'Saving...' : 'Save' }}
+            {{ t(savingVehicle ? 'Saving...' : 'Save') }}
           </button>
         </div>
       </form>
       <p v-if="singleSlot && !isEditableSlot(singleSlot)" class="locked-note">
         <LockKeyhole :size="15" aria-hidden="true" />
-        Occupied and incoming statuses are controlled by the camera.
+        {{ t('Occupied and incoming statuses are controlled by the camera.') }}
       </p>
     </div>
     <div class="detail-body selection-section">
-      <h3>{{ selectedSlots.length }} parking {{ selectedSlots.length === 1 ? 'slot' : 'slots' }} selected</h3>
-      <p>Shift-click slots to select more than one.</p>
+      <h3>{{ t(['{count} parking slots selected', { count: selectedSlots.length }]) }}</h3>
+      <p>{{ t('Shift-click slots to select more than one.') }}</p>
       <div class="selection-actions">
         <button
           type="button"
           class="enable-button"
           :disabled="busy || statusActionsDisabled || !canEnable"
           @click="emit('status-change', 'available')"
-        ><CheckCircle2 :size="16" aria-hidden="true" />Enable</button>
+        ><CheckCircle2 :size="16" aria-hidden="true" />{{ t('Enable') }}</button>
         <button
           type="button"
           class="disable-button"
           :disabled="busy || statusActionsDisabled || !canDisable"
           @click="emit('status-change', 'disabled')"
-        ><Ban :size="16" aria-hidden="true" />Disable</button>
+        ><Ban :size="16" aria-hidden="true" />{{ t('Disable') }}</button>
       </div>
       <slot name="feedback" />
     </div>
@@ -100,6 +100,7 @@ import { computed, ref, watch } from 'vue'
 import { isAxiosError } from 'axios'
 import { Ban, CheckCircle2, LockKeyhole, ParkingSquare } from 'lucide-vue-next'
 import { thaiProvinces } from '@/data/thaiProvinces'
+import { t, type LocalizedText } from '@/i18n'
 import { floorService, type ParkingFloor, type ParkingMapPreset } from '@/services/api'
 import { slotKey } from './parkingMapJson'
 import { slotDisplayName } from './parkingLayout'
@@ -144,7 +145,7 @@ const parkingSlotNames = computed(() => {
 const licensePlate = ref('')
 const province = ref('')
 const savingVehicle = ref(false)
-const vehicleMessage = ref('')
+const vehicleMessage = ref<LocalizedText>('')
 const vehicleError = ref(false)
 const customProvince = computed(() => province.value && !thaiProvinces.includes(province.value))
 const canSaveVehicle = computed(() =>
@@ -187,13 +188,14 @@ async function saveVehicleDetails() {
     )
     emit('map-updated', floorId, data.map)
     if (vehicleState.value.key !== key) return
-    vehicleMessage.value = data.activeLogUpdated
-      ? 'Vehicle details saved to the slot and active parking log.'
-      : data.activeLogFound
-        ? 'Slot details saved. The active parking log changed before it could be updated.'
-        : 'Slot details saved. No active parking log was found.'
-    if (data.removedHistoryCount) {
-      vehicleMessage.value += ' Older history records deleted: ' + data.removedHistoryCount + '.'
+    if (data.activeLogUpdated) {
+      vehicleMessage.value = data.removedHistoryCount
+        ? ['Vehicle details saved to the slot and active parking log. {count} older history record(s) deleted.', { count: data.removedHistoryCount }]
+        : 'Vehicle details saved to the slot and active parking log. No older history records found.'
+    } else {
+      vehicleMessage.value = data.activeLogFound
+        ? 'Vehicle details saved to the slot, but the active parking log changed before it could be updated.'
+        : 'Vehicle details saved to the slot. No active parking log was found.'
     }
   } catch (cause) {
     if (vehicleState.value.key !== key) return
