@@ -1,27 +1,22 @@
 @echo off
 setlocal EnableExtensions
+cd /d "%~dp0"
+if not defined PARKING_MODEL_VENV set "PARKING_MODEL_VENV=C:\py_venv\.venv"
+set "MODEL_PYTHON=%PARKING_MODEL_VENV%\Scripts\python.exe"
 echo.
-echo This project now uses the shared environment at C:\py_venv\.venv
-echo to avoid Windows path-length limits (260 character limit).
-echo.
-echo Setting up C:\py_venv (one-time setup)...
+echo Setting up Detection environment at "%PARKING_MODEL_VENV%" (one-time setup)...
 echo.
 
-set "VENV_PATH=C:\py_venv\.venv"
-
-if not exist "%VENV_PATH%\Scripts\python.exe" (
-  echo Creating venv at C:\py_venv...
-  pushd C:\
-  py -m venv py_venv
+if not exist "%MODEL_PYTHON%" (
+  py -m venv "%PARKING_MODEL_VENV%"
   if errorlevel 1 (
-    echo [FAIL] Could not create venv at C:\py_venv
+    echo [FAIL] Could not create venv at "%PARKING_MODEL_VENV%".
     exit /b 1
   )
-  popd
 )
 
 echo Upgrading pip...
-"%VENV_PATH%\Scripts\python.exe" -m pip install --upgrade pip
+"%MODEL_PYTHON%" -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
 
 where nvidia-smi >nul 2>&1
@@ -34,24 +29,23 @@ if errorlevel 1 (
 if not defined PARKING_TORCH_INDEX_URL set "PARKING_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126"
 echo Installing CUDA-enabled PyTorch from:
 echo   %PARKING_TORCH_INDEX_URL%
-"%VENV_PATH%\Scripts\python.exe" -m pip install --upgrade torch torchvision --index-url "%PARKING_TORCH_INDEX_URL%"
+"%MODEL_PYTHON%" -m pip install --upgrade torch torchvision --index-url "%PARKING_TORCH_INDEX_URL%"
 if errorlevel 1 exit /b 1
 
 echo.
 echo Installing application dependencies...
-cd /d "%~dp0"
-"%VENV_PATH%\Scripts\python.exe" -m pip install -r requirements.txt
+"%MODEL_PYTHON%" -m pip install -r requirements.txt
 if errorlevel 1 exit /b 1
 
 echo.
 echo Removing conflicting OpenCV packages...
-"%VENV_PATH%\Scripts\python.exe" -m pip uninstall -y opencv-python-headless >nul 2>&1
-"%VENV_PATH%\Scripts\python.exe" -m pip install --force-reinstall --no-deps "opencv-python>=4.10,<5"
+"%MODEL_PYTHON%" -m pip uninstall -y opencv-python-headless >nul 2>&1
+"%MODEL_PYTHON%" -m pip install --force-reinstall --no-deps "opencv-python>=4.10,<5"
 if errorlevel 1 exit /b 1
 
 echo.
 echo Verifying CUDA availability...
-"%VENV_PATH%\Scripts\python.exe" check_gpu.py
+"%MODEL_PYTHON%" check_gpu.py
 if errorlevel 1 (
   echo.
   echo [FAIL] CUDA verification failed. Do not run the CCTV workers on CPU.

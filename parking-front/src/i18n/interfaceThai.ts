@@ -299,11 +299,10 @@ export const interfaceThai: Record<string, string> = {
   'No name': 'ไม่มีชื่อ',
   'Connecting...': 'กำลังเชื่อมต่อ...',
   'Restart live preview': 'เริ่มแสดงภาพสดใหม่',
+  'Last saved status:': 'สถานะที่บันทึกไว้ล่าสุด:',
   'Saved connection details. Search the source to open a live preview.':
     'บันทึกการเชื่อมต่อแล้ว ค้นหากล้องในไฟล์ต้นทางเพื่อเปิดดูภาพสด',
   'Opening a live camera preview...': 'กำลังเปิดภาพสดจากกล้อง...',
-  'Saved preset is marked Online. Search the source to open its live preview.':
-    'กล้องที่บันทึกไว้มีสถานะออนไลน์ ค้นหากล้องในไฟล์ต้นทางเพื่อดูภาพสด',
   'Live preview connected. Waiting for the first frame...': 'เชื่อมต่อภาพสดแล้ว กำลังรอภาพแรก...',
   'The camera did not return a video frame.': 'กล้องไม่ส่งภาพกลับมา',
   'Search the selected CCTV source to open a live preview.': 'ค้นหากล้องในแหล่งข้อมูลที่เลือกเพื่อดูภาพสด',

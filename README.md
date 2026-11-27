@@ -46,6 +46,7 @@ npm start
 | `JWT_SECRET` | คีย์สำหรับลงนาม JWT ในโหมดพัฒนา Backend จะสร้างและเก็บคีย์ใน `parking-back/.jwt-secret` ถ้าเว้นค่านี้ไว้ เมื่อกำหนด `NODE_ENV=production` ต้องตั้งคีย์เอง |
 | `PARKING_MODEL_API_KEY` | คีย์ร่วมระหว่าง Backend กับ Python สำหรับโหลด preset ซิงก์สถานะ runtime และรับเหตุการณ์จากโมเดล |
 | `PARKING_PYTHON_EXECUTABLE` | พาธ Python สำหรับทดสอบการเชื่อมต่อและดูภาพ RTSP ค่าเริ่มต้นบน Windows คือ `C:\py_venv\.venv\Scripts\python.exe` และบนระบบอื่นคือ `python3` |
+| `PARKING_MODEL_VENV` | พาธ virtual environment ของ Detection บน Windows ค่าเริ่มต้นคือ `C:\py_venv\.venv` หากตั้งพาธเอง ให้ใช้ค่าเดียวกันใน `parking-back/.env` และใน shell ที่เรียก `install.bat` |
 
 ### 2. เปิด Frontend
 
@@ -108,9 +109,6 @@ createLocalAdmin().catch((error) => {
 1. จาก `python-v2` เตรียม virtual environment ที่ runner ใช้ แล้วติดตั้ง dependencies
 
    ```powershell
-   if (-not (Test-Path 'C:\py_venv\.venv\Scripts\python.exe')) {
-     py -m venv C:\py_venv\.venv
-   }
    .\install.bat
    ```
 

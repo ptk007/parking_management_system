@@ -141,7 +141,7 @@
               {{ searching ? t('Connecting...') : t('Restart live preview') }}
             </button>
             <p class="add-cctv-status-row">
-              {{ t('Status:') }}
+              {{ t(selectedCamera?.recordIndex === -1 ? 'Last saved status:' : 'Status:') }}
               <strong :class="['add-cctv-status', `status-${connectionStatus.toLowerCase()}`]">
                 {{ t(searching ? 'Connecting...' : connectionStatus) }}
               </strong>
@@ -257,14 +257,12 @@ let previewObjectUrl = ''
 let lookupGeneration = 0
 const previewMessage = computed(() => {
   if (searching.value) return 'Opening a live camera preview...'
-  if (connectionStatus.value === 'Online') {
-    if (selectedCamera.value?.recordIndex === -1) {
-      return 'Saved preset is marked Online. Search the source to open its live preview.'
-    }
+  if (selectedCamera.value?.recordIndex === -1)
+    return 'Search the selected CCTV source to open a live preview.'
+  if (connectionStatus.value === 'Online')
     return 'Live preview connected. Waiting for the first frame...'
-  }
   if (connectionStatus.value === 'Offline')
-    return 'The camera did not return a video frame.'
+    return connectionMessage.value || 'The camera did not return a video frame.'
   return 'Search the selected CCTV source to open a live preview.'
 })
 const error = ref(''),

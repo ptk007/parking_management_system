@@ -159,6 +159,24 @@ describe('shared CCTV source library and per-floor presets', () => {
     }, null)
     expect(wrapper.emitted('saved')?.[0]).toEqual([floor])
   })
+  it('prompts for a live preview when the saved camera status is offline', async () => {
+    const camera = {
+      _id: 'cam1',
+      name: 'Entrance',
+      cameraSelector: 'cam-2',
+      ipAddress: '192.0.2.2',
+      rtspLink: 'rtsp://camera.example/stream',
+      cctvFileName: 'original.json',
+      parkingSlotFileId: null,
+      sourceStatus: 'Offline' as const,
+    }
+    wrapper = mount(AddCCTVPanel, { props: { mode: 'edit', selectedFloor: floor, camera } })
+    await flushPromises()
+
+    expect(wrapper.get('.add-cctv-preview').text()).toContain('Search the selected CCTV source')
+    expect(wrapper.get('.add-cctv-status-row').text()).toContain('Last saved status: Offline')
+    expect(floorService.streamCctvPreview).not.toHaveBeenCalled()
+  })
   it('creates a preset from a parking-slot JSON file upload', async () => {
     wrapper = mount(AddCCTVPanel, { props: { mode: 'add', selectedFloor: floor } })
     await flushPromises()
@@ -409,7 +427,7 @@ describe('shared CCTV source library and per-floor presets', () => {
       },
     } as never)
     vi.mocked(floorService.streamCctvPreview).mockResolvedValue(
-      new Response(JSON.stringify({ message: 'The camera did not return a video frame.' }), {
+      new Response(JSON.stringify({ message: 'Camera preview service is unavailable.' }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -432,6 +450,7 @@ describe('shared CCTV source library and per-floor presets', () => {
       expect.any(AbortSignal),
     )
     expect(wrapper.get('.add-cctv-status').text()).toBe('Offline')
+    expect(wrapper.get('.add-cctv-preview').text()).toBe('Camera preview service is unavailable.')
   })
   it('shows upload errors and permits retry', async () => {
     wrapper = mount(CCTVSetupList)
