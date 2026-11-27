@@ -4,15 +4,15 @@
       <button
         class="add-cctv-back"
         type="button"
-        aria-label="Back to CCTV list"
+        :aria-label="t('Back to CCTV list')"
         @click="$emit('cancel')"
       >
         <ArrowLeft :size="21" />
       </button>
       <h2>
-        {{ mode === 'edit' ? 'Edit CCTV' : 'Add CCTV'
+        {{ mode === 'edit' ? t('Edit CCTV') : t('Add CCTV')
         }}<span v-if="selectedFloor">
-          / {{ selectedFloor.building?.building_name }} / Floor {{ selectedFloor.floor }}</span
+          / {{ selectedFloor.building?.building_name }} {{ t('/ Floor') }} {{ selectedFloor.floor }}</span
         >
       </h2>
     </header>
@@ -24,21 +24,21 @@
             v-if="frameData"
             class="add-cctv-frame"
             :src="frameData"
-            alt="Live CCTV preview with parking-slot bounding boxes when available"
+            :alt="t('Live CCTV preview with parking-slot bounding boxes when available')"
           />
           <template v-else>
             <Video :size="30" aria-hidden="true" />
-            <span>{{ previewMessage }}</span>
+            <span>{{ t(previewMessage) }}</span>
           </template>
         </div>
 
         <label class="add-cctv-field">
-          <span>Parking CCTV Name</span>
-          <input v-model="cameraName" required type="text" placeholder="Enter CCTV name" />
+          <span>{{ t('Parking CCTV Name') }}</span>
+          <input v-model="cameraName" required type="text" :placeholder="t('Enter CCTV name')" />
         </label>
 
         <label class="add-cctv-field">
-          <span>Select 1 Original CCTV Source</span>
+          <span>{{ t('Select 1 Original CCTV Source') }}</span>
           <select
             v-model="selectedCctvFileId"
             required
@@ -48,8 +48,8 @@
             <option value="" disabled>
               {{
                 availableCctvFiles.length
-                  ? 'Select original CCTV source'
-                  : 'Import original CCTV source files first'
+                  ? t('Select original CCTV source')
+                  : t('Import original CCTV source files first')
               }}
             </option>
             <option v-for="file in availableCctvFiles" :key="file._id" :value="file._id">
@@ -58,12 +58,12 @@
           </select>
         </label>
         <div class="add-cctv-field">
-          <label for="camera-source-query">Camera No/IP/Name/RTSP link</label>
+          <label for="camera-source-query">{{ t('Camera No/IP/Name/RTSP link') }}</label>
           <input
             id="camera-source-query"
             v-model="cameraLookup"
             type="text"
-            placeholder="Enter an exact value from the CCTV source"
+            :placeholder="t('Enter an exact value from the CCTV source')"
             :disabled="saving"
             @input="resetLookup"
             @keydown.enter.prevent="searchCameraSource"
@@ -74,11 +74,11 @@
             :disabled="saving || searching || !selectedCctvFileId || !cameraLookup.trim()"
             @click="searchCameraSource"
           >
-            {{ searching ? 'Searching and connecting...' : 'Search CCTV source' }}
+            {{ searching ? t('Searching and connecting...') : t('Search CCTV source') }}
           </button>
         </div>
         <label class="add-cctv-field">
-          <span>Parking Slot JSON File</span>
+          <span>{{ t('Parking Slot JSON File') }}</span>
           <input
             class="add-cctv-file"
             type="file"
@@ -87,13 +87,13 @@
             @change="selectCctvFile"
           />
           <small v-if="mode === 'edit' && camera?.parkingSlotFileId">
-            Leave empty to keep the current file, or choose a replacement.
+            {{ t('Leave empty to keep the current file, or choose a replacement.') }}
           </small>
           <small v-else-if="mode === 'edit' && camera?.parkingSlotData">
-            This preset has embedded slot data. Upload a JSON file to replace it.
+            {{ t('This preset has embedded slot data. Upload a JSON file to replace it.') }}
           </small>
           <small v-else>
-            Optional. Without parking-slot JSON, the original CCTV preview is available, but Detection stays disabled.
+            {{ t('Optional. Without parking-slot JSON, the original CCTV preview is available, but Detection stays disabled.') }}
           </small>
         </label>
 
@@ -101,33 +101,33 @@
           class="add-cctv-connection"
           :open="Boolean(selectedCamera || lookupAttempted)"
         >
-          <summary>Connection details</summary>
+          <summary>{{ t('Connection details') }}</summary>
           <div class="add-cctv-connection-fields">
             <label v-if="matchedCameras.length > 1" class="add-cctv-field">
-              <span>Multiple exact matches found</span>
+              <span>{{ t('Multiple exact matches found') }}</span>
               <select
                 v-model="selectedRecordIndex"
                 :disabled="searching || saving"
                 @change="selectMatchedCamera"
               >
-                <option value="" disabled>Select the intended camera</option>
+                <option value="" disabled>{{ t('Select the intended camera') }}</option>
                 <option
                   v-for="match in matchedCameras"
                   :key="match.recordIndex"
                   :value="String(match.recordIndex)"
                 >
-                  {{ match.cameraNo || 'No number' }} ·
-                  {{ match.ipAddress || 'No IP' }} ·
-                  {{ match.sourceCameraName || 'No name' }}
+                  {{ match.cameraNo || t('No number') }} ·
+                  {{ match.ipAddress || t('No IP') }} ·
+                  {{ match.sourceCameraName || t('No name') }}
                 </option>
               </select>
             </label>
             <dl v-if="selectedCamera" class="add-cctv-connection-details">
-              <div><dt>No</dt><dd>{{ selectedCamera.cameraNo || '-' }}</dd></div>
-              <div><dt>IP Address</dt><dd>{{ selectedCamera.ipAddress || '-' }}</dd></div>
-              <div><dt>Name</dt><dd>{{ selectedCamera.sourceCameraName || '-' }}</dd></div>
+              <div><dt>{{ t('No') }}</dt><dd>{{ selectedCamera.cameraNo || '-' }}</dd></div>
+              <div><dt>{{ t('IP Address') }}</dt><dd>{{ selectedCamera.ipAddress || '-' }}</dd></div>
+              <div><dt>{{ t('Name') }}</dt><dd>{{ selectedCamera.sourceCameraName || '-' }}</dd></div>
               <div>
-                <dt>RTSP Link</dt>
+                <dt>{{ t('RTSP Link') }}</dt>
                 <dd class="add-cctv-rtsp">{{ selectedCamera.rtspLink || '-' }}</dd>
               </div>
             </dl>
@@ -138,26 +138,26 @@
               :disabled="saving || searching"
               @click="startLivePreview"
             >
-              {{ searching ? 'Connecting...' : 'Restart live preview' }}
+              {{ searching ? t('Connecting...') : t('Restart live preview') }}
             </button>
             <p class="add-cctv-status-row">
-              Status:
+              {{ t('Status:') }}
               <strong :class="['add-cctv-status', `status-${connectionStatus.toLowerCase()}`]">
-                {{ searching ? 'Connecting...' : connectionStatus }}
+                {{ t(searching ? 'Connecting...' : connectionStatus) }}
               </strong>
             </p>
             <p v-if="connectionMessage" class="add-cctv-connection-message" role="status">
-              {{ connectionMessage }}
+              {{ t(connectionMessage) }}
             </p>
           </div>
         </details>
       </div>
 
-      <p v-if="error" role="alert">{{ error }}</p>
+      <p v-if="error" role="alert">{{ t(error) }}</p>
       <footer class="add-cctv-actions">
-        <button class="add-cctv-cancel" type="button" @click="$emit('cancel')">Cancel</button>
+        <button class="add-cctv-cancel" type="button" @click="$emit('cancel')">{{ t('Cancel') }}</button>
         <button class="add-cctv-confirm" type="submit" :disabled="saving">
-          {{ saving ? 'Saving...' : 'Confirm' }}
+          {{ saving ? t('Saving...') : t('Confirm') }}
         </button>
       </footer>
     </form>
@@ -168,11 +168,11 @@
         aria-modal="true"
         aria-labelledby="cctv-no-slots-title"
       >
-        <h3 id="cctv-no-slots-title">Save CCTV preset without parking-slot JSON?</h3>
-        <p>The original CCTV preview will be available. Detection cannot be enabled until parking-slot JSON is added.</p>
+        <h3 id="cctv-no-slots-title">{{ t('Save CCTV preset without parking-slot JSON?') }}</h3>
+        <p>{{ t('The original CCTV preview will be available. Detection cannot be enabled until parking-slot JSON is added.') }}</p>
         <div>
-          <button type="button" :disabled="saving" @click="confirmWithoutParkingSlots = false">Cancel</button>
-          <button type="button" :disabled="saving" @click="save(true)">Confirm</button>
+          <button type="button" :disabled="saving" @click="confirmWithoutParkingSlots = false">{{ t('Cancel') }}</button>
+          <button type="button" :disabled="saving" @click="save(true)">{{ t('Confirm') }}</button>
         </div>
       </section>
     </div>
@@ -180,6 +180,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ArrowLeft, Video } from 'lucide-vue-next'
 import type {

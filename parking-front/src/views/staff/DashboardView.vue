@@ -8,7 +8,7 @@
         type="button"
         @click="selectTab(tab.id)"
       >
-        {{ tab.label }}
+        {{ t(tab.label) }}
       </button>
     </div>
 
@@ -25,10 +25,10 @@
 
       <div v-if="activeTab === 'cctv' && authStore.canManageParking" class="cctv-grid">
         <p v-if="selectedLocation?.isSample" class="cctv-state" role="status">
-          Sample map selected. Select a saved parking location to view its CCTV presets.
+          {{ t('Sample map selected. Select a saved parking location to view its CCTV presets.') }}
         </p>
-        <p v-else-if="cctvLoading" class="cctv-state" role="status">Loading CCTV presets...</p>
-        <p v-else-if="cctvError" class="cctv-state error" role="alert">{{ cctvError }}</p>
+        <p v-else-if="cctvLoading" class="cctv-state" role="status">{{ t('Loading CCTV presets...') }}</p>
+        <p v-else-if="cctvError" class="cctv-state error" role="alert">{{ t(cctvError) }}</p>
         <CameraPreviewCard
           v-for="camera in staffCameras"
           :key="camera._id"
@@ -40,7 +40,7 @@
           :model-enabled="camera.modelEnabled"
         />
         <p v-if="!selectedLocation?.isSample && !cctvLoading && !cctvError && !staffCameras.length" class="cctv-state" role="status">
-          No CCTV presets are configured for this parking location.
+          {{ t('No CCTV presets are configured for this parking location.') }}
         </p>
       </div>
 
@@ -52,7 +52,7 @@
             :aria-pressed="isShowingSampleLogs"
             @click="isShowingSampleLogs = !isShowingSampleLogs"
           >
-            {{ isShowingSampleLogs ? 'Hide sample logs' : 'View sample logs' }}
+            {{ isShowingSampleLogs ? t('Hide sample logs') : t('View sample logs') }}
           </button>
           <button
             type="button"
@@ -65,32 +65,31 @@
             "
             @click="exportParkingLogs"
           >
-            {{ isExporting ? 'Exporting...' : 'Export log' }}
+            {{ isExporting ? t('Exporting...') : t('Export log') }}
           </button>
           <span v-if="isShowingSampleLogs" class="sample-log-note">
-            Sample preview only. These logs are not saved to the database.
+            {{ t('Sample preview only. These logs are not saved to the database.') }}
           </span>
         </div>
         <div class="warning-banner">
-          <span>Exited and Not Parking</span> logs are shown for 24 hours; records remain in the
-          database.
+          <span>{{ t('Exited and Not Parking') }}</span> {{ t('logs are shown for 24 hours; records remain in the database.') }}
         </div>
         <div class="undetected-parking-banner" role="status" aria-live="polite">
           {{ undetectedOccupiedCount }}
-          <strong>Parking</strong>
-          with undetected license plate and province
+          <strong>{{ t('Parking') }}</strong>
+          {{ t('with undetected license plate and province') }}
         </div>
         <p v-if="!isShowingSampleLogs && isLoadingLogs" class="logs-state" role="status">
-          Loading parking logs...
+          {{ t('Loading parking logs...') }}
         </p>
         <p v-else-if="!isSelectedLocation" class="logs-state" role="status">
-          Select a parking location
+          {{ t('Select a parking location') }}
         </p>
         <p v-else-if="!isShowingSampleLogs && logsError" class="logs-state error" role="alert">
-          {{ logsError }} <button type="button" @click="loadParkingLogs">Try again</button>
+          {{ t(logsError) }} <button type="button" @click="loadParkingLogs">{{ t('Try again') }}</button>
         </p>
         <p v-else-if="!displayedParkingLogs.length" class="logs-state logs-empty" role="status">
-          No parking logs found
+          {{ t('No parking logs found') }}
         </p>
         <DatedLogList
           v-else
@@ -114,12 +113,13 @@
       role="status"
       aria-live="polite"
     >
-      {{ exportNotification }}
+      {{ t(exportNotification) }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { isAxiosError } from 'axios'
 import DatedLogList from '@/components/parking/DatedLogList.vue'

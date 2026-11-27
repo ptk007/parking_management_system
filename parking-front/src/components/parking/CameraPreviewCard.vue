@@ -5,23 +5,23 @@
         v-if="previewFrame"
         class="camera-frame"
         :src="previewFrame"
-        :alt="`${modelEnabled ? 'YOLO output' : 'Live CCTV preview'} for ${title}`"
+        :alt="t([modelEnabled ? 'YOLO output for {name}' : 'Live CCTV preview for {name}', { name: title }])"
       />
       <div v-else class="camera-placeholder">
         <Video :size="36" aria-hidden="true" />
         <span>{{ title }}</span>
       </div>
       <span v-if="status === 'Disable'" class="disabled-message" role="status">
-        CCTV has disable
+        {{ t('CCTV has disable') }}
       </span>
       <button
         v-if="previewFrame"
         class="expand-button"
         type="button"
-        :aria-label="`Expand live preview for ${title}`"
+        :aria-label="t(['Expand live preview for {name}', { name: title }])"
         @click="expanded = true"
       >
-        Expand
+        {{ t('Expand') }}
       </button>
       <button
         v-if="status === 'Enable'"
@@ -33,18 +33,18 @@
         {{
           isRunning
             ? modelEnabled
-              ? 'Stop YOLO preview'
-              : 'Stop preview'
+              ? t('Stop YOLO preview')
+              : t('Stop preview')
             : modelEnabled
-              ? 'Show YOLO preview'
-              : 'Show live preview'
+              ? t('Show YOLO preview')
+              : t('Show live preview')
         }}
       </button>
-      <span v-if="previewMessage" class="preview-message" role="status">{{ previewMessage }}</span>
+      <span v-if="previewMessage" class="preview-message" role="status">{{ t(previewMessage) }}</span>
     </div>
     <div class="camera-info">
       <h2>{{ title }}</h2>
-      <span :class="['source-status', sourceStatus.toLowerCase()]">{{ sourceStatus }}</span>
+      <span :class="['source-status', sourceStatus.toLowerCase()]">{{ t(sourceStatus) }}</span>
     </div>
     <Teleport to="body">
       <div
@@ -52,17 +52,17 @@
         class="expanded-overlay"
         role="dialog"
         aria-modal="true"
-        :aria-label="`Live CCTV output for ${title}`"
+        :aria-label="t(['Live CCTV output for {name}', { name: title }])"
         @click.self="expanded = false"
       >
         <section class="expanded-panel">
           <header>
-            <h2>{{ title }} — {{ modelEnabled ? 'YOLO Output' : 'Live Preview' }}</h2>
-            <button type="button" aria-label="Close expanded preview" @click="expanded = false">
-              Close
+            <h2>{{ title }} — {{ modelEnabled ? t('YOLO Output') : t('Live Preview') }}</h2>
+            <button type="button" :aria-label="t('Close expanded preview')" @click="expanded = false">
+              {{ t('Close') }}
             </button>
           </header>
-          <img :src="previewFrame" :alt="`Expanded CCTV output for ${title}`" />
+          <img :src="previewFrame" :alt="t(['Expanded CCTV output for {name}', { name: title }])" />
         </section>
       </div>
     </Teleport>
@@ -70,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { onUnmounted, ref, watch } from 'vue'
 import { Video } from 'lucide-vue-next'
 import { isAxiosError } from 'axios'

@@ -1,16 +1,16 @@
 <template>
   <section class="parking-map-page">
     <div v-if="assignmentNotification" class="assignment-notification" role="alert" aria-live="assertive">
-      {{ assignmentNotification }}
+      {{ t(assignmentNotification) }}
     </div>
     <header class="page-heading">
-      <RouterLink to="/admin/setup" class="back-button" aria-label="Back to Parking Setup"
+      <RouterLink to="/admin/setup" class="back-button" :aria-label="t('Back to Parking Setup')"
         ><ArrowLeft :size="20"
       /></RouterLink>
       <div>
-        <p class="eyebrow">PARKING SETUP</p>
+        <p class="eyebrow">{{ t('PARKING SETUP') }}</p>
         <div class="title-row">
-          <h1>Parking Map</h1>
+          <h1>{{ t('Parking Map') }}</h1>
           <div
             v-if="auth.isAdmin && floor"
             class="floor-status-control"
@@ -18,17 +18,18 @@
             <ToggleSwitch
               :checked="floor.status === 'Available'"
               :disabled="updatingFloorStatus"
-              label="Set floor Available or Disable"
+              :label="t('Set floor Available or Disable')"
               @toggle="setFloorStatus(floor.status === 'Available' ? 'Disable' : 'Available')"
             />
           </div>
         </div>
         <p v-if="floorStatusError" class="floor-status-error" role="alert">
-          {{ floorStatusError }}
+          {{ t(floorStatusError) }}
         </p>
         <p v-if="floor" class="floor-context">
-          {{ floor.building?.building_name || 'Building' }} / Floor {{ floor.floor }} /
-          {{ floor.veh_type === 'car' ? 'Cars' : 'Motorcycles' }}
+          {{ floor.building?.building_name || t('Building') }} /
+          {{ t(['Floor {floor}', { floor: floor.floor }]) }} /
+          {{ t(floor.veh_type === 'car' ? 'Cars' : 'Motorcycles') }}
         </p>
       </div>
       <RouterLink
@@ -36,36 +37,46 @@
         class="cctv-link"
         :to="{ name: 'AdminSetup', query: { cctvFloorId: floor._id } }"
       >
-        <Video :size="17" /> Go to CCTV <ArrowRight :size="17" />
+        <Video :size="17" /> {{ t('Go to CCTV') }} <ArrowRight :size="17" />
       </RouterLink>
       <span class="local-badge"
-        ><HardDrive :size="15" /> {{ dirty ? 'Unsaved changes' : 'Saved map' }}</span
+        ><HardDrive :size="15" /> {{ t(dirty ? 'Unsaved changes' : 'Saved map') }}</span
       >
     </header>
-    <div v-if="loading" class="page-state" role="status">Loading floor...</div>
+    <div v-if="loading" class="page-state" role="status">{{ t('Loading floor...') }}</div>
     <div v-else-if="error" class="page-state" role="alert">
-      <p>{{ error }}</p>
-      <button @click="loadFloor">Try again</button>
+      <p>{{ t(error) }}</p>
+      <button @click="loadFloor">{{ t('Try again') }}</button>
     </div>
     <template v-else-if="floor">
       <section
         :class="['map-transfer', { compact: viewMode === 'layout' }]"
-        aria-label="Map Import/Export"
+        :aria-label="t('Map Import/Export')"
       >
         <div>
-          <h2><FileJson :size="18" /> Map Import/Export</h2>
-          <p>Import replaces the current map. Export keeps a copy of slots, names and positions.</p>
-          <small>{{ sourceName }}</small>
+          <h2><FileJson :size="18" /> {{ t('Map Import/Export') }}</h2>
+          <p>
+            {{ t('Import replaces the current map. Export keeps a copy of slots, names and positions.') }}
+          </p>
+          <small>{{ displaySourceName }}</small>
         </div>
         <div class="transfer-actions">
+          <button
+            v-if="auth.isAdmin && floor.veh_type === 'car'"
+            type="button"
+            :disabled="!canEditLayout || importing || updatingFloorStatus"
+            @click="useDefaultMap"
+          >
+            <LayoutGrid :size="16" /> {{ t('Use default map slot') }}
+          </button>
           <button @click="exportMap" :disabled="!slots.length">
-            <Download :size="16" /> Export map</button
+            <Download :size="16" /> {{ t('Export map') }}</button
           ><button
             class="primary"
             :disabled="importing || !canEditLayout"
             @click="fileInput?.click()"
           >
-            <Upload :size="16" />{{ importing ? 'Importing...' : 'Import map' }}
+            <Upload :size="16" />{{ t(importing ? 'Importing...' : 'Import map') }}
           </button>
         </div>
         <input
@@ -74,16 +85,18 @@
           class="hidden"
           accept=".json,application/json"
           multiple
-          aria-label="Import parking map JSON"
+          :aria-label="t('Import parking map JSON')"
           :disabled="importing || !canEditLayout"
           @change="importJson"
         />
-        <p v-if="importError" class="import-error" role="alert">{{ importError }}</p>
-        <p v-if="importMessage" class="import-success" role="status">{{ importMessage }}</p>
+        <p v-if="importError" class="import-error" role="alert">
+          {{ t(['{detail} The current map has not changed.', { detail: t(importError) }]) }}
+        </p>
+        <p v-if="importMessage" class="import-success" role="status">{{ t(importMessage) }}</p>
       </section>
       <div
         :class="['summary-grid', { compact: viewMode === 'layout' }]"
-        aria-label="Parking summary and status filters"
+        :aria-label="t('Parking summary and status filters')"
       >
         <button
           v-for="summary in summaries"
@@ -92,79 +105,77 @@
           :aria-pressed="statusFilter === summary.key"
           @click="statusFilter = summary.key"
         >
-          <span>{{ summary.label }}</span
+          <span>{{ t(summary.label) }}</span
           ><strong>{{ summary.count }}</strong>
         </button>
       </div>
       <div class="map-workspace">
-        <section class="floor-panel" aria-label="Parking slot layout">
+        <section class="floor-panel" :aria-label="t('Parking slot layout')">
           <div v-if="viewMode === 'preview'" class="panel-heading">
             <div>
-              <h2>Floor overview</h2>
-              <p>Select a slot to see its name and status.</p>
+              <h2>{{ t('Floor overview') }}</h2>
+              <p>{{ t('Select a slot to see its name and status.') }}</p>
             </div>
             <div class="panel-heading-actions">
-              <span>{{ slots.length }} slots</span>
+              <span>{{ t(['{count} slots', { count: slots.length }]) }}</span>
               <button
                 type="button"
                 class="update-status-button"
                 :disabled="!canUpdateModelSlotStatuses"
                 @click="updateModelSlotStatuses"
               >
-                {{ updatingModelSlotStatuses ? 'Updating...' : 'Update slot status' }}
+                {{ t(updatingModelSlotStatuses ? 'Updating...' : 'Update slot status') }}
               </button>
               <button
                 type="button"
                 class="reset-status-button"
                 :disabled="!canResetSlotStatuses"
-                title="Disable every CCTV preset on this floor before resetting slots"
+                :title="t('Disable every CCTV preset on this floor before resetting slots')"
                 @click="resetConfirmationOpen = true"
               >
                 <RotateCcw :size="16" />
-                {{ resettingSlots ? 'Resetting...' : 'Reset parking slot status' }}
+                {{ t(resettingSlots ? 'Resetting...' : 'Reset parking slot status') }}
               </button>
             </div>
           </div>
           <div class="map-toolbar">
-            <div class="view-mode" aria-label="Parking map view">
+            <div class="view-mode" :aria-label="t('Parking map view')">
               <button
                 :class="{ active: viewMode === 'preview' }"
                 :aria-pressed="viewMode === 'preview'"
                 @click="viewMode = 'preview'"
               >
-                <LayoutGrid :size="16" />Parking Preview</button
+                <LayoutGrid :size="16" />{{ t('Parking Preview') }}</button
               ><button
                 v-if="auth.isAdmin"
                 :disabled="!canEditLayout"
-                :title="
-                  canEditLayout ? 'Edit layout' : 'Disable this floor before editing its layout'
-                "
+                :title="t(canEditLayout ? 'Edit layout' : 'Disable this floor before editing its layout')"
                 :class="{ active: viewMode === 'layout' }"
                 :aria-pressed="viewMode === 'layout'"
                 @click="viewMode = 'layout'"
               >
-                <PencilRuler :size="16" />Layout editor
+                <PencilRuler :size="16" />{{ t('Layout editor') }}
               </button>
             </div>
             <label class="search-field"
               ><Search :size="16" /><input
                 v-model="search"
                 type="search"
-                placeholder="Find a slot by name"
-                aria-label="Search slot name"
+                :placeholder="t('Find a slot by name')"
+                :aria-label="t('Search slot name')"
             /></label>
-            <select v-model="statusFilter" aria-label="Filter by status">
-              <option value="all">All statuses</option>
+            <select v-model="statusFilter" :aria-label="t('Filter by status')">
+              <option value="all">{{ t('All statuses') }}</option>
               <option v-for="(label, value) in statusLabels" :key="value" :value="value">
-                {{ label }}
+                {{ t(label) }}
               </option>
             </select>
           </div>
           <p v-if="floor.status === 'Available'" class="locked-note">
-            Disable this floor in Parking Setup to use Layout editor.
+            {{ t('Disable this floor in Parking Setup to use Layout editor.') }}
           </p>
           <p v-if="slots.length && !visibleKeys.size" class="empty-results">
-            No matching slots. <button @click="clearFilters">Clear filters</button>
+            {{ t('No matching slots.') }} <button @click="clearFilters">{{ t('Clear filters') }}</button>
           </p>
           <ParkingLayoutEditor
             :key="`${floor._id}:${editorRevision}`"
@@ -174,7 +185,7 @@
             :readonly="viewMode !== 'layout' || !canEditLayout"
             :autosave="autosave"
             :saving="saving"
-            :save-message="saveMessage"
+            :save-message="t(saveMessage)"
             :save-failed="storageError"
             :visible-keys="visibleKeys"
             @change="updateMap"
@@ -187,35 +198,35 @@
         <aside
           v-if="selectedSlots.length > 0"
           class="details-panel"
-          aria-label="Slot details and actions"
+          :aria-label="t('Slot details and actions')"
         >
           <div class="details-heading">
-            <h2>Slot details</h2>
-            <span>{{ selectedSlots.length }} selected</span>
+            <h2>{{ t('Slot details') }}</h2>
+            <span>{{ t(['{count} selected', { count: selectedSlots.length }]) }}</span>
           </div>
           <template v-if="inspectedSlot">
             <div class="detail-body">
               <div v-if="selectedSlots.length === 1" :class="['slot-preview', inspectedSlot.status]">
                 <ParkingSquare :size="36" /><strong>{{ slotDisplayName(inspectedSlot) }}</strong
-                ><span>{{ statusLabels[inspectedSlot.status] }}</span>
+                ><span>{{ t(statusLabels[inspectedSlot.status]) }}</span>
                 <span
                   v-if="auth.canManageParking && slotConnectionStatus(inspectedSlot) !== 'Connect'"
                   class="slot-connection-status connection-status-label"
                 >
-                  ({{ slotConnectionStatus(inspectedSlot) }})
+                  ({{ t(slotConnectionStatus(inspectedSlot)) }})
                 </span>
               </div>
               <div
                 v-if="viewMode === 'layout' && canEditLayout"
                 class="slot-assignment"
               >
-                <label for="slot-cctv">Select CCTV</label>
+                <label for="slot-cctv">{{ t('Select CCTV') }}</label>
                 <select
                   id="slot-cctv"
                   v-model="selectedCctvPresetId"
                   :disabled="!floor.camera_presets?.length"
                 >
-                  <option value="">{{ floor.camera_presets?.length ? 'Select CCTV' : 'None' }}</option>
+                  <option value="">{{ t(floor.camera_presets?.length ? 'Select CCTV' : 'None') }}</option>
                   <option
                     v-for="camera in floor.camera_presets || []"
                     :key="camera._id"
@@ -225,13 +236,15 @@
                   </option>
                 </select>
                 <template v-if="selectedSlots.length === 1">
-                  <label for="slot-parking-name">Select Parking Slot</label>
+                  <label for="slot-parking-name">{{ t('Select Parking Slot') }}</label>
                   <select
                     id="slot-parking-name"
                     v-model="selectedParkingSlotName"
                     :disabled="!selectedCctvPresetId || !parkingSlotNames.length"
                   >
-                    <option value="">{{ parkingSlotNames.length ? 'Select Parking Slot' : 'None' }}</option>
+                    <option value="">
+                      {{ t(parkingSlotNames.length ? 'Select Parking Slot' : 'None') }}
+                    </option>
                     <option v-for="name in parkingSlotNames" :key="name" :value="name">
                       {{ name }}
                     </option>
@@ -243,7 +256,7 @@
                 class="vehicle-detail-form"
                 @submit.prevent="saveOccupiedSlotVehicleDetails"
               >
-                <label for="slot-license-plate">License Plate</label>
+                <label for="slot-license-plate">{{ t('License Plate') }}</label>
                 <input
                   id="slot-license-plate"
                   v-model.trim="manualLicensePlate"
@@ -252,26 +265,28 @@
                   autocomplete="off"
                   required
                 />
-                <label for="slot-province">Province</label>
+                <label for="slot-province">{{ t('Province') }}</label>
                 <select id="slot-province" v-model="manualProvince" required>
-                  <option disabled value="">Select Province</option>
+                  <option disabled value="">{{ t('Select Province') }}</option>
                   <option v-if="hasCustomProvince" :value="manualProvince">
-                    {{ manualProvince }}
+                    {{ manualProvince === 'Unknown' ? t('Unknown') : manualProvince }}
                   </option>
                   <option v-for="province in thaiProvinces" :key="province" :value="province">
                     {{ province }}
                   </option>
                 </select>
                 <p v-if="vehicleDetailsMessage" :class="['vehicle-detail-message', { error: vehicleDetailsError }]" role="status">
-                  {{ vehicleDetailsMessage }}
+                  {{ t(vehicleDetailsMessage) }}
                 </p>
                 <div class="vehicle-detail-actions">
                   <div v-if="inspectedSlot.date_updated" class="vehicle-detail-updated">
-                    <span>Date Updated</span><strong>{{ inspectedSlot.date_updated }}</strong>
-                    <span>Time Updated</span><strong>{{ inspectedSlot.time_updated || '-' }}</strong>
+                    <span>{{ t('Date Updated') }}</span>
+                    <strong>{{ inspectedSlot.date_updated }}</strong>
+                    <span>{{ t('Time Updated') }}</span>
+                    <strong>{{ inspectedSlot.time_updated || '-' }}</strong>
                   </div>
                   <button class="vehicle-detail-save" type="submit" :disabled="savingVehicleDetails || !canSaveVehicleDetails">
-                    {{ savingVehicleDetails ? 'Saving...' : 'Save' }}
+                    {{ t(savingVehicleDetails ? 'Saving...' : 'Save') }}
                   </button>
                 </div>
               </form>
@@ -279,30 +294,30 @@
                 v-if="selectedSlots.length === 1 && !isEditableSlot(inspectedSlot)"
                 class="locked-note"
               >
-                <LockKeyhole :size="15" /> Occupied and incoming statuses are controlled by the
-                camera.
+                <LockKeyhole :size="15" />
+                {{ t('Occupied and incoming statuses are controlled by the camera.') }}
               </p>
             </div>
           </template>
           <div class="detail-body selection-section">
-            <h3>{{ selectedSlots.length }} parking slots selected</h3>
-            <p>Shift-click slots to select more than one.</p>
+            <h3>{{ t(['{count} parking slots selected', { count: selectedSlots.length }]) }}</h3>
+            <p>{{ t('Shift-click slots to select more than one.') }}</p>
             <div class="selection-actions">
               <button class="enable-button" :disabled="!canEnable" @click="setStatus('available')">
-                <CheckCircle2 :size="16" />Enable</button
+                <CheckCircle2 :size="16" />{{ t('Enable') }}</button
               ><button
                 class="disable-button"
                 :disabled="!canDisable"
                 @click="setStatus('disabled')"
               >
-                <Ban :size="16" />Disable
+                <Ban :size="16" />{{ t('Disable') }}
               </button>
             </div>
             <p :class="['save-message', { failed: storageError }]" role="status">
-              {{ saveMessage }}
+              {{ t(saveMessage) }}
             </p>
             <button v-if="dirty && !autosave && auth.isAdmin" class="primary" @click="persistDraft">
-              Save changes
+              {{ t('Save changes') }}
             </button>
           </div>
         </aside>
@@ -315,16 +330,16 @@
         aria-modal="true"
         aria-labelledby="reset-slots-title"
       >
-        <h2 id="reset-slots-title">Are you sure to reset all slot status</h2>
+        <h2 id="reset-slots-title">{{ t('Are you sure to reset all slot status') }}</h2>
         <div>
-          <button type="button" @click="resetConfirmationOpen = false">Cancel</button>
+          <button type="button" @click="resetConfirmationOpen = false">{{ t('Cancel') }}</button>
           <button
             type="button"
             class="primary"
             :disabled="resettingSlots"
             @click="confirmResetParkingSlotStatuses"
           >
-            Confirm
+            {{ t('Confirm') }}
           </button>
         </div>
       </section>
@@ -336,12 +351,12 @@
         aria-modal="true"
         aria-labelledby="unsaved-title"
       >
-        <h2 id="unsaved-title">Save your changes?</h2>
-        <p>This floor has changes that have not been saved to the server.</p>
+        <h2 id="unsaved-title">{{ t('Save your changes?') }}</h2>
+        <p>{{ t('This floor has changes that have not been saved to the server.') }}</p>
         <div>
-          <button @click="leaveTarget = null">Keep editing</button
-          ><button @click="discardAndLeave">Discard changes</button
-          ><button class="primary" @click="saveAndLeave">Save and leave</button>
+          <button @click="leaveTarget = null">{{ t('Keep editing') }}</button
+          ><button @click="discardAndLeave">{{ t('Discard changes') }}</button
+          ><button class="primary" @click="saveAndLeave">{{ t('Save and leave') }}</button>
         </div>
       </section>
     </div>
@@ -380,6 +395,8 @@ import ToggleSwitch from '@/components/ToggleSwitch.vue'
 import { thaiProvinces } from '@/data/thaiProvinces'
 import { useAuthStore } from '@/stores/auth'
 import ParkingLayoutEditor from '@/components/parking/ParkingLayoutEditor.vue'
+import { createDashboardLayout } from '@/components/parking/dashboardLayoutTemplate'
+import { t, type LocalizedText } from '@/i18n'
 import {
   defaultSlotBox,
   emptyParkingLayout,
@@ -389,6 +406,7 @@ import {
   type ParkingMapState,
 } from '@/components/parking/parkingLayout'
 import {
+  createPreviewSlots,
   isEditableSlot,
   restoreMapDraft,
   slotConnectionStatus,
@@ -408,21 +426,27 @@ const route = useRoute(),
   auth = useAuthStore()
 const floor = ref<ParkingFloor | null>(null),
   loading = ref(true),
-  error = ref('')
+  error = ref<LocalizedText>('')
 const slots = ref<PreviewSlot[]>([]),
   layout = ref<ParkingLayout>(emptyParkingLayout())
 const canEditLayout = computed(() => auth.isAdmin && floor.value?.status !== 'Available')
 const editorRevision = ref(0)
+const defaultMapSource = 'Default map (E4 / Floor 4 / Cars)'
 const sourceName = ref('New map'),
   viewMode = ref<'preview' | 'layout'>('preview')
+const displaySourceName = computed(() =>
+  sourceName.value === 'New map' || sourceName.value === defaultMapSource
+    ? t(sourceName.value)
+    : sourceName.value,
+)
 const selected = ref(new Set<string>()),
   inspectedKey = ref<string | null>(null)
-const assignmentNotification = ref('')
+const assignmentNotification = ref<LocalizedText>('')
 let assignmentNotificationTimeout: ReturnType<typeof setTimeout> | undefined
 const manualLicensePlate = ref('')
 const manualProvince = ref('')
 const savingVehicleDetails = ref(false)
-const vehicleDetailsMessage = ref('')
+const vehicleDetailsMessage = ref<LocalizedText>('')
 const vehicleDetailsError = ref(false)
 const hasCustomProvince = computed(
   () => Boolean(manualProvince.value) && !thaiProvinces.includes(manualProvince.value),
@@ -437,12 +461,12 @@ const autosave = ref(true),
   saving = ref(false),
   updatingFloorStatus = ref(false),
   floorStatusError = ref(''),
-  saveMessage = ref('No unsaved changes'),
+  saveMessage = ref<LocalizedText>('No unsaved changes'),
   storageError = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null),
   importing = ref(false),
   importError = ref(''),
-  importMessage = ref('')
+  importMessage = ref<LocalizedText>('')
 const search = ref(''),
   statusFilter = ref<SlotStatus | 'all'>('all')
 const draftKey = computed(
@@ -506,9 +530,10 @@ const selectedParkingSlotName = computed({
           other.parkingSlotName === parkingSlotName,
       )
     ) {
-      showAssignmentNotification(
-        `Parking slot "${parkingSlotName}" is already assigned to another map slot.`,
-      )
+      showAssignmentNotification([
+        'Parking slot "{name}" is already assigned to another map slot.',
+        { name: parkingSlotName },
+      ])
       return
     }
     assignmentNotification.value = ''
@@ -681,7 +706,7 @@ async function loadFloor() {
           ? cause.message
           : undefined
       error.value = message
-        ? `Unable to load this floor and its map: ${message}`
+        ? ['Unable to load this floor and its map: {detail}', { detail: message }]
         : 'Unable to load this floor and its map. Please try again.'
     }
   } finally {
@@ -746,7 +771,10 @@ async function persistDraft(): Promise<boolean> {
         ? cause.response?.data?.message
         : undefined
       saveMessage.value = serverMessage
-        ? `Could not save map: ${serverMessage}. Retry Save now or export your map.`
+        ? [
+            'Could not save map: {detail}. Retry Save now or export your map.',
+            { detail: serverMessage },
+          ]
         : 'Could not save to server. Retry Save now or export your map.'
     }
     return false
@@ -804,8 +832,14 @@ async function saveOccupiedSlotVehicleDetails() {
     const map = response.data.map
     currentFloor.parking_map = map
     slots.value = map.slots
+    const count = response.data.removedHistoryCount
     vehicleDetailsMessage.value = response.data.activeLogUpdated
-      ? `Vehicle details saved to the slot and active parking log. ${response.data.removedHistoryCount > 0 ? `${response.data.removedHistoryCount} older history record(s) deleted.` : 'No older history records found.'}`
+      ? count > 0
+        ? [
+            'Vehicle details saved to the slot and active parking log. {count} older history record(s) deleted.',
+            { count },
+          ]
+        : 'Vehicle details saved to the slot and active parking log. No older history records found.'
       : response.data.activeLogFound
         ? 'Vehicle details saved to the slot, but the active parking log changed before it could be updated.'
         : 'Vehicle details saved to the slot. No active parking log was found.'
@@ -884,9 +918,10 @@ async function updateModelSlotStatuses() {
     const refreshedFloor = await floorService.get(currentFloor._id)
     floor.value = refreshedFloor.data.floor
     slots.value = refreshedFloor.data.floor.parking_map?.slots || []
-    showAssignmentNotification(
-      `${response.data.message} (${response.data.requestedSlots} slots).`,
-    )
+    showAssignmentNotification([
+      'Enabled Detection models will update their assigned parking slots ({count} slots).',
+      { count: response.data.requestedSlots },
+    ])
   } catch (cause) {
     showAssignmentNotification(
       isAxiosError<{ message?: string }>(cause)
@@ -940,7 +975,7 @@ function updateSlots(
   )
   changed()
 }
-function showAssignmentNotification(message: string) {
+function showAssignmentNotification(message: LocalizedText) {
   assignmentNotification.value = message
   if (assignmentNotificationTimeout) clearTimeout(assignmentNotificationTimeout)
   assignmentNotificationTimeout = setTimeout(() => {
@@ -971,6 +1006,49 @@ function getCameraSlotNames(camera?: CctvFormCamera) {
     ),
   ]
 }
+function replaceMap(next: ParkingMapState, source: string) {
+  slots.value = next.slots
+  layout.value = withPositions(next.slots, next.layout)
+  sourceName.value = source
+  selected.value.clear()
+  inspectedKey.value = null
+  clearFilters()
+  editorRevision.value++
+  changed()
+}
+
+function useDefaultMap() {
+  if (
+    floor.value?.veh_type !== 'car' ||
+    !canEditLayout.value ||
+    loading.value ||
+    importing.value ||
+    updatingFloorStatus.value
+  )
+    return
+
+  const hasMapContent = slots.value.length || layout.value.shapes.length || layout.value.background
+  if (
+    hasMapContent &&
+    !window.confirm(t('Replace the current map and its CCTV slot assignments with the default map?'))
+  )
+    return
+
+  // Copy the sample's slot identities without carrying demo occupancy into a real floor.
+  const defaultSlots = createPreviewSlots().map(({ number, zone }): PreviewSlot => ({
+    number,
+    zone,
+    status: 'available',
+    connectionStatus: 'None',
+  }))
+  replaceMap(
+    { slots: defaultSlots, layout: createDashboardLayout(defaultSlots) },
+    defaultMapSource,
+  )
+  importError.value = ''
+  importMessage.value = ['Loaded {count} default parking slots.', { count: defaultSlots.length }]
+}
+
 async function importJson(event: Event) {
   const input = event.target as HTMLInputElement,
     files = Array.from(input.files || [])
@@ -997,19 +1075,15 @@ async function importJson(event: Event) {
         nextLayout = restoreParkingLayout(parsed.layout)
     }
     if (version !== importVersion || targetKey !== draftKey.value || !canEditLayout.value) return
-    slots.value = nextSlots
-    layout.value = withPositions(nextSlots, nextLayout)
-    sourceName.value = files.map((file) => file.name).join(', ')
-    selected.value.clear()
-    inspectedKey.value = null
-    clearFilters()
-    editorRevision.value++
     importing.value = false
-    changed()
-    importMessage.value = `Imported ${nextSlots.length} slots. Names and saved positions have been preserved.`
+    replaceMap({ slots: nextSlots, layout: nextLayout }, files.map((file) => file.name).join(', '))
+    importMessage.value = [
+      'Imported {count} slots. Names and saved positions have been preserved.',
+      { count: nextSlots.length },
+    ]
   } catch (cause) {
     if (version === importVersion)
-      importError.value = `${cause instanceof Error ? cause.message : 'Unable to import map.'} The current map has not changed.`
+      importError.value = cause instanceof Error ? cause.message : 'Unable to import map.'
   } finally {
     if (version === importVersion) importing.value = false
   }
@@ -1139,6 +1213,7 @@ a:focus-visible {
 }
 .page-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
   margin-bottom: 24px;
@@ -1243,6 +1318,7 @@ h2 {
 }
 .transfer-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .hidden {
@@ -1656,9 +1732,6 @@ dd {
   }
   .page-heading h1 {
     font-size: 23px;
-  }
-  .transfer-actions {
-    flex-wrap: wrap;
   }
   .map-toolbar {
     padding: 0 12px 12px;

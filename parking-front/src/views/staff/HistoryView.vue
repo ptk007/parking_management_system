@@ -3,27 +3,27 @@
     <section class="history-panel">
       <div class="history-heading">
         <div class="history-title">
-          <h2>Slot Status Log</h2>
-          <p>Enable / Disable Slot Records</p>
+          <h2>{{ t('Slot Status Log') }}</h2>
+          <p>{{ t('Enable / Disable Slot Records') }}</p>
         </div>
 
         <div class="history-controls">
-          <fieldset class="role-filter" aria-label="Filter by role">
-            <label><input v-model="selectedRoles" type="checkbox" value="staff" /> Staff</label>
-            <label><input v-model="selectedRoles" type="checkbox" value="admin" /> Admin</label>
+          <fieldset class="role-filter" :aria-label="t('Filter by role')">
+            <label><input v-model="selectedRoles" type="checkbox" value="staff" /> {{ t('Staff') }}</label>
+            <label><input v-model="selectedRoles" type="checkbox" value="admin" /> {{ t('Admin') }}</label>
           </fieldset>
           <div class="info-popover">
-            <button class="info-button" type="button" aria-label="About this page">!</button>
+            <button class="info-button" type="button" :aria-label="t('About this page')">!</button>
             <div class="info-tooltip" role="tooltip">
-              Shows which parking slots were enabled or disabled, which staff member changed the slot status, and when the change happened.
+              {{ t('Shows which parking slots were enabled or disabled, which staff member changed the slot status, and when the change happened.') }}
             </div>
           </div>
         </div>
       </div>
 
-      <p v-if="loading" class="history-message">Loading slot status logs...</p>
-      <p v-else-if="loadError" class="history-message error">{{ loadError }}</p>
-      <p v-else-if="!historyEntries.length" class="history-message">No slot status changes found.</p>
+      <p v-if="loading" class="history-message">{{ t('Loading slot status logs...') }}</p>
+      <p v-else-if="loadError" class="history-message error">{{ t(loadError) }}</p>
+      <p v-else-if="!historyEntries.length" class="history-message">{{ t('No slot status changes found.') }}</p>
       <DatedLogList
         v-else
         v-slot="{ entries }"
@@ -32,16 +32,16 @@
         heading-level="h3"
       >
         <article v-for="entry in entries" :key="entry._id" class="history-card">
-          <p>Changed by {{ entry.role === 'staff' ? 'Staff' : 'Admin' }} : {{ entry.name }}</p>
-          <p>Building : {{ entry.building }}</p>
-          <p>Floor <span>:</span> {{ entry.floor }}</p>
-          <p>Parking Slots : {{ formatSlots(entry.slots) }}</p>
-          <p>Date edited : {{ entry.date_updated }}</p>
-          <p>Time edited : {{ entry.time_updated }}</p>
+          <p>{{ t('Changed by') }} {{ entry.role === 'staff' ? t('Staff') : t('Admin') }} : {{ entry.name }}</p>
+          <p>{{ t('Building :') }} {{ entry.building }}</p>
+          <p>{{ t('Floor') }} <span>:</span> {{ entry.floor }}</p>
+          <p>{{ t('Parking Slots :') }} {{ formatSlots(entry.slots) }}</p>
+          <p>{{ t('Date edited :') }} {{ entry.date_updated }}</p>
+          <p>{{ t('Time edited :') }} {{ entry.time_updated }}</p>
           <p>
-            Slot status changed to :
+            {{ t('Slot status changed to :') }}
             <strong :class="entry.status === 'available' ? 'enabled' : 'disabled'">
-              {{ entry.status === 'available' ? 'Enable' : 'Disable' }}
+              {{ entry.status === 'available' ? t('Enable') : t('Disable') }}
             </strong>
           </p>
         </article>
@@ -51,6 +51,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { onMounted, ref, watch } from 'vue'
 import DatedLogList from '@/components/parking/DatedLogList.vue'
 import { floorService, type ParkingSlotStatusLog } from '@/services/api'

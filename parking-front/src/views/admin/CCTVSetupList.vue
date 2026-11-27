@@ -1,11 +1,15 @@
 <template>
   <div class="cctv-setup-list">
     <button class="cctv-back-button" type="button" @click="$emit('back')">
-      <ArrowLeft :size="18" /> Back to Parking Setup
+      <ArrowLeft :size="18" /> {{ t('Back to Parking Setup') }}
     </button>
     <header class="cctv-toolbar">
       <h2 class="cctv-heading">
-        {{ selectedFloor ? `${building} : Floor ${selectedFloor.floor} CCTV` : 'CCTV presets' }}
+        {{
+          selectedFloor
+            ? t(['{building} : Floor {floor} CCTV', { building, floor: selectedFloor.floor }])
+            : t('CCTV presets')
+        }}
       </h2>
       <button
         v-if="selectedFloor"
@@ -13,24 +17,24 @@
         type="button"
         @click="$emit('add-cctv')"
       >
-        + Add CCTV
+        {{ t('+ Add CCTV') }}
       </button>
       <button v-if="selectedFloor" class="cctv-map-button" type="button" @click="$emit('view-map')">
-        Go to parking map <ArrowRight :size="19" />
+        {{ t('Go to parking map') }} <ArrowRight :size="19" />
       </button>
     </header>
     <p v-if="modelStatusRefreshError" class="model-runtime-error" role="status">
-      {{ modelStatusRefreshError }}
+      {{ t(modelStatusRefreshError) }}
     </p>
 
     <p v-if="!selectedFloor" class="preset-empty">
-      Open CCTV from a floor in Parking Setup to manage its preset.
+      {{ t('Open CCTV from a floor in Parking Setup to manage its preset.') }}
     </p>
     <section class="slot-files-panel" aria-labelledby="slot-files-title">
       <div class="slot-files-header">
         <div>
-          <h3 id="slot-files-title">Original CCTV source files</h3>
-          <p>Shared CCTV sources for every building and floor. Up to 5 MB per import.</p>
+          <h3 id="slot-files-title">{{ t('Original CCTV source files') }}</h3>
+          <p>{{ t('Shared CCTV sources for every building and floor. Up to 5 MB per import.') }}</p>
         </div>
         <button
           class="slot-import-button"
@@ -38,7 +42,7 @@
           :disabled="importing"
           @click="fileInput?.click()"
         >
-          <Upload :size="17" /> {{ importing ? 'Importing...' : 'Import CCTV source' }}
+          <Upload :size="17" /> {{ importing ? t('Importing...') : t('Import CCTV source') }}
         </button>
         <input
           ref="fileInput"
@@ -46,17 +50,17 @@
           type="file"
           accept=".json,application/json"
           multiple
-          aria-label="Import original CCTV source JSON files"
+          :aria-label="t('Import original CCTV source JSON files')"
           :disabled="importing"
           @change="importSlotFiles"
         />
       </div>
-      <p v-if="importError" class="slot-import-error" role="alert">{{ importError }}</p>
-      <p v-if="importMessage" class="slot-import-success" role="status">{{ importMessage }}</p>
+      <p v-if="importError" class="slot-import-error" role="alert">{{ t(importError) }}</p>
+      <p v-if="importMessage" class="slot-import-success" role="status">{{ t(importMessage) }}</p>
       <ul
         v-if="cctvSourceFiles.length"
         class="slot-file-list"
-        aria-label="Imported original CCTV source files"
+        :aria-label="t('Imported original CCTV source files')"
       >
         <li v-for="file in cctvSourceFiles" :key="file._id">
           <FileJson :size="22" aria-hidden="true" />
@@ -64,7 +68,7 @@
             <strong>
               {{ file.original_name }}
               <span v-if="file.available === false" class="slot-file-missing">
-                Missing — re-import required
+                {{ t('Missing — re-import required') }}
               </span>
             </strong
             ><span>{{ formatSize(file.size) }}</span>
@@ -72,18 +76,18 @@
           <button
             type="button"
             :disabled="!!downloading || file.available === false"
-            :aria-label="`Download ${file.original_name}`"
+            :aria-label="t(['Download {file}', { file: file.original_name }])"
             @click="downloadFile(file)"
           >
-            <Download :size="18" /> Download
+            <Download :size="18" /> {{ t('Download') }}
           </button>
         </li>
       </ul>
-      <p v-else class="slot-files-empty">No original CCTV source files imported yet.</p>
+      <p v-else class="slot-files-empty">{{ t('No original CCTV source files imported yet.') }}</p>
     </section>
 
     <p v-if="selectedFloor && !selectedFloor.camera_presets?.length" class="preset-empty">
-      No CCTV presets for this floor. Add CCTV to create one.
+      {{ t('No CCTV presets for this floor. Add CCTV to create one.') }}
     </p>
     <article
       v-for="camera in selectedFloor?.camera_presets || []"
@@ -92,13 +96,13 @@
     >
       <div class="cctv-preview" :class="{ 'is-streaming': activePreviewCameraId === camera._id }">
         <div v-if="camera.status === 'Disable'" class="cctv-disabled-message" role="status">
-          CCTV has disable
+          {{ t('CCTV has disable') }}
         </div>
         <img
           v-else-if="activePreviewCameraId === camera._id && previewFrame"
           class="cctv-live-frame"
           :src="previewFrame"
-          :alt="`${camera.modelEnabled ? 'YOLO output' : 'Live CCTV preview'} for ${camera.name}`"
+          :alt="t([camera.modelEnabled ? 'YOLO output for {name}' : 'Live CCTV preview for {name}', { name: camera.name }])"
         />
         <template v-else>
           <Video :size="36" aria-hidden="true" />
@@ -108,26 +112,26 @@
           v-if="activePreviewCameraId === camera._id && previewFrame"
           class="cctv-preview-expand"
           type="button"
-          :aria-label="`Expand live preview for ${camera.name}`"
+          :aria-label="t(['Expand live preview for {name}', { name: camera.name }])"
           @click="openExpandedPreview"
         >
-          Expand
+          {{ t('Expand') }}
         </button>
         <button
           v-if="camera.status !== 'Disable'"
           class="cctv-preview-toggle"
           type="button"
-          :aria-label="`${activePreviewCameraId === camera._id ? 'Stop' : 'Show'} ${camera.modelEnabled ? 'YOLO' : 'live'} preview for ${camera.name}`"
+          :aria-label="previewButtonLabel(camera)"
           @click="toggleCameraPreview(camera)"
         >
           {{
             activePreviewCameraId === camera._id
               ? camera.modelEnabled
-                ? 'Stop YOLO preview'
-                : 'Stop preview'
+                ? t('Stop YOLO preview')
+                : t('Stop preview')
               : camera.modelEnabled
-                ? 'Show YOLO preview'
-                : 'Show live preview'
+                ? t('Show YOLO preview')
+                : t('Show live preview')
           }}
         </button>
         <span
@@ -135,34 +139,34 @@
           class="cctv-preview-message"
           role="status"
         >
-          {{ previewMessage }}
+          {{ t(previewMessage) }}
         </span>
       </div>
       <dl class="cctv-camera-details">
         <div>
-          <dt>Parking CCTV Name</dt>
+          <dt>{{ t('Parking CCTV Name') }}</dt>
           <dd>{{ camera.name }}</dd>
         </div>
         <div>
-          <dt>Original CCTV Source</dt>
+          <dt>{{ t('Original CCTV Source') }}</dt>
           <dd>{{ camera.cctvFileName || '-' }}</dd>
         </div>
         <div>
-          <dt>Parking Slot File</dt>
+          <dt>{{ t('Parking Slot File') }}</dt>
           <dd>
             {{
               slotFiles.find((file) => file._id === camera.parkingSlotFileId)?.original_name ||
-              (camera.parkingSlotData ? 'Embedded JSON' : '-')
+              (camera.parkingSlotData ? t('Embedded JSON') : '-')
             }}
           </dd>
         </div>
         <div>
-          <dt>Camera No/IP</dt>
+          <dt>{{ t('Camera No/IP') }}</dt>
           <dd>{{ camera.cameraSelector || camera.ipAddress || '-' }}</dd>
         </div>
         <div>
-          <dt>Source status</dt>
-          <dd>{{ camera.sourceStatus || 'Unknown' }}</dd>
+          <dt>{{ t('Source status') }}</dt>
+          <dd>{{ t(camera.sourceStatus || 'Unknown') }}</dd>
         </div>
       </dl>
       <div class="cctv-card-actions">
@@ -172,50 +176,49 @@
             <ToggleSwitch
               :checked="camera.status === 'Enable'"
               :disabled="!camera._id || modelBusyCameraIds.length > 0"
-              :label="`CCTV preset ${camera.name}`"
+              :label="t(['CCTV preset {name}', { name: camera.name }])"
               @toggle="togglePreset(camera)"
             />
           </div>
         </div>
         <div class="cctv-model-control">
           <div class="cctv-toggle-row">
-            <span>Detection</span>
+            <span>{{ t('Detection') }}</span>
             <ToggleSwitch
               :checked="!!camera.modelEnabled"
               :disabled="!camera._id || camera.status === 'Disable' || !camera.parkingSlotData || modelBusyCameraIds.length > 0"
-              :label="`Detection for ${camera.name}`"
+              :label="t(['Detection for {name}', { name: camera.name }])"
               @toggle="toggleModel(camera)"
             />
           </div>
           <small v-if="!camera.parkingSlotData" class="detection-slot-requirement">
-            Add parking-slot JSON to enable Detection.
+            {{ t('Add parking-slot JSON to enable Detection.') }}
           </small>
           <span
             class="cctv-model-status"
             :class="`status-${modelStatusLabel(camera).toLowerCase()}`"
-            :title="camera.modelRuntimeMessage || modelStatusLabel(camera)"
+            :title="t(camera.modelRuntimeMessage || modelStatusLabel(camera))"
             role="status"
           >
-            {{ modelStatusLabel(camera) }}
+            {{ t(modelStatusLabel(camera)) }}
           </span>
           <small
             v-if="camera.modelEnabled && modelStatusLabel(camera) === 'Offline'"
             class="model-runtime-hint"
           >
-            No recent Python worker heartbeat. CCTV Online only confirms camera connectivity;
-            check the runtime URL/key and Python supervisor output.
+            {{ t('No recent Python worker heartbeat. CCTV Online only confirms camera connectivity; check the runtime URL/key and Python supervisor output.') }}
           </small>
           <small v-if="modelControlErrors[camera._id || '']" role="alert">
-            {{ modelControlErrors[camera._id || ''] }}
+            {{ t(modelControlErrors[camera._id || ''] ?? '') }}
           </small>
           <small v-else-if="camera.modelRuntimeMessage && camera.modelRuntimeStatus === 'Error'" role="alert">
-            {{ camera.modelRuntimeMessage }}
+            {{ t(camera.modelRuntimeMessage) }}
           </small>
         </div>
         <button
           type="button"
           class="cctv-edit"
-          aria-label="Edit Camera"
+          :aria-label="t('Edit Camera')"
           @click="$emit('edit-cctv', camera)"
         >
           <SquarePen :size="29" />
@@ -223,7 +226,7 @@
         <button
           type="button"
           class="cctv-delete"
-          :aria-label="`Delete CCTV preset ${camera.name}`"
+          :aria-label="t(['Delete CCTV preset {name}', { name: camera.name }])"
           :disabled="deletingCameraId !== ''"
           @click="cameraToDelete = camera"
         >
@@ -241,17 +244,16 @@
         @click.self="!deletingCameraId && (cameraToDelete = null)"
       >
         <section class="cctv-delete-dialog">
-          <h2 id="delete-cctv-title">Delete CCTV preset?</h2>
+          <h2 id="delete-cctv-title">{{ t('Delete CCTV preset?') }}</h2>
           <p>
-            Delete {{ cameraToDelete.name }}? Its parking-map assignment will be removed, while
-            the map slot and its status will remain.
+            {{ t('Delete') }} {{ cameraToDelete.name }}{{ t('? Its parking-map assignment will be removed, while the map slot and its status will remain.') }}
           </p>
           <p v-if="deleteCameraError" role="alert" class="cctv-delete-error">
-            {{ deleteCameraError }}
+            {{ t(deleteCameraError) }}
           </p>
           <div>
             <button type="button" :disabled="!!deletingCameraId" @click="cameraToDelete = null">
-              Cancel
+              {{ t('Cancel') }}
             </button>
             <button
               type="button"
@@ -259,7 +261,7 @@
               :disabled="!!deletingCameraId"
               @click="deleteCameraPreset"
             >
-              {{ deletingCameraId ? 'Deleting...' : 'Delete' }}
+              {{ deletingCameraId ? t('Deleting...') : t('Delete') }}
             </button>
           </div>
         </section>
@@ -269,25 +271,28 @@
         class="cctv-expanded-overlay"
         role="dialog"
         aria-modal="true"
-        :aria-label="`Live CCTV preview for ${activePreviewCamera.name}`"
+        :aria-label="t(['Live CCTV preview for {name}', { name: activePreviewCamera.name }])"
         tabindex="-1"
         @click.self="closeExpandedPreview"
       >
         <section class="cctv-expanded-panel">
           <header class="cctv-expanded-header">
-            <h2>{{ activePreviewCamera.name }} — Live Preview</h2>
-            <button type="button" aria-label="Close expanded preview" @click="closeExpandedPreview">
-              Close
+            <h2>{{ activePreviewCamera.name }} {{ t('— Live Preview') }}</h2>
+            <button type="button" :aria-label="t('Close expanded preview')" @click="closeExpandedPreview">
+              {{ t('Close') }}
             </button>
           </header>
           <img
             v-if="previewFrame"
             class="cctv-expanded-frame"
             :src="previewFrame"
-            :alt="`Expanded ${activePreviewCamera.modelEnabled ? 'YOLO output' : 'live CCTV preview'} for ${activePreviewCamera.name}`"
+            :alt="t([
+              activePreviewCamera.modelEnabled ? 'Expanded YOLO output for {name}' : 'Expanded live CCTV preview for {name}',
+              { name: activePreviewCamera.name },
+            ])"
           />
           <p v-else class="cctv-expanded-message" role="status">
-            {{ previewMessage || 'Waiting for camera frame...' }}
+            {{ previewMessage || t('Waiting for camera frame...') }}
           </p>
         </section>
       </div>
@@ -296,6 +301,7 @@
 </template>
 
 <script setup lang="ts">
+import { t, type LocalizedText } from '@/i18n'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { CctvFormCamera } from './cctvForm'
 import {
@@ -377,8 +383,16 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
 const downloading = ref('')
 const importError = ref('')
-const importMessage = ref('')
+const importMessage = ref<LocalizedText>('')
 const formatSize = (size: number) => (size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`)
+
+function previewButtonLabel(camera: CctvFormCamera) {
+  const isPreviewing = activePreviewCameraId.value === camera._id
+  const label = camera.modelEnabled
+    ? isPreviewing ? 'Stop YOLO preview for {name}' : 'Show YOLO preview for {name}'
+    : isPreviewing ? 'Stop live preview for {name}' : 'Show live preview for {name}'
+  return t([label, { name: camera.name }])
+}
 
 function modelStatusLabel(camera: CctvFormCamera) {
   if (!camera.modelEnabled)
@@ -723,7 +737,10 @@ async function importSlotFiles(event: Event) {
     }
     await floorService.importSourceFiles(files)
     await loadSourceFiles()
-    importMessage.value = `Imported ${files.length} file${files.length === 1 ? '' : 's'} successfully.`
+    importMessage.value = [
+      files.length === 1 ? 'Imported {count} file successfully.' : 'Imported {count} files successfully.',
+      { count: files.length },
+    ]
   } catch (cause) {
     importError.value = isAxiosError<{ message?: string }>(cause)
       ? cause.response?.data?.message || 'Unable to import CCTV source files. Please try again.'

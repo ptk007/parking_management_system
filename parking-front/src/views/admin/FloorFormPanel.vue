@@ -3,49 +3,49 @@
     <button
       class="close-x"
       type="button"
-      aria-label="Close floor form"
+      :aria-label="t('Close floor form')"
       :disabled="isSaving"
       @click="$emit('cancel')"
     >
       <X class="h-7 w-7" :stroke-width="3" />
     </button>
-    <h2>{{ mode === 'add' ? 'Add Floor' : 'Edit Floor' }}</h2>
+    <h2>{{ mode === 'add' ? t('Add Floor') : t('Edit Floor') }}</h2>
 
     <label class="floor-field">
-      <span>Building *</span>
+      <span>{{ t('Building *') }}</span>
       <select v-model="buildingId" required :disabled="isSaving">
-        <option disabled value="">Select building</option>
+        <option disabled value="">{{ t('Select building') }}</option>
         <option v-for="building in buildings" :key="building._id" :value="building._id">
           {{ building.building_name }}
         </option>
       </select>
     </label>
     <label class="floor-field">
-      <span>Floor *</span>
+      <span>{{ t('Floor *') }}</span>
       <input v-model.number="floorNumber" type="number" step="1" required :disabled="isSaving" />
     </label>
     <label class="floor-field">
-      <span>Vehicle *</span>
+      <span>{{ t('Vehicle *') }}</span>
       <select v-model="vehicleType" :disabled="isSaving">
-        <option value="car">Cars</option>
-        <option value="motorcycle">Motorcycle</option>
+        <option value="car">{{ t('Cars') }}</option>
+        <option value="motorcycle">{{ t('Motorcycle') }}</option>
       </select>
     </label>
     <label v-if="mode === 'edit'" class="floor-field">
-      <span>Status</span>
+      <span>{{ t('Status') }}</span>
       <select v-model="status" :disabled="isSaving">
-        <option value="Available">Available</option>
-        <option value="Disable">Disable</option>
+        <option value="Available">{{ t('Available') }}</option>
+        <option value="Disable">{{ t('Disable') }}</option>
       </select>
     </label>
-    <p v-if="error" class="floor-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="floor-error" role="alert">{{ t(error) }}</p>
     <div class="floor-actions">
       <button
         :class="mode === 'add' ? 'green-button' : 'blue-button'"
         type="submit"
         :disabled="isSaving || !buildings.length"
       >
-        {{ isSaving ? 'Saving...' : 'Confirm' }}
+        {{ isSaving ? t('Saving...') : t('Confirm') }}
       </button>
       <button
         v-if="mode === 'edit'"
@@ -54,13 +54,14 @@
         :disabled="isSaving"
         @click="$emit('cancel')"
       >
-        Cancel
+        {{ t('Cancel') }}
       </button>
     </div>
   </form>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { ref } from 'vue'
 import { isAxiosError } from 'axios'
 import { X } from 'lucide-vue-next'

@@ -3,7 +3,7 @@
     <section v-for="group in groups" :key="group.date" class="log-day">
       <component :is="headingLevel" class="log-day-heading">
         <time v-if="group.date" :datetime="group.date">{{ displayDate(group.date) }}</time>
-        <template v-else>Date unavailable</template>
+        <template v-else>{{ t('Date unavailable') }}</template>
       </component>
       <div class="log-day-records">
         <slot :entries="group.entries" />
@@ -13,6 +13,7 @@
 </template>
 
 <script setup lang="ts" generic="T">
+import { t } from '@/i18n'
 import { computed } from 'vue'
 
 const props = withDefaults(

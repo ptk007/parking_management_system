@@ -1,20 +1,20 @@
 <template>
   <header class="app-topbar">
-    <div>
-      <h1>MFU Parking Management</h1>
+    <div class="topbar-title">
+      <h1>{{ t('MFU Parking Management') }}</h1>
       <p>{{ userSubtitle }}</p>
     </div>
 
     <div class="topbar-actions">
       <div class="online-status">
         <span></span>
-        <strong>Online</strong>
+        <strong>{{ t('Online') }}</strong>
       </div>
 
       <button
         v-if="authStore.user?.role !== 'admin'"
         class="bell-button"
-        aria-label="Notifications"
+        :aria-label="t('Notifications')"
         :disabled="authStore.isGuest"
         @click="chatStore.openChat"
       >
@@ -22,16 +22,19 @@
         <span v-if="unreadNotifications > 0" class="notification-dot"></span>
       </button>
 
+      <LanguagePicker />
       <div class="avatar">{{ userInitials }}</div>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed } from 'vue'
 import { Bell } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
+import LanguagePicker from './LanguagePicker.vue'
 
 const authStore = useAuthStore()
 const chatStore = useChatStore()
@@ -47,10 +50,10 @@ const userFullName = computed(() => {
   if (authStore.user?.fullName) return authStore.user.fullName
   if (authStore.user?.name) return authStore.user.name
   if (authStore.user?.username) return authStore.user.username
-  return roleLabel.value
+  return t(roleLabel.value)
 })
 
-const userSubtitle = computed(() => `${userFullName.value} - ${roleLabel.value}`)
+const userSubtitle = computed(() => `${userFullName.value} - ${t(roleLabel.value)}`)
 
 const userInitials = computed(() => {
   if (authStore.user?.avatar) return authStore.user.avatar
@@ -103,6 +106,10 @@ p {
   gap: 22px;
 }
 
+.topbar-title {
+  min-width: 0;
+}
+
 .online-status {
   display: flex;
   align-items: center;
@@ -152,5 +159,43 @@ p {
   place-items: center;
   font-size: 22px;
   font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .topbar-actions {
+    gap: 10px;
+  }
+  .app-topbar h1 {
+    font-size: 19px;
+  }
+  .online-status {
+    display: none;
+  }
+  .topbar-title p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 540px) {
+  .app-topbar {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+  .app-topbar h1 {
+    font-size: 14px;
+  }
+  .topbar-actions {
+    gap: 6px;
+  }
+  .avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
+  .bell-button {
+    width: 24px;
+  }
 }
 </style>

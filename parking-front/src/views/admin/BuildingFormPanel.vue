@@ -3,23 +3,23 @@
     <button
       class="close-x"
       type="button"
-      aria-label="Close building form"
+      :aria-label="t('Close building form')"
       :disabled="isSaving"
       @click="$emit('cancel')"
     >
       <X class="h-7 w-7" :stroke-width="3" />
     </button>
 
-    <h2>{{ mode === 'add' ? 'Add Building' : 'Edit Building' }}</h2>
-    <img v-if="imagePreview" class="building-preview" :src="imagePreview" alt="Building preview" />
-    <div v-else class="building-preview building-preview-empty">No image selected</div>
+    <h2>{{ mode === 'add' ? t('Add Building') : t('Edit Building') }}</h2>
+    <img v-if="imagePreview" class="building-preview" :src="imagePreview" :alt="t('Building preview')" />
+    <div v-else class="building-preview building-preview-empty">{{ t('No image selected') }}</div>
 
     <label class="building-field">
-      <span>Building Name</span>
+      <span>{{ t('Building Name') }}</span>
       <input v-model.trim="buildingName" class="building-name-input" type="text" required :disabled="isSaving" />
     </label>
     <label class="building-field">
-      <span>Building Image</span>
+      <span>{{ t('Building Image') }}</span>
       <input
         class="image-input"
         type="file"
@@ -27,17 +27,18 @@
         :disabled="isSaving"
         @change="selectImage"
       />
-      <small>JPG, PNG or WebP (up to 5 MB)</small>
+      <small>{{ t('JPG, PNG or WebP (up to 5 MB)') }}</small>
     </label>
 
-    <p v-if="error" class="building-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="building-error" role="alert">{{ t(error) }}</p>
     <button :class="mode === 'add' ? 'green-button' : 'blue-button'" type="submit" :disabled="isSaving">
-      {{ isSaving ? 'Saving...' : 'Confirm' }}
+      {{ isSaving ? t('Saving...') : t('Confirm') }}
     </button>
   </form>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, onUnmounted, ref } from 'vue'
 import { isAxiosError } from 'axios'
 import { X } from 'lucide-vue-next'

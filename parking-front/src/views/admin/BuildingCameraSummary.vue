@@ -1,30 +1,31 @@
 <template>
-  <section class="building-camera-summary" aria-label="CCTV summary" aria-live="polite">
+  <section class="building-camera-summary" :aria-label="t('CCTV summary')" aria-live="polite">
     <div class="camera-summary-heading">
       <Video :size="18" aria-hidden="true" />
       <span>CCTV</span>
       <strong v-if="!loading && !error && summary">
-        {{ summary.total }} {{ summary.total === 1 ? 'camera' : 'cameras' }}
+        {{ summary.total }} {{ summary.total === 1 ? t('camera') : t('cameras') }}
       </strong>
     </div>
-    <p v-if="loading" class="camera-summary-note">Loading cameras...</p>
+    <p v-if="loading" class="camera-summary-note">{{ t('Loading cameras...') }}</p>
     <div v-else-if="error || !summary" class="camera-summary-error">
-      <span>Camera data unavailable</span>
-      <button type="button" @click="$emit('retry')">Retry</button>
+      <span>{{ t('Camera data unavailable') }}</span>
+      <button type="button" @click="$emit('retry')">{{ t('Retry') }}</button>
     </div>
     <template v-else>
       <div class="camera-status-list">
-        <span class="camera-status online"><i aria-hidden="true" />Online <b>{{ summary.online }}</b></span>
-        <span class="camera-status offline"><i aria-hidden="true" />Offline <b>{{ summary.offline }}</b></span>
-        <span class="camera-status disabled"><i aria-hidden="true" />Disabled <b>{{ summary.disabled }}</b></span>
-        <span v-if="summary.unknown" class="camera-status unknown"><i aria-hidden="true" />Unknown <b>{{ summary.unknown }}</b></span>
+        <span class="camera-status online"><i aria-hidden="true" />{{ t('Online') }} <b>{{ summary.online }}</b></span>
+        <span class="camera-status offline"><i aria-hidden="true" />{{ t('Offline') }} <b>{{ summary.offline }}</b></span>
+        <span class="camera-status disabled"><i aria-hidden="true" />{{ t('Disabled') }} <b>{{ summary.disabled }}</b></span>
+        <span v-if="summary.unknown" class="camera-status unknown"><i aria-hidden="true" />{{ t('Unknown') }} <b>{{ summary.unknown }}</b></span>
       </div>
-      <p class="camera-summary-note">{{ summary.total ? 'Last reported status' : 'No cameras assigned' }}</p>
+      <p class="camera-summary-note">{{ summary.total ? t('Last reported status') : t('No cameras assigned') }}</p>
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { Video } from 'lucide-vue-next'
 import type { BuildingCameraSummary } from '@/services/api'
 

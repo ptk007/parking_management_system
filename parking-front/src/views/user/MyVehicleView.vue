@@ -1,6 +1,6 @@
 <template>
   <div class="vehicle-page">
-    <div class="vehicle-tabs" role="tablist" aria-label="Vehicle sections">
+    <div class="vehicle-tabs" role="tablist" :aria-label="t('Vehicle sections')">
       <button
         v-for="tab in tabs"
         :key="tab.id"
@@ -8,23 +8,23 @@
         type="button"
         @click="activeTab = tab.id"
       >
-        {{ tab.label }}
+        {{ t(tab.label) }}
       </button>
     </div>
 
     <section v-if="activeTab === 'cars'" class="vehicle-panel">
-      <p v-if="isLoadingVehicles" class="panel-state">Loading vehicles...</p>
-      <p v-else-if="vehicleError" class="panel-state error">{{ vehicleError }}</p>
-      <p v-else-if="!vehicles.length" class="panel-state">No vehicles found</p>
+      <p v-if="isLoadingVehicles" class="panel-state">{{ t('Loading vehicles...') }}</p>
+      <p v-else-if="vehicleError" class="panel-state error">{{ t(vehicleError) }}</p>
+      <p v-else-if="!vehicles.length" class="panel-state">{{ t('No vehicles found') }}</p>
 
       <article v-for="vehicle in vehicles" :key="vehicle.id" class="vehicle-card">
         <div class="card-actions">
-          <button type="button" aria-label="Edit vehicle" @click="editVehicle(vehicle)">
+          <button type="button" :aria-label="t('Edit vehicle')" @click="editVehicle(vehicle)">
             <PencilLine class="h-6 w-6" :stroke-width="2.4" />
           </button>
           <button
             type="button"
-            aria-label="Delete vehicle"
+            :aria-label="t('Delete vehicle')"
             @click="openDeleteConfirmation(vehicle)"
           >
             <Trash2 class="h-6 w-6" :stroke-width="2.7" />
@@ -36,29 +36,29 @@
 
         <dl class="vehicle-details">
           <div>
-            <dt>Brand</dt>
+            <dt>{{ t('Brand') }}</dt>
             <dd>{{ vehicle.brand }}</dd>
           </div>
           <div>
-            <dt>Model</dt>
+            <dt>{{ t('Model') }}</dt>
             <dd>{{ vehicle.model }}</dd>
           </div>
           <div>
-            <dt>Color</dt>
+            <dt>{{ t('Color') }}</dt>
             <dd>{{ vehicle.color }}</dd>
           </div>
           <div>
-            <dt>License Number</dt>
+            <dt>{{ t('License Number') }}</dt>
             <dd>{{ vehicle.licenseNumber }}</dd>
           </div>
           <div>
-            <dt>Province</dt>
+            <dt>{{ t('Province') }}</dt>
             <dd>{{ vehicle.province }}</dd>
           </div>
         </dl>
       </article>
 
-      <button class="add-vehicle" type="button" aria-label="Add vehicle" @click="openTypePicker">
+      <button class="add-vehicle" type="button" :aria-label="t('Add vehicle')" @click="openTypePicker">
         <Plus class="h-16 w-16" :stroke-width="2.8" />
       </button>
     </section>
@@ -71,21 +71,21 @@
           :aria-pressed="isShowingSampleHistory"
           @click="isShowingSampleHistory = !isShowingSampleHistory"
         >
-          {{ isShowingSampleHistory ? 'Hide sample history' : 'View sample history' }}
+          {{ isShowingSampleHistory ? t('Hide sample history') : t('View sample history') }}
         </button>
         <span v-if="isShowingSampleHistory" class="sample-log-note">
-          Sample preview only. These logs are not saved to the database.
+          {{ t('Sample preview only. These logs are not saved to the database.') }}
         </span>
       </div>
       <p v-if="!isShowingSampleHistory && isLoadingHistory" class="panel-state" role="status">
-        Loading parking history...
+        {{ t('Loading parking history...') }}
       </p>
       <p v-else-if="!isShowingSampleHistory && historyError" class="panel-state error" role="alert">
-        {{ historyError }}
-        <button type="button" @click="loadParkingHistory">Try again</button>
+        {{ t(historyError) }}
+        <button type="button" @click="loadParkingHistory">{{ t('Try again') }}</button>
       </p>
       <p v-else-if="!displayedParkingHistory.length" class="panel-state" role="status">
-        No parking history found
+        {{ t('No parking history found') }}
       </p>
       <DatedLogList
         v-else
@@ -112,13 +112,13 @@
         <button
           class="type-close"
           type="button"
-          aria-label="Close vehicle type picker"
+          :aria-label="t('Close vehicle type picker')"
           @click="closeTypePicker"
         >
           <X class="h-8 w-8" :stroke-width="2.8" />
         </button>
 
-        <h2 id="vehicle-type-title">Vehicle add</h2>
+        <h2 id="vehicle-type-title">{{ t('Vehicle add') }}</h2>
 
         <div class="type-options">
           <button
@@ -129,7 +129,7 @@
             <span class="type-icon-frame">
               <CarFront class="type-icon car-type-icon" :stroke-width="2.5" />
             </span>
-            <span>Car</span>
+            <span>{{ t('Car') }}</span>
           </button>
 
           <button
@@ -140,7 +140,7 @@
             <span class="type-icon-frame">
               <Bike class="type-icon motor-type-icon" :stroke-width="2.5" />
             </span>
-            <span>Motor</span>
+            <span>{{ t('Motor') }}</span>
           </button>
         </div>
       </section>
@@ -155,55 +155,55 @@
     >
       <form class="vehicle-form" :aria-busy="isSaving" @submit.prevent="confirmVehicleDetails">
         <div class="form-header">
-          <button type="button" aria-label="Close form" :disabled="isSaving" @click="closeForm">
+          <button type="button" :aria-label="t('Close form')" :disabled="isSaving" @click="closeForm">
             <X class="h-8 w-8" :stroke-width="2.4" />
           </button>
           <h2 id="vehicle-details-title">
-            {{ editingVehicleId ? 'Edit vehicle details' : 'Vehicle details' }}
+            {{ editingVehicleId ? t('Edit vehicle details') : t('Vehicle details') }}
           </h2>
         </div>
 
         <fieldset class="form-fields" :disabled="isSaving">
           <label>
-            <span>Brand</span>
+            <span>{{ t('Brand') }}</span>
             <input
               v-model.trim="vehicleForm.brand"
               type="text"
-              placeholder="กรอกยี่ห้อ เช่น Toyota, Honda"
+              :placeholder="t('กรอกยี่ห้อ เช่น Toyota, Honda')"
               required
               autofocus
             />
           </label>
 
           <label>
-            <span>Model</span>
-            <input v-model.trim="vehicleForm.model" type="text" placeholder="กรอกรุ่นรถ" required />
+            <span>{{ t('Model') }}</span>
+            <input v-model.trim="vehicleForm.model" type="text" :placeholder="t('กรอกรุ่นรถ')" required />
           </label>
 
           <label>
-            <span>Color</span>
+            <span>{{ t('Color') }}</span>
             <input
               v-model.trim="vehicleForm.color"
               type="text"
-              placeholder="e.g. White, Black, Silver"
+              :placeholder="t('e.g. White, Black, Silver')"
               required
             />
           </label>
 
           <label>
-            <span>License Plate</span>
+            <span>{{ t('License Plate') }}</span>
             <input
               v-model.trim="vehicleForm.licenseNumber"
               type="text"
-              placeholder="e.g. 3กข 1234"
+              :placeholder="t('e.g. 3กข 1234')"
               required
             />
           </label>
 
           <label>
-            <span>Province</span>
+            <span>{{ t('Province') }}</span>
             <select v-model="vehicleForm.province" required>
-              <option disabled value="">Select Province</option>
+              <option disabled value="">{{ t('Select Province') }}</option>
               <option v-if="hasCustomProvince" :value="vehicleForm.province">
                 {{ vehicleForm.province }}
               </option>
@@ -214,10 +214,10 @@
           </label>
         </fieldset>
 
-        <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+        <p v-if="formError" class="form-error" role="alert">{{ t(formError) }}</p>
 
         <button class="save-button" type="submit" :disabled="isSaving">
-          {{ isSaving ? 'Saving...' : 'Confirm' }}
+          {{ isSaving ? t('Saving...') : t('Confirm') }}
         </button>
       </form>
     </dialog>
@@ -232,11 +232,11 @@
     >
       <div class="confirmation-content">
         <span class="confirmation-icon" aria-hidden="true">?</span>
-        <h2 id="vehicle-confirmation-title">Are you sure you want to add<br />this vehicle?</h2>
-        <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+        <h2 id="vehicle-confirmation-title">{{ t('Are you sure you want to add') }}<br />{{ t('this vehicle?') }}</h2>
+        <p v-if="formError" class="form-error" role="alert">{{ t(formError) }}</p>
         <div class="confirmation-actions">
           <button class="confirmation-yes" type="button" :disabled="isSaving" @click="saveVehicle">
-            {{ isSaving ? 'Saving...' : 'YES' }}
+            {{ isSaving ? t('Saving...') : t('YES') }}
           </button>
           <button
             class="confirmation-cancel"
@@ -244,7 +244,7 @@
             :disabled="isSaving"
             @click="cancelConfirmation"
           >
-            CANCEL
+            {{ t('CANCEL') }}
           </button>
         </div>
       </div>
@@ -261,11 +261,11 @@
     >
       <div class="confirmation-content">
         <span class="confirmation-icon" aria-hidden="true">?</span>
-        <h2 id="vehicle-delete-title">Are you sure you want to delete<br />this vehicle?</h2>
+        <h2 id="vehicle-delete-title">{{ t('Are you sure you want to delete') }}<br />{{ t('this vehicle?') }}</h2>
         <p id="vehicle-delete-details" class="confirmation-vehicle">
           {{ vehicleToDelete?.licenseNumber }} {{ vehicleToDelete?.province }}
         </p>
-        <p v-if="deleteError" class="form-error" role="alert">{{ deleteError }}</p>
+        <p v-if="deleteError" class="form-error" role="alert">{{ t(deleteError) }}</p>
         <div class="confirmation-actions">
           <button
             class="confirmation-yes"
@@ -273,7 +273,7 @@
             :disabled="isDeleting"
             @click="deleteVehicle"
           >
-            {{ isDeleting ? 'Deleting...' : 'YES' }}
+            {{ isDeleting ? t('Deleting...') : t('YES') }}
           </button>
           <button
             class="confirmation-cancel"
@@ -282,7 +282,7 @@
             autofocus
             @click="closeDeleteConfirmation"
           >
-            CANCEL
+            {{ t('CANCEL') }}
           </button>
         </div>
       </div>
@@ -291,6 +291,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bike, CarFront, PencilLine, Plus, Trash2, X } from 'lucide-vue-next'

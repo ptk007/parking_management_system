@@ -2,31 +2,32 @@
   <article class="parking-log-card">
     <CarFront :size="36" class="log-icon" />
     <div class="log-column">
-      <p v-if="!hideBuilding">Building <span>:</span> {{ log.building || '-' }}</p>
-      <p v-if="!hideFloor">Floor <span>:</span> {{ log.floor ?? '-' }}</p>
-      <p v-if="!hideName">Name <span>:</span> {{ log.name || '-' }}</p>
-      <p>Brand <span>:</span> {{ log.brand || '-' }}</p>
-      <p>Model <span>:</span> {{ log.model || '-' }}</p>
-      <p>Color <span>:</span> {{ log.color || '-' }}</p>
-      <p>License Plate <span>:</span> {{ log.licenseNumber || '-' }}</p>
-      <p v-if="!hideProvince">Province <span>:</span> {{ log.province || '-' }}</p>
+      <p v-if="!hideBuilding">{{ t('Building') }} <span>:</span> {{ log.building || '-' }}</p>
+      <p v-if="!hideFloor">{{ t('Floor') }} <span>:</span> {{ log.floor ?? '-' }}</p>
+      <p v-if="!hideName">{{ t('Name') }} <span>:</span> {{ log.name || '-' }}</p>
+      <p>{{ t('Brand') }} <span>:</span> {{ log.brand || '-' }}</p>
+      <p>{{ t('Model') }} <span>:</span> {{ log.model || '-' }}</p>
+      <p>{{ t('Color') }} <span>:</span> {{ log.color || '-' }}</p>
+      <p>{{ t('License Plate') }} <span>:</span> {{ log.licenseNumber || '-' }}</p>
+      <p v-if="!hideProvince">{{ t('Province') }} <span>:</span> {{ log.province || '-' }}</p>
     </div>
     <div class="log-column">
-      <p>Date Enter <span>:</span> {{ log.date || '-' }}</p>
-      <p>Parking Time <span>:</span> {{ log.parkingTime || '-' }}</p>
-      <p>Date Exited <span>:</span> {{ log.exitDate || '-' }}</p>
-      <p>Exited Time <span>:</span> {{ log.exitTime || '-' }}</p>
-      <p>Parking Slot Number <span>:</span> {{ log.parkingSlot || '-' }}</p>
+      <p>{{ t('Date Enter') }} <span>:</span> {{ log.date || '-' }}</p>
+      <p>{{ t('Parking Time') }} <span>:</span> {{ log.parkingTime || '-' }}</p>
+      <p>{{ t('Date Exited') }} <span>:</span> {{ log.exitDate || '-' }}</p>
+      <p>{{ t('Exited Time') }} <span>:</span> {{ log.exitTime || '-' }}</p>
+      <p>{{ t('Parking Slot Number') }} <span>:</span> {{ log.parkingSlot || '-' }}</p>
       <p>
-        Parking Status <span>:</span>
-        <strong :class="log.status.toLowerCase().replace(/ /g, '-')"
-          >{{ log.status }}<template v-if="log.slotDisabled"> (Slot Disable)</template></strong
-        >
+        {{ t('Parking Status') }} <span>:</span>
+        <strong :class="log.status.toLowerCase().replace(/ /g, '-')">
+          {{ t(log.status) }}{{ log.slotDisabled ? ' ' + t('(Slot Disable)') : '' }}
+        </strong>
       </p>
     </div>
   </article>
 </template>
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { CarFront } from 'lucide-vue-next'
 export interface ParkingLogDisplay {
   id: string | number

@@ -1,15 +1,16 @@
 <template>
   <div class="login-screen" :class="{ 'login-screen--register': isRegistering }" :style="loginScreenStyle">
+    <LanguagePicker class="login-language-picker" />
     <div class="login-content" :class="{ 'login-content--form': selectedRole }">
       <div class="app-badge" aria-hidden="true">
         <img class="badge-crest" :src="mfuLogo" alt="" />
       </div>
 
-      <h1>MFU Parking Management</h1>
+      <h1>{{ t('MFU Parking Management') }}</h1>
 
       <template v-if="!selectedRole">
-        <h2 v-if="isRegistering" class="registration-heading">Choose an account type to register</h2>
-        <div class="role-options" role="group" aria-label="Choose account type">
+        <h2 v-if="isRegistering" class="registration-heading">{{ t('Choose an account type to register') }}</h2>
+        <div class="role-options" role="group" :aria-label="t('Choose account type')">
           <button
             v-for="role in availableRoles"
             :key="role"
@@ -23,39 +24,39 @@
               aria-hidden="true"
               :stroke-width="2.6"
             />
-            <span>{{ roleConfigs[role].label }}</span>
-            <small>{{ roleConfigs[role].description }}</small>
+            <span>{{ t(roleConfigs[role].label) }}</span>
+            <small>{{ t(roleConfigs[role].description) }}</small>
           </button>
         </div>
 
         <button v-if="isRegistering" type="button" class="account-link" @click="isRegistering = false">
-          Back to Login
+          {{ t('Back to Login') }}
         </button>
         <div v-else class="login-actions">
-          <button type="button" class="account-link" @click="startRegistration">Register</button>
-          <button type="button" class="account-link" @click="enterGuestDashboard">Guest User</button>
+          <button type="button" class="account-link" @click="startRegistration">{{ t('Register') }}</button>
+          <button type="button" class="account-link" @click="enterGuestDashboard">{{ t('Guest User') }}</button>
         </div>
       </template>
 
       <form v-else class="login-form" @input="error = ''" @submit.prevent="handleSubmit">
         <button type="button" class="back-role" :disabled="isLoading" @click="clearRole">
           <ArrowLeft class="back-icon" :stroke-width="2.4" />
-          <span>&#x0E22;&#x0E49;&#x0E2D;&#x0E19;&#x0E01;&#x0E25;&#x0E31;&#x0E1A;</span>
+          <span>{{ t('ย้อนกลับ') }}</span>
         </button>
 
         <h2 class="form-heading">
-          {{ roleConfigs[selectedRole].label }} {{ isRegistering ? 'Registration' : 'Login' }}
+          {{ t([isRegistering ? '{role} Registration' : '{role} Login', { role: t(roleConfigs[selectedRole].label) }]) }}
         </h2>
-        <p v-if="registered" class="login-success" role="status">Account created. Please log in.</p>
+        <p v-if="registered" class="login-success" role="status">{{ t('Account created. Please log in.') }}</p>
 
         <div v-if="isRegistering" class="field">
-          <label for="full-name" class="sr-only">Full name</label>
+          <label for="full-name" class="sr-only">{{ t('Full name') }}</label>
           <input
             id="full-name"
             v-model="form.name"
             name="name"
             autocomplete="name"
-            placeholder="Full name"
+            :placeholder="t('Full name')"
             class="login-input"
             :readonly="isLoading"
             required
@@ -63,14 +64,14 @@
         </div>
 
         <div class="field">
-          <label for="username" class="sr-only">Username</label>
+          <label for="username" class="sr-only">{{ t('Username') }}</label>
           <input
             id="username"
             v-model="form.username"
             type="text"
             name="username"
             autocomplete="username"
-            placeholder="Username"
+            :placeholder="t('Username')"
             class="login-input"
             :readonly="isLoading"
             required
@@ -78,7 +79,7 @@
         </div>
 
         <div class="field">
-          <label for="password" class="sr-only">Password</label>
+          <label for="password" class="sr-only">{{ t('Password') }}</label>
           <input
             id="password"
             v-model="form.password"
@@ -86,7 +87,7 @@
             name="password"
             :autocomplete="isRegistering ? 'new-password' : 'current-password'"
             :minlength="isRegistering ? 8 : undefined"
-            :placeholder="isRegistering ? 'Password (at least 8 characters)' : 'Password'"
+            :placeholder="isRegistering ? t('Password (at least 8 characters)') : t('Password')"
             class="login-input"
             :readonly="isLoading"
             required
@@ -94,14 +95,14 @@
         </div>
 
         <div v-if="isRegistering" class="field">
-          <label for="confirm-password" class="sr-only">Confirm password</label>
+          <label for="confirm-password" class="sr-only">{{ t('Confirm password') }}</label>
           <input
             id="confirm-password"
             v-model="form.confirmPassword"
             type="password"
             name="confirmPassword"
             autocomplete="new-password"
-            placeholder="Confirm password"
+            :placeholder="t('Confirm password')"
             class="login-input"
             :readonly="isLoading"
             required
@@ -109,11 +110,11 @@
         </div>
 
         <div v-if="error" class="login-error" role="alert">
-          {{ error }}
+          {{ t(error) }}
         </div>
 
         <button type="submit" :disabled="isLoading" class="login-button">
-          {{ submitLabel }}
+          {{ t(submitLabel) }}
         </button>
       </form>
       <button
@@ -123,19 +124,21 @@
         :disabled="isLoading"
         @click="startRegistration"
       >
-        Register
+        {{ t('Register') }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t, type LocalizedText } from '@/i18n'
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { ArrowLeft, GraduationCap, UserRound, Users } from 'lucide-vue-next'
 import { authService } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import LanguagePicker from '@/components/layout/LanguagePicker.vue'
 import type { RegistrationAccountType, UserRole } from '@/types'
 import loginBackground from '@/assets/mba-mfu.jpg'
 import mfuLogo from '@/assets/mae-fah-luang-university.png'
@@ -156,7 +159,7 @@ const selectedRole = ref<LoginRole | null>(null)
 const isRegistering = ref(false)
 const registered = ref(false)
 const isLoading = ref(false)
-const error = ref('')
+const error = ref<LocalizedText>('')
 
 const loginScreenStyle = {
   '--login-bg-image': `url(${loginBackground})`,
@@ -168,19 +171,19 @@ const roleConfigs: Record<
 > = {
   public: {
     label: 'Public User',
-    description: 'บุคคลทั่วไป',
+    description: 'For general users',
     icon: Users,
     apiRoles: ['public'],
   },
   student: {
     label: 'Student',
-    description: 'นักศึกษา',
+    description: 'For MFU students',
     icon: GraduationCap,
     apiRoles: ['user'],
   },
   staff: {
     label: 'Staff/Admin',
-    description: 'เจ้าหน้าที่ / ผู้ดูแลระบบ',
+    description: 'For parking staff and administrators',
     icon: UserRound,
     apiRoles: ['staff', 'admin'],
   },
@@ -274,7 +277,7 @@ const handleSubmit = async () => {
     const config = roleConfigs[role]
     if (!authStore.user || !config.apiRoles.includes(authStore.user.role)) {
       await authStore.logout()
-      error.value = `This account is not allowed for ${config.label}`
+      error.value = ['This account is not allowed for {role}', { role: config.label }]
       return
     }
 
@@ -286,6 +289,13 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped>
+.login-language-picker {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+}
+
 .login-screen {
   position: relative;
   min-height: 100vh;

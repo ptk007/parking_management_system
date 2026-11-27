@@ -6,10 +6,11 @@
   >
     <header v-if="!readonly" class="editor-intro">
       <div>
-        <strong>Layout editor</strong>
+        <strong>{{ t('Layout editor') }}</strong>
         <p>
-          Draw a parking slot, then drag it into place. Drag an empty area or Shift-click to select
-          multiple elements.
+          {{
+            t('Draw a parking slot, then drag it into place. Drag an empty area or Shift-click to select multiple elements.')
+          }}
         </p>
       </div>
       <div class="save-controls">
@@ -17,120 +18,120 @@
           ><input
             type="checkbox"
             role="switch"
-            aria-label="Autosave this floor"
+            :aria-label="t('Autosave this floor')"
             :checked="autosave"
             @change="emit('autosave', ($event.target as HTMLInputElement).checked)"
           />
-          Autosave</label
+          {{ t('Autosave') }}</label
         >
         <button class="primary" :disabled="saving" @click="emit('save')">
-          <Save :size="15" />{{ saving ? 'Saving...' : 'Save Now' }}
+          <Save :size="15" />{{ t(saving ? 'Saving...' : 'Save Now') }}
         </button>
         <span :class="{ failed: saveFailed }" role="status">{{ saveMessage }}</span>
       </div>
     </header>
     <div class="editor-toolbar">
-      <div v-if="!readonly" class="tools" aria-label="Layout drawing tools">
+      <div v-if="!readonly" class="tools" :aria-label="t('Layout drawing tools')">
         <button
           v-for="item in tools"
           :key="item.id"
-          :aria-label="item.label"
+          :aria-label="t(item.label)"
           :aria-pressed="tool === item.id"
           :class="{ active: tool === item.id }"
-          :title="item.hint"
+          :title="t(item.hint)"
           @click="tool = item.id"
         >
-          <component :is="item.icon" :size="17" />{{ item.label }}
+          <component :is="item.icon" :size="17" />{{ t(item.label) }}
         </button>
       </div>
       <div v-if="!readonly" class="history">
         <button
-          aria-label="Undo layout change"
-          title="Undo (Ctrl+Z)"
+          :aria-label="t('Undo layout change')"
+          :title="t('Undo (Ctrl+Z)')"
           :disabled="!past.length"
           @click="undo"
         >
           <Undo2 :size="17" />
         </button>
         <button
-          aria-label="Redo layout change"
-          title="Redo (Ctrl+Shift+Z)"
+          :aria-label="t('Redo layout change')"
+          :title="t('Redo (Ctrl+Shift+Z)')"
           :disabled="!future.length"
           @click="redo"
         >
           <Redo2 :size="17" />
         </button>
         <button
-          aria-label="Duplicate selection"
-          title="Duplicate (Ctrl+D)"
+          :aria-label="t('Duplicate selection')"
+          :title="t('Duplicate (Ctrl+D)')"
           :disabled="!selection.size"
           @click="duplicate"
         >
           <Copy :size="17" />
         </button>
         <button
-          aria-label="Delete selection"
-          title="Delete selected elements"
+          :aria-label="t('Delete selection')"
+          :title="t('Delete selected elements')"
           :disabled="!selection.size"
           @click="deleteSelection"
         >
           <Trash2 :size="17" />
         </button>
-        <label><input type="checkbox" v-model="snap" />Snap to grid</label>
+        <label><input type="checkbox" v-model="snap" />{{ t('Snap to grid') }}</label>
       </div>
       <div class="zoom-tools">
-        <button aria-label="Zoom out" :disabled="readonly" @click="setZoom(zoom - 25)">
+        <button :aria-label="t('Zoom out')" :disabled="readonly" @click="setZoom(zoom - 25)">
           <Minus :size="16" />
         </button>
         <button
           :disabled="readonly"
-          :aria-label="fitToViewport ? 'Fit map to screen' : 'Fit map to width'"
-          :title="fitToViewport ? 'Fit entire map' : 'Fit map to width'"
+          :aria-label="t(fitToViewport ? 'Fit map to screen' : 'Fit map to width')"
+          :title="t(fitToViewport ? 'Fit entire map' : 'Fit map to width')"
           @click="resetZoom"
         >
           {{ zoom }}%
         </button>
-        <button aria-label="Zoom in" :disabled="readonly" @click="setZoom(zoom + 25)">
+        <button :aria-label="t('Zoom in')" :disabled="readonly" @click="setZoom(zoom + 25)">
           <Plus :size="16" />
         </button>
       </div>
     </div>
     <div v-if="!readonly" class="editor-help">
-      <MousePointer2 :size="15" /><span>{{ toolHint }}</span
-      ><kbd>Ctrl+C/X/V | Ctrl+Z/Y | Shift+wheel Pan | Ctrl+wheel Zoom</kbd>
+      <MousePointer2 :size="15" /><span>{{ t(toolHint) }}</span
+      ><kbd>{{ t('Ctrl+C/X/V | Ctrl+Z/Y | Shift+wheel Pan | Ctrl+wheel Zoom') }}</kbd>
     </div>
-    <div v-if="!readonly" class="properties" aria-label="Selected element properties">
+    <div v-if="!readonly" class="properties" :aria-label="t('Selected element properties')">
       <template v-if="singleBox">
-        <strong>{{ selectedSlot ? slotDisplayName(selectedSlot) : 'Selected element' }}</strong>
+        <strong>{{ selectedSlot ? slotDisplayName(selectedSlot) : t('Selected element') }}</strong>
         <label v-for="field in fields" :key="field"
-          >{{ field
+          >{{ t(field)
           }}<input
             type="number"
-            :aria-label="`Element ${field}`"
+            :aria-label="t(['Element {field}', { field: t(field) }])"
             :value="Math.round(singleBox[field])"
             @change="editGeometry(field, $event)"
         /></label>
         <label v-if="selectedShape?.type === 'text'"
-          >Text<input
-            aria-label="Shape text"
+          >{{ t('Text') }}<input
+            :aria-label="t('Shape text')"
             :value="selectedShape.text"
             maxlength="100"
             @change="patchShape({ text: ($event.target as HTMLInputElement).value })"
         /></label>
         <label v-if="selectedShape"
-          >Color<input
+          >{{ t('Color') }}<input
             type="color"
-            aria-label="Shape color"
+            :aria-label="t('Shape color')"
             :value="selectedShape.color"
             @change="patchShape({ color: ($event.target as HTMLInputElement).value })"
         /></label>
       </template>
-      <span v-else>Select an element to change its size and position.</span>
+      <span v-else>{{ t('Select an element to change its size and position.') }}</span>
     </div>
     <div v-if="!readonly" class="background-tools">
       <button @click="backgroundInput?.click()" :disabled="imageLoading">
         <ImagePlus :size="16" />{{
-          state.layout.background ? 'Change floor plan image' : 'Add floor plan image'
+          t(state.layout.background ? 'Change floor plan image' : 'Add floor plan image')
         }}
       </button>
       <span v-if="state.layout.background">{{ state.layout.background.name }}</span>
@@ -138,18 +139,18 @@
         v-if="state.layout.background"
         @click="commit({ ...state, layout: { ...state.layout, background: null } })"
       >
-        Remove image
+        {{ t('Remove image') }}
       </button>
       <input
         ref="backgroundInput"
         type="file"
         accept="image/png,image/jpeg,image/webp"
         class="hidden"
-        aria-label="Upload floor plan image"
+        :aria-label="t('Upload floor plan image')"
         @change="uploadBackground"
       />
     </div>
-    <p v-if="error" role="alert" class="editor-error">{{ error }}</p>
+    <p v-if="error" role="alert" class="editor-error">{{ t(error) }}</p>
     <div
       ref="scrollArea"
       class="canvas-scroll"
@@ -163,7 +164,7 @@
         :viewBox="canvasViewBox"
         preserveAspectRatio="xMidYMid meet"
         role="group"
-        :aria-label="readonly ? 'Parking Preview' : 'Editable parking floor plan'"
+        :aria-label="t(readonly ? 'Parking Preview' : 'Editable parking floor plan')"
         tabindex="0"
         @pointerdown="beginCanvas"
         @pointermove="movePointer"
@@ -241,12 +242,15 @@
           :opacity="visibleKeys && !visibleKeys.has(slotKey(slot)) ? 0.18 : 1"
           role="button"
           tabindex="0"
-          :aria-label="`Slot ${slotDisplayName(slot)}, ${statusLabels[slot.status]}`"
+          :aria-label="t([
+            'Slot {name}, {status}',
+            { name: slotDisplayName(slot), status: t(statusLabels[slot.status]) },
+          ])"
           :aria-pressed="selection.has(slotKey(slot))"
           @pointerdown.stop="beginElement($event, slotKey(slot))"
           @keydown.enter.prevent="selectSlot(slot, $event)"
         >
-          <title>{{ slotDisplayName(slot) }} / {{ statusLabels[slot.status] }}</title>
+          <title>{{ slotDisplayName(slot) }} / {{ t(statusLabels[slot.status]) }}</title>
           <rect
             :width="slotBox(slot).width"
             :height="slotBox(slot).height"
@@ -283,11 +287,11 @@
             :x="slotBox(slot).width / 2"
             :y="slotBox(slot).height / 2 + 13"
             text-anchor="middle"
-            :font-size="Math.min(9, Math.max(6, (slotBox(slot).width / (slotConnectionStatus(slot).length + 1)) * 1.6))"
+            :font-size="Math.min(9, Math.max(6, (slotBox(slot).width / (t(slotConnectionStatus(slot)).length + 1)) * 1.6))"
             fill="var(--slot-stroke)"
             pointer-events="none"
           >
-            ({{ slotConnectionStatus(slot) }})
+            ({{ t(slotConnectionStatus(slot)) }})
           </text>
         </g>
         <rect
@@ -318,7 +322,7 @@
           fill="white"
           stroke="#000000"
           stroke-width="2"
-          aria-label="Resize selected element"
+          :aria-label="t('Resize selected element')"
           @pointerdown.stop="beginResize"
         />
         <text
@@ -331,22 +335,26 @@
           pointer-events="none"
         >
           {{
-            readonly
-              ? 'Your parking map is empty. Open Layout editor to get started.'
-              : 'Choose Parking slot, then drag to draw your first slot.'
+            t(
+              readonly
+                ? 'Your parking map is empty. Open Layout editor to get started.'
+                : 'Choose Parking slot, then drag to draw your first slot.',
+            )
           }}
         </text>
       </svg>
     </div>
     <footer class="canvas-caption">
       <span
-        >{{ state.slots.length }} slots<span v-if="!readonly">
-          / {{ selection.size }} selected</span
+        >{{ t(['{count} slots', { count: state.slots.length }]) }}<span v-if="!readonly">
+          / {{ t(['{count} selected', { count: selection.size }]) }}</span
         ></span
       ><span>{{
-        readonly
-          ? 'Same positions and sizes as Layout editor'
-          : 'Shift-click: multiple selection | Arrow keys: move | Shift+Arrow: move 10px'
+        t(
+          readonly
+            ? 'Same positions and sizes as Layout editor'
+            : 'Shift-click: multiple selection | Arrow keys: move | Shift+Arrow: move 10px',
+        )
       }}</span>
     </footer>
   </div>
@@ -381,6 +389,7 @@ import {
   type ParkingMapState,
 } from './parkingLayout'
 import { slotConnectionStatus, statusLabels, type PreviewSlot } from './parkingMapPreview'
+import { t } from '@/i18n'
 const props = defineProps<{
   slots: PreviewSlot[]
   modelValue: ParkingLayout
@@ -431,7 +440,7 @@ const tool = ref<Tool>('select'),
 const toolHint = computed(() =>
   tool.value === 'slot'
     ? 'Drag to draw a parking slot. Its number is generated automatically; new slots start Disabled.'
-    : tools.find((item) => item.id === tool.value)?.hint,
+    : tools.find((item) => item.id === tool.value)?.hint ?? '',
 )
 const state = ref<ParkingMapState>({ slots: props.slots, layout: props.modelValue })
 const past = ref<ParkingMapState[]>([]),

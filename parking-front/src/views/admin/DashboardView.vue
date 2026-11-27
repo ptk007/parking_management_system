@@ -11,35 +11,35 @@
             <div class="staff-heading">
               <span class="staff-heading-icon"><Users :size="24" /></span>
               <div>
-                <h2>Staff Manager</h2>
-                <p>Manage your parking support team.</p>
+                <h2>{{ t('Staff Manager') }}</h2>
+                <p>{{ t('Manage your parking support team.') }}</p>
               </div>
             </div>
             <button class="green-button add-staff-button" type="button" @click="openAddStaff">
-              <UserPlus :size="18" /> Add Staff
+              <UserPlus :size="18" /> {{ t('Add Staff') }}
             </button>
           </header>
           <div class="staff-list-toolbar">
             <h3>
-              Staff List <span class="staff-count">{{ adminStore.staffList.length }}</span>
+              {{ t('Staff List') }} <span class="staff-count">{{ adminStore.staffList.length }}</span>
             </h3>
-            <p>Staff profiles can be edited while disabled.</p>
+            <p>{{ t('Staff profiles can be edited while disabled.') }}</p>
           </div>
           <p v-if="staffError" class="staff-api-message error" role="alert">
-            {{ staffError }}
-            <button type="button" @click="loadStaff">Retry</button>
+            {{ t(staffError) }}
+            <button type="button" @click="loadStaff">{{ t('Retry') }}</button>
           </p>
-          <p v-if="staffLoading" class="staff-api-message" role="status">Loading staff accounts...</p>
+          <p v-if="staffLoading" class="staff-api-message" role="status">{{ t('Loading staff accounts...') }}</p>
           <div
             v-if="!staffLoading && !staffError && !adminStore.staffList.length"
             class="staff-empty"
             role="status"
           >
             <span class="staff-empty-icon"><Users :size="34" :stroke-width="1.6" /></span>
-            <h3>No staff yet</h3>
-            <p>Add your team members to help manage parking and support users.</p>
+            <h3>{{ t('No staff yet') }}</h3>
+            <p>{{ t('Add your team members to help manage parking and support users.') }}</p>
             <button class="green-button add-staff-button" type="button" @click="openAddStaff">
-              <UserPlus :size="18" /> Add your first staff
+              <UserPlus :size="18" /> {{ t('Add your first staff') }}
             </button>
           </div>
           <article
@@ -51,39 +51,39 @@
               <img
                 v-if="staff.userImage"
                 :src="userService.imageUrl(staff.userImage)"
-                :alt="`${staff.staffName} profile`"
+                :alt="t(['{name} profile', { name: staff.staffName }])"
               />
               <UserRound v-else class="h-14 w-14" :stroke-width="1.8" />
             </div>
             <div class="staff-copy">
-              <p>Staff Name : {{ staff.staffName }}</p>
-              <p>Username : {{ staff.username }}</p>
-              <p>Password : Protected</p>
-              <p>Date Updated : {{ staff.dateUpdated }}</p>
-              <p>Time Updated : {{ staff.timeUpdated }}</p>
+              <p>{{ t('Staff Name :') }} {{ staff.staffName }}</p>
+              <p>{{ t('Username :') }} {{ staff.username }}</p>
+              <p>{{ t('Password : Protected') }}</p>
+              <p>{{ t('Date Updated :') }} {{ staff.dateUpdated }}</p>
+              <p>{{ t('Time Updated :') }} {{ staff.timeUpdated }}</p>
               <p>
-                Status : <strong :class="statusClass(staff.status)">{{ staff.status }}</strong>
+                {{ t('Status :') }} <strong :class="statusClass(staff.status)">{{ t(staff.status) }}</strong>
               </p>
             </div>
             <div class="row-actions">
               <ToggleSwitch
                 :checked="staff.status !== 'Disable'"
                 :disabled="staffBusyId === staff._id"
-                :label="`Enable or disable ${staff.staffName}`"
+                :label="t(['Enable or disable {name}', { name: staff.staffName }])"
                 @toggle="setStaffStatus(staff, staff.status === 'Disable' ? 'Offline' : 'Disable')"
               />
               <button
                 type="button"
-                aria-label="Edit staff"
+                :aria-label="t('Edit staff')"
                 :disabled="!canEditStaff(staff)"
-                :title="canEditStaff(staff) ? 'Edit staff' : 'Staff can only be edited while disabled'"
+                :title="canEditStaff(staff) ? t('Edit staff') : t('Staff can only be edited while disabled')"
                 @click="openEditStaff(staff)"
               >
                 <SquarePen class="h-6 w-6" :stroke-width="2.4" />
               </button>
               <button
                 type="button"
-                aria-label="Delete staff"
+                :aria-label="t('Delete staff')"
                 :disabled="staffBusyId === staff._id"
                 @click="deleteStaff(staff)"
               >
@@ -98,7 +98,7 @@
           :mode="staffMode"
           :forms="staffForms"
           :saving="staffSaving"
-          :error="staffFormError"
+          :error="t(staffFormError)"
           @save="saveStaff"
           @cancel="staffMode = 'list'"
           @add-more="addStaffForm"
@@ -190,18 +190,17 @@
             aria-modal="true"
             aria-labelledby="floor-delete-title"
           >
-            <h2 id="floor-delete-title">Delete Floor {{ floorToDelete.floor }}?</h2>
+            <h2 id="floor-delete-title">{{ t('Delete Floor') }} {{ floorToDelete.floor }}?</h2>
             <p>
               {{ floorToDelete.building?.building_name }} /
-              {{ floorToDelete.veh_type === 'car' ? 'Cars' : 'Motorcycles' }}: this floor and its
-              parking map file will be deleted.
+              {{ floorToDelete.veh_type === 'car' ? t('Cars') : t('Motorcycles') }}{{ t(': this floor and its parking map file will be deleted.') }}
             </p>
             <p v-if="deleteFloorError" class="building-delete-error" role="alert">
-              {{ deleteFloorError }}
+              {{ t(deleteFloorError) }}
             </p>
             <div class="building-delete-actions">
               <button type="button" :disabled="isDeletingFloor" @click="floorToDelete = null">
-                Cancel
+                {{ t('Cancel') }}
               </button>
               <button
                 type="button"
@@ -209,7 +208,7 @@
                 :disabled="isDeletingFloor"
                 @click="deleteFloor"
               >
-                {{ isDeletingFloor ? 'Deleting...' : 'Delete' }}
+                {{ isDeletingFloor ? t('Deleting...') : t('Delete') }}
               </button>
             </div>
           </div>
@@ -226,14 +225,14 @@
             aria-modal="true"
             aria-labelledby="building-delete-title"
           >
-            <h2 id="building-delete-title">Delete {{ buildingToDelete.building_name }}?</h2>
-            <p>The building, its floors, parking map files and image will be deleted.</p>
+            <h2 id="building-delete-title">{{ t('Delete') }} {{ buildingToDelete.building_name }}?</h2>
+            <p>{{ t('The building, its floors, parking map files and image will be deleted.') }}</p>
             <p v-if="deleteBuildingError" class="building-delete-error" role="alert">
-              {{ deleteBuildingError }}
+              {{ t(deleteBuildingError) }}
             </p>
             <div class="building-delete-actions">
               <button type="button" :disabled="isDeletingBuilding" @click="buildingToDelete = null">
-                Cancel
+                {{ t('Cancel') }}
               </button>
               <button
                 type="button"
@@ -241,7 +240,7 @@
                 :disabled="isDeletingBuilding"
                 @click="deleteBuilding"
               >
-                {{ isDeletingBuilding ? 'Deleting...' : 'Delete' }}
+                {{ isDeletingBuilding ? t('Deleting...') : t('Delete') }}
               </button>
             </div>
           </div>
@@ -252,6 +251,7 @@
 </template>
 
 <script setup lang="ts">
+import { t, type LocalizedText } from '@/i18n'
 import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import {
   ArrowLeft,
@@ -348,7 +348,7 @@ const editingStaffId = ref<string | null>(null)
 const staffLoading = ref(false)
 const staffSaving = ref(false)
 const staffError = ref('')
-const staffFormError = ref('')
+const staffFormError = ref<LocalizedText>('')
 const staffBusyId = ref('')
 
 const createStaffForm = (staff?: StaffMember): StaffFormState => ({
@@ -616,15 +616,15 @@ async function saveStaff() {
   const forms = staffForms.value
   for (const [index, form] of forms.entries()) {
     if (!form.staffName.trim() || !form.username.trim()) {
-      staffFormError.value = `Enter a name and username for staff form ${index + 1}.`
+      staffFormError.value = ['Enter a name and username for staff form {number}.', { number: index + 1 }]
       return
     }
     if (staffMode.value === 'add' && !form.password) {
-      staffFormError.value = `Enter a password for staff form ${index + 1}.`
+      staffFormError.value = ['Enter a password for staff form {number}.', { number: index + 1 }]
       return
     }
     if (form.password && form.password !== form.confirmPassword) {
-      staffFormError.value = `Passwords do not match for staff form ${index + 1}.`
+      staffFormError.value = ['Passwords do not match for staff form {number}.', { number: index + 1 }]
       return
     }
   }
@@ -725,7 +725,7 @@ const StaffFormPanel = defineComponent({
       if (form.existingUserImage) {
         return h('img', {
           src: userService.imageUrl(form.existingUserImage),
-          alt: `${form.staffName || 'Staff'} profile`,
+          alt: t(['{name} profile', { name: form.staffName || t('Staff') }]),
         })
       }
       return h(UserRound, { class: 'h-20 w-20', strokeWidth: 1.6 })
@@ -736,7 +736,7 @@ const StaffFormPanel = defineComponent({
         h('div', { class: 'staff-form-profile' }, [
           h('div', { class: 'profile-icon large' }, [renderProfileImage(form)]),
           h('label', { class: 'staff-image-field' }, [
-            h('span', 'Profile Image'),
+            h('span', t('Profile Image')),
             h('input', {
               type: 'file',
               accept: 'image/jpeg,image/png,image/webp',
@@ -744,12 +744,12 @@ const StaffFormPanel = defineComponent({
                 form.userImageFile = (event.target as HTMLInputElement).files?.[0] || null
               },
             }),
-            h('small', 'JPG, PNG, or WebP. Maximum 5 MB.'),
+            h('small', t('JPG, PNG, or WebP. Maximum 5 MB.')),
           ]),
         ]),
         h('div', { class: 'staff-form-fields' }, [
           h('label', [
-            h('span', 'Staff Name :'),
+            h('span', t('Staff Name :')),
             h('input', {
               value: form.staffName,
               onInput: (event: Event) => {
@@ -758,7 +758,7 @@ const StaffFormPanel = defineComponent({
             }),
           ]),
           h('label', [
-            h('span', 'Username :'),
+            h('span', t('Username :')),
             h('input', {
               value: form.username,
               onInput: (event: Event) => {
@@ -767,10 +767,10 @@ const StaffFormPanel = defineComponent({
             }),
           ]),
           h('label', [
-            h('span', 'Password :'),
+            h('span', t('Password :')),
             h('input', {
               type: isFormPasswordVisible(index) ? 'text' : 'password',
-              placeholder: props.mode === 'edit' ? 'Leave blank to keep current password' : '',
+              placeholder: props.mode === 'edit' ? t('Leave blank to keep current password') : '',
               value: form.password,
               onInput: (event: Event) => {
                 form.password = (event.target as HTMLInputElement).value
@@ -781,8 +781,8 @@ const StaffFormPanel = defineComponent({
               {
                 class: 'field-icon-button',
                 type: 'button',
-                'aria-label': isFormPasswordVisible(index) ? 'Hide password' : 'Show password',
-                title: isFormPasswordVisible(index) ? 'Hide password' : 'Show password',
+                'aria-label': t(isFormPasswordVisible(index) ? 'Hide password' : 'Show password'),
+                title: t(isFormPasswordVisible(index) ? 'Hide password' : 'Show password'),
                 onClick: () => toggleFormPasswordVisibility(index),
               },
               [
@@ -794,7 +794,7 @@ const StaffFormPanel = defineComponent({
             ),
           ]),
           h('label', [
-            h('span', 'Confirm Password :'),
+            h('span', t('Confirm Password :')),
             h('input', {
               type: 'password',
               value: form.confirmPassword,
@@ -813,19 +813,19 @@ const StaffFormPanel = defineComponent({
           {
             class: 'form-back-button',
             type: 'button',
-            'aria-label': 'Back to Staff List',
+            'aria-label': t('Back to Staff List'),
             onClick: () => emit('cancel'),
           },
           [h(ArrowLeft, { class: 'h-5 w-5', strokeWidth: 2.4 })],
         ),
-        h('h2', props.mode === 'add' ? 'Add Staff' : 'Edit Staff'),
+        h('h2', t(props.mode === 'add' ? 'Add Staff' : 'Edit Staff')),
         props.error ? h('p', { class: 'staff-form-error', role: 'alert' }, props.error) : null,
         props.forms.map(renderStaffCard),
         props.mode === 'add'
           ? h(
               'button',
               { class: 'add-more-row', type: 'button', onClick: () => emit('add-more') },
-              '+ Add More Staff',
+              t('+ Add More Staff'),
             )
           : null,
         h('div', { class: 'form-actions' }, [
@@ -837,7 +837,7 @@ const StaffFormPanel = defineComponent({
               disabled: props.saving,
               onClick: () => emit('save'),
             },
-            props.saving ? 'Saving...' : props.mode === 'add' ? 'Add' : 'Edit',
+            t(props.saving ? 'Saving...' : props.mode === 'add' ? 'Add' : 'Edit'),
           ),
           h(
             'button',
@@ -847,7 +847,7 @@ const StaffFormPanel = defineComponent({
               disabled: props.saving,
               onClick: () => emit('cancel'),
             },
-            'Cancel',
+            t('Cancel'),
           ),
         ]),
       ])
@@ -918,8 +918,12 @@ const ParkingSetupList = defineComponent({
     }
     const hasCctv = (floor: ParkingFloor) => Boolean(floor.camera_presets?.length)
 
-    const renderFloorRow = (floor: ParkingFloor) =>
-      h('article', { class: 'floor-row', key: floor._id }, [
+    const renderFloorRow = (floor: ParkingFloor) => {
+      const details = {
+        floor: floor.floor,
+        vehicle: t(floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'),
+      }
+      return h('article', { class: 'floor-row', key: floor._id }, [
         h('div', { class: 'floor-icon' }, [
           floor.veh_type === 'motorcycle'
             ? h(Bike, { class: 'h-11 w-11', strokeWidth: 2.5 })
@@ -928,10 +932,10 @@ const ParkingSetupList = defineComponent({
         h('div', { class: 'setup-copy' }, [
           h(
             'p',
-            `Floor : ${floor.floor}      (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+            t(['Floor : {floor}      ({vehicle})', details]),
           ),
-          h('p', `Date Updated : ${floor.date_updated}`),
-          h('p', `Time Updated : ${floor.time_updated}`),
+          h('p', t(['Date Updated : {date}', { date: floor.date_updated }])),
+          h('p', t(['Time Updated : {time}', { time: floor.time_updated }])),
         ]),
         h(BuildingCameraSummary, {
           class: 'floor-camera-summary',
@@ -941,11 +945,11 @@ const ParkingSetupList = defineComponent({
           onRetry: () => emit('reload-cameras'),
         }),
         h('p', { class: 'floor-status' }, [
-          'Status : ',
+          t('Status :') + ' ',
           h(
             'strong',
             { class: floor.status === 'Available' ? 'available' : 'disable' },
-            floor.status === 'Available' ? 'Available' : 'Disable',
+            t(floor.status === 'Available' ? 'Available' : 'Disable'),
           ),
         ]),
         h('div', { class: 'floor-actions' }, [
@@ -953,18 +957,18 @@ const ParkingSetupList = defineComponent({
             RouterLink,
             {
               class: ['floor-parking-map', { 'has-map': hasParkingMap(floor) }],
-              title: hasParkingMap(floor) ? 'Parking map available' : 'No parking map yet',
+              title: t(hasParkingMap(floor) ? 'Parking map available' : 'No parking map yet'),
               to: { name: 'AdminParkingMap', params: { floorId: floor._id } },
-              'aria-label': `Parking Map for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              'aria-label': t(['Parking Map for floor {floor} ({vehicle})', details]),
             },
-            () => 'Parking Map',
+            () => t('Parking Map'),
           ),
           h(
             'button',
             {
               class: ['edit-floor-button', 'floor-cctv-button', { 'has-cctv': hasCctv(floor) }],
               type: 'button',
-              'aria-label': `CCTV for floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              'aria-label': t(['CCTV for floor {floor} ({vehicle})', details]),
               onClick: () => emit('view-cctv', floor),
             },
             [h(Video, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'CCTV'],
@@ -974,23 +978,24 @@ const ParkingSetupList = defineComponent({
             {
               class: 'edit-floor-button',
               type: 'button',
-              'aria-label': `Edit floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              'aria-label': t(['Edit floor {floor} ({vehicle})', details]),
               onClick: () => emit('edit-floor', floor),
             },
-            [h(SquarePen, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Edit Floor'],
+            [h(SquarePen, { class: 'h-5 w-5', 'aria-hidden': 'true' }), t('Edit Floor')],
           ),
           h(
             'button',
             {
               class: 'delete-building-button delete-floor-button',
               type: 'button',
-              'aria-label': `Delete floor ${floor.floor} (${floor.veh_type === 'car' ? 'Cars' : 'Motorcycle'})`,
+              'aria-label': t(['Delete floor {floor} ({vehicle})', details]),
               onClick: () => emit('delete-floor', floor),
             },
-            [h(Trash2, { class: 'h-5 w-5', 'aria-hidden': 'true' }), 'Delete'],
+            [h(Trash2, { class: 'h-5 w-5', 'aria-hidden': 'true' }), t('Delete')],
           ),
         ]),
       ])
+    }
 
     return () =>
       h('div', { class: 'parking-setup-list' }, [
@@ -998,23 +1003,23 @@ const ParkingSetupList = defineComponent({
           h(
             'button',
             { class: 'green-button', type: 'button', onClick: () => emit('add-building') },
-            '+ Add Building',
+            t('+ Add Building'),
           ),
           h(
             'button',
             { class: 'green-button', type: 'button', onClick: () => emit('add-floor') },
-            '+ Add Floor',
+            t('+ Add Floor'),
           ),
         ]),
-        props.isLoading ? h('p', 'Loading parking setup...') : null,
+        props.isLoading ? h('p', t('Loading parking setup...')) : null,
         props.error
           ? h('p', { class: 'building-list-error', role: 'alert' }, [
-              props.error,
-              h('button', { type: 'button', onClick: () => emit('reload-buildings') }, 'Retry'),
+              t(props.error),
+              h('button', { type: 'button', onClick: () => emit('reload-buildings') }, t('Retry')),
             ])
           : null,
         !props.isLoading && !props.error && !props.buildings.length
-          ? h('p', 'No buildings found. Add a building to get started.')
+          ? h('p', t('No buildings found. Add a building to get started.'))
           : null,
         ...props.buildings.flatMap((building) => {
           const buildingFloors = props.floors.filter(
@@ -1033,23 +1038,23 @@ const ParkingSetupList = defineComponent({
                     ? [
                         h('img', {
                           src: buildingService.imageUrl(building.building_image),
-                          alt: `${building.building_name} building`,
+                          alt: t(['{name} building', { name: building.building_name }]),
                           loading: 'lazy',
                         }),
                       ]
                     : [
                         h(Building2, { 'aria-hidden': 'true', strokeWidth: 1.3 }),
-                        h('span', 'No building image'),
+                        h('span', t('No building image')),
                       ],
                 ),
                 h('div', { class: 'setup-copy' }, [
-                  h('p', `Building Name : ${building.building_name}`),
+                  h('p', t(['Building Name : {name}', { name: building.building_name }])),
                   h(
                     'p',
-                    `All Floors : ${new Set(buildingFloors.map((floor) => floor.floor)).size}`,
+                    t(['All Floors : {count}', { count: new Set(buildingFloors.map((floor) => floor.floor)).size }]),
                   ),
-                  h('p', `Date Updated : ${building.date_updated}`),
-                  h('p', `Time Updated : ${building.time_updated}`),
+                  h('p', t(['Date Updated : {date}', { date: building.date_updated }])),
+                  h('p', t(['Time Updated : {time}', { time: building.time_updated }])),
                 ]),
                 h(BuildingCameraSummary, {
                   summary: props.cameraSummaries[building._id],
@@ -1062,7 +1067,10 @@ const ParkingSetupList = defineComponent({
                   {
                     class: 'map-link view-floor-button',
                     type: 'button',
-                    'aria-label': `${isExpanded ? 'Hide' : 'View'} floors for ${building.building_name}`,
+                    'aria-label': t([
+                      isExpanded ? 'Hide floors for {name}' : 'View floors for {name}',
+                      { name: building.building_name },
+                    ]),
                     'aria-expanded': isExpanded,
                     'aria-controls': `building-floors-${building._id}`,
                     onClick: () => {
@@ -1071,7 +1079,7 @@ const ParkingSetupList = defineComponent({
                   },
                   [
                     h(Menu, { class: 'h-10 w-10', strokeWidth: 1.8, 'aria-hidden': 'true' }),
-                    h('span', isExpanded ? 'Hide Floor' : 'View Floor'),
+                    h('span', t(isExpanded ? 'Hide Floor' : 'View Floor')),
                   ],
                 ),
                 h('div', { class: 'building-card-actions' }, [
@@ -1080,17 +1088,17 @@ const ParkingSetupList = defineComponent({
                     {
                       class: 'edit-building-button',
                       type: 'button',
-                      'aria-label': `Edit ${building.building_name} building`,
+                      'aria-label': t(['Edit {name} building', { name: building.building_name }]),
                       onClick: () => emit('edit-building', building),
                     },
-                    [h(SquarePen, { class: 'h-4 w-4', 'aria-hidden': 'true' }), 'Edit'],
+                    [h(SquarePen, { class: 'h-4 w-4', 'aria-hidden': 'true' }), t('Edit')],
                   ),
                   h(
                     'button',
                     {
                       class: 'delete-building-button',
                       type: 'button',
-                      'aria-label': `Delete ${building.building_name} building`,
+                      'aria-label': t(['Delete {name} building', { name: building.building_name }]),
                       onClick: () => emit('delete-building', building),
                     },
                     [h(Trash2, { class: 'h-5 w-5', strokeWidth: 2.2 })],
@@ -1104,7 +1112,7 @@ const ParkingSetupList = defineComponent({
                   {
                     class: 'floor-expansion-panel',
                     id: `building-floors-${building._id}`,
-                    'aria-label': `${building.building_name} Parking Floors`,
+                    'aria-label': t(['{name} Parking Floors', { name: building.building_name }]),
                     key: `${building._id}-floors`,
                   },
                   [
@@ -1112,7 +1120,7 @@ const ParkingSetupList = defineComponent({
                       ? h(
                           'p',
                           { class: 'empty-floor-message' },
-                          'No floors configured. Use + Add Floor to get started.',
+                          t('No floors configured. Use + Add Floor to get started.'),
                         )
                       : null,
                     ...buildingFloors.map(renderFloorRow),

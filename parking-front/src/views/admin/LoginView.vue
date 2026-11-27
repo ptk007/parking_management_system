@@ -1,12 +1,13 @@
 <template>
   <div class="redirect-screen">
     <div class="redirect-content">
-      <p>Redirecting to login...</p>
+      <p>{{ t('Redirecting to login...') }}</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()

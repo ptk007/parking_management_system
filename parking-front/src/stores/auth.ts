@@ -50,6 +50,7 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref<string>('')
   const isLoading = ref(false)
   const error = ref<string>('')
+  const signedInThisSession = ref(false)
 
   const isAuthenticated = computed(() => !!token.value)
   const isGuest = computed(
@@ -85,6 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify(authUser))
+      signedInThisSession.value = true
 
       return true
     } catch (err) {
@@ -116,6 +118,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = `${GUEST_TOKEN_PREFIX}${Date.now()}`
     user.value = guestUser
     error.value = ''
+    signedInThisSession.value = true
   }
 
   const logout = async () => {
@@ -128,6 +131,7 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       user.value = null
       token.value = ''
+      signedInThisSession.value = false
       localStorage.removeItem('token')
       localStorage.removeItem('user')
     }
@@ -160,6 +164,7 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.removeItem('user')
       token.value = ''
       user.value = null
+      signedInThisSession.value = false
       return
     }
 
@@ -184,6 +189,7 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     isLoading,
     error,
+    signedInThisSession,
     isAuthenticated,
     isGuest,
     isAdmin,

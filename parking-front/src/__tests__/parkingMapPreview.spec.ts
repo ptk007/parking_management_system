@@ -5,8 +5,10 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import ParkingMapView from '@/views/admin/ParkingMapView.vue'
 import { floorService } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { createDashboardLayout } from '@/components/parking/dashboardLayoutTemplate'
 import { emptyParkingLayout } from '@/components/parking/parkingLayout'
-import { restoreMapDraft } from '@/components/parking/parkingMapPreview'
+import { createPreviewSlots, restoreMapDraft } from '@/components/parking/parkingMapPreview'
+import { setLanguage } from '@/i18n'
 
 vi.mock('@/services/api', () => ({
   floorService: {
@@ -94,6 +96,7 @@ beforeEach(() => {
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
   vi.restoreAllMocks()
+  setLanguage('en')
   localStorage.clear()
 })
 
@@ -344,6 +347,64 @@ describe('Parking Map workspace', () => {
     const empty = { version: 2, slots: [], layout: emptyParkingLayout(), sourceName: 'New map' }
     expect(restoreMapDraft(JSON.stringify(empty)).slots).toEqual([])
   })
+  it('applies the E4 sample layout with available slots only after confirmation', async () => {
+    const { wrapper } = await createPage()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const defaultButton = wrapper.get('.transfer-actions button:first-child')
+    expect(defaultButton.text()).toBe('Use default map slot')
+
+    await defaultButton.trigger('click')
+    expect(wrapper.findAll('[data-slot]')).toHaveLength(3)
+    expect(floorService.saveMap).not.toHaveBeenCalled()
+
+    await defaultButton.trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('[data-slot]')).toHaveLength(124)
+    expect(wrapper.get('.import-success').text()).toBe('Loaded 124 default parking slots.')
+    const saved = restoreMapDraft(localStorage.getItem(key()))
+    const sampleSlots = createPreviewSlots()
+    expect(saved.slots).toEqual(
+      sampleSlots.map(({ number, zone }) => ({
+        number,
+        zone,
+        status: 'available',
+        connectionStatus: 'None',
+      })),
+    )
+    expect(saved.layout).toEqual(createDashboardLayout(sampleSlots))
+    expect(floorService.saveMap).toHaveBeenCalledWith(
+      'floor-one',
+      expect.objectContaining({ sourceName: 'Default map (E4 / Floor 4 / Cars)' }),
+    )
+  })
+  it('switches the map and editor between Thai and English and remembers the language', async () => {
+    const { wrapper } = await createPage()
+    setLanguage('th')
+    await flushPromises()
+
+    expect(wrapper.get('.page-heading h1').text()).toBe('ผังที่จอดรถ')
+    expect(wrapper.get('.summary-card.available').text()).toContain('ว่าง')
+    expect(wrapper.get('[data-slot="3"]').attributes('aria-label')).toBe(
+      'ช่องจอด camera_slot_03 สถานะมีรถจอด',
+    )
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await wrapper.get('.transfer-actions button:first-child').trigger('click')
+    expect(confirm).toHaveBeenCalledWith(
+      'ใช้ผังเริ่มต้นแทนผังปัจจุบันและการเชื่อมช่องจอดกับกล้อง CCTV หรือไม่?',
+    )
+    expect(wrapper.get('.import-success').text()).toBe('โหลดผังเริ่มต้นแล้ว 124 ช่องจอด')
+    await editor(wrapper)
+    expect(wrapper.get('.editor-intro strong').text()).toBe('แก้ไขผัง')
+    expect(wrapper.find('[aria-label="เครื่องมือวาดผัง"] [aria-label="ช่องจอด"]').exists()).toBe(true)
+
+    expect(localStorage.getItem('parking:language')).toBe('th')
+    setLanguage('en')
+    await flushPromises()
+    expect(wrapper.get('.page-heading h1').text()).toBe('Parking Map')
+    expect(wrapper.get('.import-success').text()).toBe('Loaded 124 default parking slots.')
+    expect(wrapper.find('[aria-label="Layout drawing tools"] [aria-label="Parking slot"]').exists()).toBe(true)
+  })
   it('reports server save failures and keeps changes dirty', async () => {
     const { wrapper } = await createPage()
     vi.mocked(floorService.saveMap).mockRejectedValue(new Error('offline'))
@@ -374,6 +435,9 @@ describe('Parking Map workspace', () => {
     expect(
       wrapper.get<HTMLInputElement>('[aria-label="Import parking map JSON"]').element.disabled,
     ).toBe(true)
+    expect(wrapper.get<HTMLButtonElement>('.transfer-actions button:first-child').element.disabled).toBe(
+      true,
+    )
     expect(wrapper.find('.editor-intro').exists()).toBe(false)
     expect(wrapper.findAll('[data-slot]')).toHaveLength(3)
   })

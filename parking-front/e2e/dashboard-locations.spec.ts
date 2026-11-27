@@ -186,6 +186,6 @@ test('fits the dashboard map without distortion and keeps Support clear of conte
       fullPage: true,
     })
   }
-  await page.getByRole('button', { name: 'เปิดแชต Support', exact: true }).click()
+  await page.getByRole('button', { name: 'Open support chat', exact: true }).click()
   await expect(page.locator('dialog.support-panel')).toBeVisible()
 })

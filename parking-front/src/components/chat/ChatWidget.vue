@@ -3,11 +3,11 @@
     v-if="!chat.isOpen"
     class="support-launcher"
     type="button"
-    aria-label="เปิดแชต Support"
+    :aria-label="t('เปิดแชต Support')"
     @click="chat.openChat"
   >
     <Headphones :size="21" /><span class="launcher-label">{{
-      isSupport ? 'Support Inbox' : 'ติดต่อ Support'
+      isSupport ? t('Support Inbox') : t('ติดต่อ Support')
     }}</span>
     <span v-if="chat.unreadCount" class="launcher-count">{{
       chat.unreadCount > 99 ? '99+' : chat.unreadCount
@@ -25,17 +25,17 @@
       <header class="support-header">
         <span class="header-icon"><Headphones :size="24" /></span>
         <div class="header-copy">
-          <h2 id="support-title">{{ isSupport ? 'Support Inbox' : 'MFU Support' }}</h2>
+          <h2 id="support-title">{{ isSupport ? t('Support Inbox') : t('MFU Support') }}</h2>
           <p>
             {{
-              isSupport ? 'รับเรื่องและช่วยเหลือผู้ใช้งาน' : 'ผู้ช่วยดูแลเรื่องการใช้งานและที่จอดรถ'
+              isSupport ? t('รับเรื่องและช่วยเหลือผู้ใช้งาน') : t('ผู้ช่วยดูแลเรื่องการใช้งานและที่จอดรถ')
             }}
           </p>
         </div>
         <button
           class="header-button"
           type="button"
-          aria-label="รีเฟรชแชต"
+          :aria-label="t('รีเฟรชแชต')"
           :disabled="chat.isLoading || chat.isLoadingThread"
           @click="chat.refresh"
         >
@@ -44,7 +44,7 @@
         <button
           class="header-button"
           type="button"
-          aria-label="ปิดแชต"
+          :aria-label="t('ปิดแชต')"
           autofocus
           @click="chat.closeChat"
         >
@@ -52,33 +52,33 @@
         </button>
       </header>
       <div v-if="chat.error" class="connection-error" role="alert">
-        <span>{{ chat.error }}</span
-        ><button type="button" @click="chat.refresh">ลองอีกครั้ง</button>
+        <span>{{ t(chat.error) }}</span
+        ><button type="button" @click="chat.refresh">{{ t('ลองอีกครั้ง') }}</button>
       </div>
       <div
         class="support-workspace"
         :class="{ 'show-thread': chat.selectedTicketId || showNewTicket }"
       >
-        <section class="support-inbox" aria-label="รายการเรื่องที่แจ้ง">
+        <section class="support-inbox" :aria-label="t('รายการเรื่องที่แจ้ง')">
           <div v-if="!isSupport" class="welcome-card">
-            <span class="eyebrow">WE'RE HERE TO HELP</span>
-            <h3>มีอะไรให้เราช่วยไหม?</h3>
-            <p>แจ้งปัญหาให้เจ้าหน้าที่รับเรื่อง<br />และติดตามคำตอบได้ในแชตนี้</p>
+            <span class="eyebrow">{{ t('WE\'RE HERE TO HELP') }}</span>
+            <h3>{{ t('มีอะไรให้เราช่วยไหม?') }}</h3>
+            <p>{{ t('แจ้งปัญหาให้เจ้าหน้าที่รับเรื่อง') }}<br />{{ t('และติดตามคำตอบได้ในแชตนี้') }}</p>
             <button class="primary-button" type="button" @click="startNewTicket">
-              <Plus :size="17" />แจ้งปัญหาใหม่
+              <Plus :size="17" />{{ t('แจ้งปัญหาใหม่') }}
             </button>
           </div>
           <div class="inbox-heading">
-            <h3>{{ isSupport ? 'เรื่องที่ต้องดูแล' : 'เรื่องของคุณ' }}</h3>
+            <h3>{{ isSupport ? t('เรื่องที่ต้องดูแล') : t('เรื่องของคุณ') }}</h3>
             <span>{{ chat.tickets.length }}</span>
           </div>
           <label v-if="isSupport || chat.tickets.length > 3" class="ticket-search"
             ><Search :size="16" /><input
               v-model="search"
-              aria-label="ค้นหาเรื่อง"
-              placeholder="ค้นหาหัวข้อหรือชื่อผู้แจ้ง"
+              :aria-label="t('ค้นหาเรื่อง')"
+              :placeholder="t('ค้นหาหัวข้อหรือชื่อผู้แจ้ง')"
           /></label>
-          <div class="ticket-filters" aria-label="กรองสถานะเรื่อง">
+          <div class="ticket-filters" :aria-label="t('กรองสถานะเรื่อง')">
             <button
               v-for="filter in filters"
               :key="filter.id"
@@ -87,30 +87,30 @@
               :aria-pressed="activeFilter === filter.id"
               @click="activeFilter = filter.id"
             >
-              {{ filter.label
+              {{ t(filter.label)
               }}<span v-if="filter.id === 'open' && waitingCount">{{ waitingCount }}</span>
             </button>
           </div>
           <div class="ticket-list">
             <div v-if="chat.isLoading && !chat.tickets.length" class="empty-state">
               <RefreshCw class="spin" :size="25" />
-              <p>กำลังโหลดรายการ...</p>
+              <p>{{ t('กำลังโหลดรายการ...') }}</p>
             </div>
             <div v-else-if="!filteredTickets.length" class="empty-state">
               <Inbox :size="30" /><strong>{{
                 chat.error
-                  ? 'ยังโหลดรายการไม่ได้'
+                  ? t('ยังโหลดรายการไม่ได้')
                   : search || activeFilter !== 'all'
-                    ? 'ไม่พบเรื่องที่ตรงกัน'
+                    ? t('ไม่พบเรื่องที่ตรงกัน')
                     : isSupport
-                      ? 'ยังไม่มีเรื่องเข้ามา'
-                      : 'ยังไม่มีเรื่องที่แจ้ง'
+                      ? t('ยังไม่มีเรื่องเข้ามา')
+                      : t('ยังไม่มีเรื่องที่แจ้ง')
               }}</strong>
               <p>
                 {{
                   isSupport
-                    ? 'เรื่องใหม่จากผู้ใช้จะแสดงที่นี่'
-                    : 'เมื่อแจ้งปัญหาแล้ว คุณกลับมาติดตามได้ที่นี่'
+                    ? t('เรื่องใหม่จากผู้ใช้จะแสดงที่นี่')
+                    : t('เมื่อแจ้งปัญหาแล้ว คุณกลับมาติดตามได้ที่นี่')
                 }}
               </p>
             </div>
@@ -132,11 +132,11 @@
                   ><time>{{ listTime(item.updatedAt) }}</time></span
                 ><span v-if="isSupport" class="ticket-subject">{{ item.subject }}</span
                 ><span class="ticket-preview">{{
-                  item.lastMessage?.message || 'เริ่มต้นบทสนทนา'
+                  item.lastMessage?.message || t('เริ่มต้นบทสนทนา')
                 }}</span
                 ><span class="ticket-bottomline"
                   ><span class="status-badge" :class="item.status">{{
-                    statusLabels[item.status]
+                    t(statusLabels[item.status])
                   }}</span
                   ><span v-if="item.unreadCount" class="unread-dot">{{ item.unreadCount }}</span
                   ><ChevronRight v-else :size="14" /></span
@@ -146,8 +146,8 @@
           <div class="inbox-footer">
             <ShieldCheck :size="14" /><span>{{
               isSupport
-                ? 'เฉพาะ Staff ที่รับเรื่องเป็นผู้ตอบกลับ'
-                : 'บทสนทนาของคุณกับเจ้าหน้าที่ Support'
+                ? t('เฉพาะ Staff ที่รับเรื่องเป็นผู้ตอบกลับ')
+                : t('บทสนทนาของคุณกับเจ้าหน้าที่ Support')
             }}</span>
           </div>
         </section>
@@ -156,60 +156,60 @@
             <button
               class="icon-button"
               type="button"
-              aria-label="กลับไปรายการเรื่อง"
+              :aria-label="t('กลับไปรายการเรื่อง')"
               @click="backToInbox"
             >
               <ArrowLeft :size="20" />
             </button>
             <div>
-              <h3>แจ้งปัญหาใหม่</h3>
-              <p>เล่าให้เราฟัง เพื่อให้ช่วยเหลือได้ตรงจุด</p>
+              <h3>{{ t('แจ้งปัญหาใหม่') }}</h3>
+              <p>{{ t('เล่าให้เราฟัง เพื่อให้ช่วยเหลือได้ตรงจุด') }}</p>
             </div>
           </div>
           <form class="new-ticket-form" @submit.prevent="submitTicket">
             <fieldset :disabled="chat.isSending">
               <label
-                ><span>หัวข้อปัญหา <em>*</em></span
+                ><span>{{ t('หัวข้อปัญหา') }} <em>*</em></span
                 ><input
                   v-model.trim="newTicket.subject"
                   maxlength="120"
                   required
-                  placeholder="เช่น ไม่พบข้อมูลรถที่ลงทะเบียน"
+                  :placeholder="t('เช่น ไม่พบข้อมูลรถที่ลงทะเบียน')"
               /></label>
               <div class="form-row">
                 <label
-                  ><span>ประเภทปัญหา</span
+                  ><span>{{ t('ประเภทปัญหา') }}</span
                   ><select v-model="newTicket.category">
                     <option v-for="category in categories" :key="category.id" :value="category.id">
-                      {{ category.label }}
+                      {{ t(category.label) }}
                     </option>
                   </select></label
                 ><label
-                  ><span>อาคาร / ชั้น <small>(ถ้ามี)</small></span
+                  ><span>{{ t('อาคาร / ชั้น') }} <small>{{ t('(ถ้ามี)') }}</small></span
                   ><input
                     v-model.trim="newTicket.location"
                     maxlength="120"
-                    placeholder="เช่น E4 ชั้น 4"
+                    :placeholder="t('เช่น E4 ชั้น 4')"
                 /></label>
               </div>
               <label
-                ><span>รายละเอียด <em>*</em></span
+                ><span>{{ t('รายละเอียด') }} <em>*</em></span
                 ><textarea
                   v-model.trim="newTicket.message"
                   rows="6"
                   maxlength="4000"
                   required
-                  placeholder="อธิบายปัญหาที่พบ เวลา และข้อมูลที่ต้องการให้เจ้าหน้าที่ช่วยตรวจสอบ"
+                  :placeholder="t('อธิบายปัญหาที่พบ เวลา และข้อมูลที่ต้องการให้เจ้าหน้าที่ช่วยตรวจสอบ')"
                 ></textarea
                 ><small class="character-count"
                   >{{ newTicket.message.length.toLocaleString() }} / 4,000</small
                 ></label
               >
             </fieldset>
-            <p v-if="chat.actionError" class="action-error" role="alert">{{ chat.actionError }}</p>
+            <p v-if="chat.actionError" class="action-error" role="alert">{{ t(chat.actionError) }}</p>
             <div class="form-note">
               <MessageSquare :size="19" />
-              <p>หลังส่งเรื่อง คุณสามารถพิมพ์รายละเอียดเพิ่มเติมและคุยกับ Staff ได้ในแชต</p>
+              <p>{{ t('หลังส่งเรื่อง คุณสามารถพิมพ์รายละเอียดเพิ่มเติมและคุยกับ Staff ได้ในแชต') }}</p>
             </div>
             <button
               class="primary-button submit-ticket"
@@ -217,7 +217,7 @@
               :disabled="chat.isSending || !newTicket.subject.trim() || !newTicket.message.trim()"
             >
               <SendHorizontal :size="17" />{{
-                chat.isSending ? 'กำลังส่งเรื่อง...' : 'ส่งเรื่องให้ Support'
+                chat.isSending ? t('กำลังส่งเรื่อง...') : t('ส่งเรื่องให้ Support')
               }}
             </button>
           </form>
@@ -225,18 +225,18 @@
         <section
           v-else-if="chat.selectedTicketId"
           class="conversation"
-          aria-label="บทสนทนากับ Support"
+          :aria-label="t('บทสนทนากับ Support')"
         >
           <div v-if="chat.isLoadingThread" class="empty-state thread-loading">
             <RefreshCw class="spin" :size="26" />
-            <p>กำลังโหลดบทสนทนา...</p>
+            <p>{{ t('กำลังโหลดบทสนทนา...') }}</p>
           </div>
           <template v-else-if="ticket">
             <header class="thread-heading">
               <button
                 class="icon-button back-button"
                 type="button"
-                aria-label="กลับไปรายการเรื่อง"
+                :aria-label="t('กลับไปรายการเรื่อง')"
                 @click="backToInbox"
               >
                 <ArrowLeft :size="20" />
@@ -246,11 +246,11 @@
                 <p>{{ ticket.ticketNumber }}</p>
               </div>
               <span class="status-badge" :class="ticket.status">{{
-                statusLabels[ticket.status]
+                t(statusLabels[ticket.status])
               }}</span>
             </header>
             <div class="ticket-context">
-              <span>{{ categoryLabel(ticket.category) }}</span
+              <span>{{ t(categoryLabel(ticket.category)) }}</span
               ><span v-if="ticket.location"><MapPin :size="13" />{{ ticket.location }}</span>
             </div>
             <div
@@ -264,8 +264,8 @@
                   :size="17"
                 /><span>{{
                   ticket.assignedSupport
-                    ? `ดูแลโดย ${ticket.assignedSupport.name}`
-                    : 'ส่งเรื่องแล้ว · รอ Staff รับเรื่อง'
+                    ? t(['ดูแลโดย {name}', { name: ticket.assignedSupport.name }])
+                    : t('ส่งเรื่องแล้ว · รอ Staff รับเรื่อง')
                 }}</span></span
               >
               <button
@@ -275,7 +275,7 @@
                 :disabled="chat.isSending"
                 @click="chat.claimTicket(ticket._id)"
               >
-                {{ chat.isSending ? 'กำลังรับเรื่อง...' : 'รับเรื่องนี้' }}
+                {{ chat.isSending ? t('กำลังรับเรื่อง...') : t('รับเรื่องนี้') }}
               </button>
               <button
                 v-else-if="isAssignedToMe"
@@ -284,14 +284,14 @@
                 :disabled="chat.isSending"
                 @click="chat.updateTicketStatus(ticket._id, 'done')"
               >
-                <Check :size="14" />ปิดเรื่อง
+                <Check :size="14" />{{ t('ปิดเรื่อง') }}
               </button>
             </div>
             <div
               ref="messageList"
               class="message-list"
               role="log"
-              aria-label="ข้อความในบทสนทนา"
+              :aria-label="t('ข้อความในบทสนทนา')"
               aria-live="polite"
               @scroll="handleScroll"
             >
@@ -311,9 +311,9 @@
                   >
                   <div class="message-copy">
                     <span class="sender-name"
-                      >{{ message.sender === currentUserId ? 'คุณ' : message.senderName
+                      >{{ message.sender === currentUserId ? t('คุณ') : message.senderName
                       }}<span v-if="message.senderType === 'support'" class="support-tag"
-                        >Support</span
+                        >{{ t('Support') }}</span
                       ></span
                     >
                     <p>{{ message.message }}</p>
@@ -322,26 +322,26 @@
                       }}<CheckCheck
                         v-if="message.sender === currentUserId"
                         :size="12"
-                        aria-label="ส่งแล้ว"
+                        :aria-label="t('ส่งแล้ว')"
                     /></time>
                   </div>
                 </article>
               </template>
               <div v-if="ticket.status === 'done'" class="resolved-card">
-                <CircleCheck :size="27" /><strong>เรื่องนี้แก้ไขแล้ว</strong>
-                <p>หากยังพบปัญหา คุณสามารถเปิดเรื่องนี้อีกครั้งได้</p>
+                <CircleCheck :size="27" /><strong>{{ t('เรื่องนี้แก้ไขแล้ว') }}</strong>
+                <p>{{ t('หากยังพบปัญหา คุณสามารถเปิดเรื่องนี้อีกครั้งได้') }}</p>
                 <button
                   v-if="!isSupport || isAssignedToMe"
                   type="button"
                   :disabled="chat.isSending"
                   @click="chat.updateTicketStatus(ticket._id, 'open')"
                 >
-                  เปิดเรื่องอีกครั้ง
+                  {{ t('เปิดเรื่องอีกครั้ง') }}
                 </button>
               </div>
             </div>
             <p v-if="chat.actionError" class="action-error thread-error" role="alert">
-              {{ chat.actionError }}
+              {{ t(chat.actionError) }}
             </p>
             <div v-if="canReply" class="composer-area">
               <div v-if="isSupport" class="quick-replies">
@@ -350,9 +350,9 @@
                   :key="reply.label"
                   type="button"
                   :disabled="chat.isSending"
-                  @click="useQuickReply(reply.text)"
+                  @click="useQuickReply(t(reply.text))"
                 >
-                  {{ reply.label }}
+                  {{ t(reply.label) }}
                 </button>
               </div>
               <form class="message-composer" @submit.prevent="sendReply">
@@ -362,9 +362,9 @@
                   rows="2"
                   maxlength="4000"
                   :disabled="chat.isSending"
-                  :aria-label="isSupport ? 'ข้อความตอบกลับผู้ใช้' : 'ข้อความถึง Support'"
+                  :aria-label="isSupport ? t('ข้อความตอบกลับผู้ใช้') : t('ข้อความถึง Support')"
                   :placeholder="
-                    isSupport ? 'พิมพ์ข้อความตอบกลับผู้ใช้...' : 'พิมพ์ข้อความถึง Support...'
+                    isSupport ? t('พิมพ์ข้อความตอบกลับผู้ใช้...') : t('พิมพ์ข้อความถึง Support...')
                   "
                   @keydown="handleComposerKey"
                 ></textarea
@@ -372,7 +372,7 @@
                   class="send-button"
                   type="submit"
                   :disabled="chat.isSending || !replyText.trim()"
-                  aria-label="ส่งข้อความ"
+                  :aria-label="t('ส่งข้อความ')"
                 >
                   <RefreshCw v-if="chat.isSending" class="spin" :size="20" /><SendHorizontal
                     v-else
@@ -381,31 +381,31 @@
                 </button>
               </form>
               <div class="composer-hint">
-                <span>Enter เพื่อส่ง · Shift + Enter ขึ้นบรรทัดใหม่</span
+                <span>{{ t('Enter เพื่อส่ง · Shift + Enter ขึ้นบรรทัดใหม่') }}</span
                 ><span v-if="replyText.length">{{ replyText.length.toLocaleString() }}/4,000</span>
               </div>
             </div>
             <div v-else-if="ticket.status !== 'done'" class="read-only-note">
               {{
                 ticket.assignedSupport
-                  ? 'Staff ที่รับเรื่องนี้จะเป็นผู้ตอบกลับ'
-                  : 'กดรับเรื่องเพื่อเริ่มตอบกลับผู้ใช้'
+                  ? t('Staff ที่รับเรื่องนี้จะเป็นผู้ตอบกลับ')
+                  : t('กดรับเรื่องเพื่อเริ่มตอบกลับผู้ใช้')
               }}
             </div>
           </template>
           <div v-else class="empty-state thread-loading">
-            <Inbox :size="30" /><strong>ยังเปิดบทสนทนาไม่ได้</strong
+            <Inbox :size="30" /><strong>{{ t('ยังเปิดบทสนทนาไม่ได้') }}</strong
             ><button class="secondary-button" type="button" @click="backToInbox">
-              กลับไปรายการเรื่อง
+              {{ t('กลับไปรายการเรื่อง') }}
             </button>
           </div>
         </section>
         <div v-else-if="isSupport" class="conversation-placeholder">
           <span class="placeholder-icon"><Headphones :size="36" /></span>
-          <h3>พร้อมช่วยเหลือผู้ใช้งาน</h3>
-          <p>เลือกเรื่องจากรายการด้านซ้าย<br />แล้วกดรับเรื่องเพื่อเริ่มบทสนทนา</p>
+          <h3>{{ t('พร้อมช่วยเหลือผู้ใช้งาน') }}</h3>
+          <p>{{ t('เลือกเรื่องจากรายการด้านซ้าย') }}<br />{{ t('แล้วกดรับเรื่องเพื่อเริ่มบทสนทนา') }}</p>
           <span class="placeholder-caption"
-            ><ShieldCheck :size="15" />รับเรื่อง · พูดคุย · ติดตามการแก้ไข</span
+            ><ShieldCheck :size="15" />{{ t('รับเรื่อง · พูดคุย · ติดตามการแก้ไข') }}</span
           >
         </div>
       </div>
@@ -414,6 +414,7 @@
 </template>
 
 <script setup lang="ts">
+import { language, t } from '@/i18n'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
@@ -521,16 +522,17 @@ const initials = (name: string) =>
     .map((part) => part[0])
     .join('')
     .toUpperCase()
+const dateLocale = computed(() => (language.value === 'th' ? 'th-TH' : 'en-GB'))
 const timeLabel = (value: string) =>
-  new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+  new Intl.DateTimeFormat(dateLocale.value, { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 const dateLabel = (value: string) =>
-  new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+  new Intl.DateTimeFormat(dateLocale.value, { day: 'numeric', month: 'short', year: 'numeric' }).format(
     new Date(value),
   )
 const listTime = (value: string) =>
   new Date(value).toDateString() === new Date().toDateString()
     ? timeLabel(value)
-    : new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' }).format(new Date(value))
+    : new Intl.DateTimeFormat(dateLocale.value, { day: 'numeric', month: 'short' }).format(new Date(value))
 const isNewDay = (index: number) => {
   const messages = ticket.value?.messages || []
   return (
@@ -644,10 +646,9 @@ onUnmounted(() => {
 
 <style scoped>
 .support-launcher {
-  position: fixed;
-  left: 47px;
-  bottom: 78px;
-  z-index: 60;
+  position: relative;
+  flex: 0 0 auto;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -692,6 +693,7 @@ onUnmounted(() => {
   font-size: 10px;
 }
 .support-panel {
+  pointer-events: auto;
   position: fixed;
   inset: auto 24px 24px auto;
   width: 440px;
@@ -1585,12 +1587,6 @@ onUnmounted(() => {
   }
   .staff-panel .back-button {
     display: grid;
-  }
-  .support-launcher {
-    left: 47px;
-    bottom: 78px;
-    height: 44px;
-    padding: 0;
   }
   .thread-heading {
     gap: 7px;

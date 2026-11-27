@@ -1,7 +1,7 @@
 <template>
   <aside class="app-sidebar">
-    <router-link :to="homePath" class="sidebar-crest" aria-label="Go to dashboard">
-      <img :src="mfuLogo" alt="Mae Fah Luang University" />
+    <router-link :to="homePath" class="sidebar-crest" :aria-label="t('Go to dashboard')">
+      <img :src="mfuLogo" :alt="t('Mae Fah Luang University')" />
     </router-link>
 
     <nav class="sidebar-nav">
@@ -12,17 +12,18 @@
         :class="['nav-card', item.isActive(route.path) ? 'is-active' : '']"
       >
         <component :is="item.icon" class="nav-icon" :stroke-width="2.6" />
-        <span>{{ item.label }}</span>
+        <span>{{ t(item.label) }}</span>
       </router-link>
     </nav>
 
-    <button class="logout-button" @click="logout" aria-label="Logout">
+    <button class="logout-button" @click="logout" :aria-label="t('Logout')">
       <LogOut class="h-5 w-5" :stroke-width="2.4" />
     </button>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/i18n'
 import { computed } from 'vue'
 import { CarFront, Clock3, LogOut, Monitor, Users, Wrench } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'

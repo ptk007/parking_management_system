@@ -3,8 +3,8 @@
     <div class="map-header">
       <button
         class="filter-toggle"
-        :aria-label="expanded ? 'Collapse filters' : 'Expand filters'"
-        :title="expanded ? 'Collapse filters' : 'Expand filters'"
+        :aria-label="expanded ? t('Collapse filters') : t('Expand filters')"
+        :title="expanded ? t('Collapse filters') : t('Expand filters')"
         :aria-expanded="expanded"
         aria-controls="map-filters"
         @click="expanded = !expanded"
@@ -12,32 +12,32 @@
         <Menu :size="24" aria-hidden="true" />
       </button>
       <div class="location" role="status">{{ location }}</div>
-      <span v-if="isSample" class="sample-badge">Sample map</span>
+      <span v-if="isSample" class="sample-badge">{{ t('Sample map') }}</span>
       <div class="map-header-actions">
-        <button v-if="!isSample" @click="showSample">View sample map</button>
+        <button v-if="!isSample" @click="showSample">{{ t('View sample map') }}</button>
         <button
           v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample"
           type="button"
-          aria-label="Update slot status"
+          :aria-label="t('Update slot status')"
           :disabled="!canUpdateSlotStatuses || updatingSlotStatuses"
           @click="updateSlotStatuses"
         >
-          {{ updatingSlotStatuses ? 'Updating...' : 'Update slot status' }}
+          {{ updatingSlotStatuses ? t('Updating...') : t('Update slot status') }}
         </button>
         <button
           v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample"
           class="reset-status-button"
           type="button"
-          aria-label="Reset parking slot status"
+          :aria-label="t('Reset parking slot status')"
           :disabled="!canResetSlotStatuses || resettingSlots"
           @click="showResetConfirmation = true"
         >
-          {{ resettingSlots ? 'Resetting...' : 'Reset parking slot status' }}
+          {{ resettingSlots ? t('Resetting...') : t('Reset parking slot status') }}
         </button>
       </div>
     </div>
     <p v-if="slotResetNotification" class="slot-reset-notification" role="status">
-      {{ slotResetNotification }}
+      {{ t(slotResetNotification) }}
     </p>
     <div v-if="showResetConfirmation" class="map-confirm-backdrop">
       <section
@@ -46,41 +46,41 @@
         aria-modal="true"
         aria-labelledby="dashboard-reset-title"
       >
-        <h2 id="dashboard-reset-title">Are you sure to reset all slot status</h2>
+        <h2 id="dashboard-reset-title">{{ t('Are you sure to reset all slot status') }}</h2>
         <div>
-          <button type="button" @click="showResetConfirmation = false">Cancel</button>
+          <button type="button" @click="showResetConfirmation = false">{{ t('Cancel') }}</button>
           <button type="button" :disabled="resettingSlots" @click="confirmResetSlotStatuses">
-            Confirm
+            {{ t('Confirm') }}
           </button>
         </div>
       </section>
     </div>
     <p v-if="syncError && !headerOnly" class="refresh-error" role="status">
-      Live parking updates are temporarily unavailable. <button @click="load(true)">Retry</button>
+      {{ t('Live parking updates are temporarily unavailable.') }} <button @click="load(true)">{{ t('Retry') }}</button>
     </p>
 
     <div v-if="expanded" id="map-filters" :class="['filter-overlay', { inline: headerOnly }]">
       <label
-        >1. Building *<select v-model="building" aria-label="Building">
-          <option value="">Select building</option>
+        >{{ t('1. Building *') }}<select v-model="building" :aria-label="t('Building')">
+          <option value="">{{ t('Select building') }}</option>
           <option v-for="item in buildings" :key="item._id" :value="item._id">
-            {{ item.building_name }}
+            {{ isSample && item._id === 'sample-e4' ? t('E4 (Sample)') : item.building_name }}
           </option>
         </select></label
       >
       <label v-if="building"
-        >2. Floor *<select v-model="floorNumber" aria-label="Floor">
-          <option value="">Select floor</option>
+        >{{ t('2. Floor *') }}<select v-model="floorNumber" :aria-label="t('Floor')">
+          <option value="">{{ t('Select floor') }}</option>
           <option v-for="item in floorNumbers" :key="item" :value="String(item)">
             {{ item }}
           </option>
         </select></label
       >
       <label v-if="floorNumber"
-        >3. Vehicle *<select v-model="vehicle" aria-label="Vehicle">
-          <option value="">Select vehicle</option>
+        >{{ t('3. Vehicle *') }}<select v-model="vehicle" :aria-label="t('Vehicle')">
+          <option value="">{{ t('Select vehicle') }}</option>
           <option v-for="item in vehicleTypes" :key="item" :value="item">
-            {{ item === 'car' ? 'Cars' : 'Motorcycles' }}
+            {{ item === 'car' ? t('Cars') : t('Motorcycles') }}
           </option>
         </select></label
       >
@@ -90,30 +90,30 @@
       <div class="stats">
         <div v-for="stat in stats" :key="stat.label" class="stat-card">
           <strong :style="{ color: stat.color }">{{ stat.value }}</strong
-          ><span>{{ stat.label }}</span>
+          ><span>{{ t(stat.label) }}</span>
         </div>
       </div>
 
       <div :class="['map-surface', { 'filters-open': expanded }]">
-        <div v-if="loading" class="map-empty" role="status">Loading parking locations...</div>
+        <div v-if="loading" class="map-empty" role="status">{{ t('Loading parking locations...') }}</div>
         <div v-else-if="error" class="map-empty" role="alert">
-          {{ error }} <button @click="load()">Try again</button>
+          {{ t(error) }} <button @click="load()">{{ t('Try again') }}</button>
         </div>
         <div v-else-if="selectedFloor?.status === 'Disable'" class="map-empty" role="status">
-          <h2>Parking is not available for now!</h2>
+          <h2>{{ t('Parking is not available for now!') }}</h2>
         </div>
         <div v-else-if="!selectedFloor" class="map-empty">
           <MapPin :size="42" />
-          <h2>Select a parking location</h2>
-          <p v-if="!floors.length">No parking locations have been configured yet.</p>
+          <h2>{{ t('Select a parking location') }}</h2>
+          <p v-if="!floors.length">{{ t('No parking locations have been configured yet.') }}</p>
         </div>
         <div
           v-else-if="!slots.length && !layout.shapes.length && !layout.background"
           class="map-empty"
         >
           <MapPin :size="42" />
-          <h2>No parking map yet</h2>
-          <p>{{ location }} has 0 parking slots.</p>
+          <h2>{{ t('No parking map yet') }}</h2>
+          <p>{{ location }} {{ t('has 0 parking slots.') }}</p>
         </div>
         <template v-else>
           <ParkingLayoutEditor
@@ -132,14 +132,14 @@
       <div class="map-footer">
         <div v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample" class="map-actions">
           <button :disabled="saving || !selection.length" @click="setStatus('available')">
-            Enable</button
+            {{ t('Enable') }}</button
           ><button :disabled="saving || !selection.length" @click="setStatus('disabled')">
-            Disable</button
-          ><span>Selected: {{ selection.length }}</span>
+            {{ t('Disable') }}</button
+          ><span>{{ t('Selected:') }} {{ selection.length }}</span>
         </div>
         <div class="status-legend">
           <span v-for="(label, status) in statusLabels" :key="status"
-            ><i :class="status" />{{ label }}</span
+            ><i :class="status" />{{ t(label) }}</span
           >
         </div>
       </div>
@@ -147,6 +147,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { t, type LocalizedText } from '@/i18n'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MapPin, Menu } from 'lucide-vue-next'
 import { floorService, type ParkingFloor } from '@/services/api'
@@ -175,7 +176,7 @@ const selection = ref<string[]>([]),
   saving = ref(false)
 const resettingSlots = ref(false),
   updatingSlotStatuses = ref(false),
-  slotResetNotification = ref(''),
+  slotResetNotification = ref<LocalizedText>(''),
   showResetConfirmation = ref(false)
 let slotResetTimeout: ReturnType<typeof setTimeout> | undefined
 let refreshTimer: ReturnType<typeof setInterval> | undefined
@@ -230,11 +231,13 @@ const layout = computed(() =>
 )
 const location = computed(() => {
   if (!building.value || !floorNumber.value || !vehicle.value)
-    return 'Select a parking location'
+    return t('Select a parking location')
   return [
-    buildings.value.find((b) => b._id === building.value)?.building_name || 'No building selected',
-    floorNumber.value ? `Floor ${floorNumber.value}` : 'No floor selected',
-    vehicle.value ? (vehicle.value === 'car' ? 'Cars' : 'Motorcycles') : 'No vehicle selected',
+    isSample.value
+      ? t('E4 (Sample)')
+      : buildings.value.find((b) => b._id === building.value)?.building_name || t('No building selected'),
+    t(['Floor {floor}', { floor: floorNumber.value }]),
+    t(vehicle.value === 'car' ? 'Cars' : 'Motorcycles'),
   ].join(' / ')
 })
 const stats = computed(() => [
@@ -392,7 +395,10 @@ async function updateSlotStatuses() {
   slotResetNotification.value = ''
   try {
     const response = await floorService.refreshModelSlotStatuses(floor._id)
-    slotResetNotification.value = `${response.data.message} (${response.data.requestedSlots} slots).`
+    slotResetNotification.value = [
+      'Enabled Detection models will update their assigned parking slots ({count} slots).',
+      { count: response.data.requestedSlots },
+    ]
     await new Promise((resolve) => setTimeout(resolve, 1000))
     await load(true)
   } catch (cause) {
