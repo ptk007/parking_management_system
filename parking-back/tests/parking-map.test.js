@@ -459,7 +459,7 @@ test("correcting an unmatched vehicle keeps the existing Guest log name and ID",
   assert.equal(updateActive.mock.callCount(), 1);
 });
 
-test("reset slot statuses requires every preset disabled and resets every map status", async (t) => {
+test("reset slot statuses requires an admin and every CCTV preset disabled", async (t) => {
   let role = "admin";
   const auditWrite = t.mock.method(ParkingSlotStatusLog, "create", async () => ({}));
   t.mock.method(User, "findById", () => ({
@@ -470,12 +470,25 @@ test("reset slot statuses requires every preset disabled and resets every map st
     parking_map: map(),
     camera_presets: [{ status: "Disable" }, { status: "Disable" }],
   };
-  t.mock.method(ParkingFloor, "findById", async () => floor);
-  const update = t.mock.method(ParkingFloor, "findOneAndUpdate", async (_filter, updateDoc) => {
+  const findFloor = t.mock.method(ParkingFloor, "findById", async () => floor);
+  let cameraStatusChanged = false;
+  const update = t.mock.method(ParkingFloor, "findOneAndUpdate", async (filter, updateDoc) => {
+    assert.deepEqual(filter["camera_presets.0"], { $exists: true });
+    assert.deepEqual(filter.camera_presets, {
+      $not: { $elemMatch: { status: { $ne: "Disable" } } },
+    });
+    if (cameraStatusChanged) return null;
     floor.parking_map = updateDoc.$set.parking_map;
     return floor;
   });
 
+  role = "staff";
+  const forbidden = response();
+  await controller.resetSlotStatuses({ auth: { userId: id }, params: { id } }, forbidden);
+  assert.equal(forbidden.statusCode, 403);
+  assert.equal(findFloor.mock.callCount(), 0);
+
+  role = "admin";
   const blocked = response();
   floor.camera_presets[1].status = "Enable";
   await controller.resetSlotStatuses({ auth: { userId: id }, params: { id } }, blocked);
@@ -483,11 +496,18 @@ test("reset slot statuses requires every preset disabled and resets every map st
   assert.equal(update.mock.callCount(), 0);
 
   floor.camera_presets[1].status = "Disable";
+  cameraStatusChanged = true;
+  const conflict = response();
+  await controller.resetSlotStatuses({ auth: { userId: id }, params: { id } }, conflict);
+  assert.equal(conflict.statusCode, 409);
+  assert.equal(auditWrite.mock.callCount(), 0);
+
+  cameraStatusChanged = false;
   const reset = response();
   await controller.resetSlotStatuses({ auth: { userId: id }, params: { id } }, reset);
   assert.equal(reset.statusCode, 200);
   assert.deepEqual(reset.body.map.slots.map((slot) => slot.status), ["available", "available"]);
-  assert.equal(update.mock.callCount(), 1);
+  assert.equal(update.mock.callCount(), 2);
   assert.equal(auditWrite.mock.callCount(), 1);
   assert.equal(auditWrite.mock.calls[0].arguments[0].status, "available");
   assert.equal(auditWrite.mock.calls[0].arguments[0].slots.length, 1);

@@ -24,22 +24,28 @@
         >
           {{ updatingSlotStatuses ? t('Updating...') : t('Update slot status') }}
         </button>
-        <button
-          v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample"
-          class="reset-status-button"
-          type="button"
-          :aria-label="t('Reset parking slot status')"
-          :disabled="!canResetSlotStatuses || resettingSlots"
-          @click="showResetConfirmation = true"
+        <ResetSlotStatusWarning
+          v-if="auth.isAdmin && selectedFloor?.parking_map && !isSample"
+          v-slot="{ descriptionId }"
+          :disabled="!canResetSlotStatuses"
         >
-          {{ resettingSlots ? t('Resetting...') : t('Reset parking slot status') }}
-        </button>
+          <button
+            class="reset-status-button"
+            type="button"
+            :aria-label="t('Reset parking slot status')"
+            :aria-describedby="descriptionId"
+            :disabled="!canResetSlotStatuses"
+            @click="showResetConfirmation = true"
+          >
+            {{ resettingSlots ? t('Resetting...') : t('Reset parking slot status') }}
+          </button>
+        </ResetSlotStatusWarning>
       </div>
     </div>
     <p v-if="slotResetNotification" class="slot-reset-notification" role="status">
       {{ t(slotResetNotification) }}
     </p>
-    <div v-if="showResetConfirmation" class="map-confirm-backdrop">
+    <div v-if="showResetConfirmation && auth.isAdmin" class="map-confirm-backdrop">
       <section
         class="map-confirm-dialog"
         role="alertdialog"
@@ -49,7 +55,7 @@
         <h2 id="dashboard-reset-title">{{ t('Are you sure to reset all slot status') }}</h2>
         <div>
           <button type="button" @click="showResetConfirmation = false">{{ t('Cancel') }}</button>
-          <button type="button" :disabled="resettingSlots" @click="confirmResetSlotStatuses">
+          <button type="button" :disabled="!canResetSlotStatuses" @click="confirmResetSlotStatuses">
             {{ t('Confirm') }}
           </button>
         </div>
@@ -166,6 +172,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useAdminStore } from '@/stores/admin'
 import ParkingLayoutEditor from './ParkingLayoutEditor.vue'
 import ParkingSlotDetails from './ParkingSlotDetails.vue'
+import ResetSlotStatusWarning from './ResetSlotStatusWarning.vue'
 import { emptyParkingLayout, restoreParkingLayout } from './parkingLayout'
 import { statusLabels, createPreviewSlots, type PreviewSlot } from './parkingMapPreview'
 import { createDashboardLayout } from './dashboardLayoutTemplate'
@@ -232,7 +239,12 @@ const mapPresets = computed(() => selectedFloor.value?.mapPresets ??
 )
 const canResetSlotStatuses = computed(() => {
   const presets = mapPresets.value
-  return presets.length > 0 && presets.every((camera) => camera.status === 'Disable')
+  return (
+    auth.isAdmin &&
+    !resettingSlots.value &&
+    presets.length > 0 &&
+    presets.every((camera) => camera.status === 'Disable')
+  )
 })
 const canUpdateSlotStatuses = computed(() => {
   const floor = selectedFloor.value
@@ -320,6 +332,7 @@ watch(() => selectedFloor.value?._id, () => {
   selection.value = []
   error.value = ''
   slotMessage.value = ''
+  showResetConfirmation.value = false
 })
 watch(() => selection.value.join('\u0001'), () => { slotMessage.value = '' })
 watch(
@@ -465,8 +478,7 @@ async function updateSlotStatuses() {
 }
 async function resetSlotStatuses() {
   const floor = selectedFloor.value
-  if (!floor || isSample.value || !auth.canManageParking || !canResetSlotStatuses.value || resettingSlots.value)
-    return
+  if (!floor || isSample.value || !canResetSlotStatuses.value) return
   resettingSlots.value = true
   slotResetNotification.value = ''
   try {
@@ -476,7 +488,8 @@ async function resetSlotStatuses() {
     slotResetNotification.value = 'Parking slot statuses reset to Available.'
   } catch (cause) {
     slotResetNotification.value =
-      cause instanceof Error ? cause.message : 'Unable to reset parking slot statuses.'
+      (isAxiosError<{ message?: string }>(cause) && cause.response?.data?.message) ||
+      'Unable to reset parking slot statuses.'
   } finally {
     resettingSlots.value = false
     if (slotResetTimeout) clearTimeout(slotResetTimeout)

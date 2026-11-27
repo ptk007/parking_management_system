@@ -35,8 +35,11 @@ export const parkingMapThai: Record<string, string> = {
   '{count} parking slots selected': 'เลือกแล้ว {count} ช่องจอด',
   'Updating...': 'กำลังอัปเดต...',
   'Update slot status': 'อัปเดตสถานะช่องจอด',
-  'Disable every CCTV preset on this floor before resetting slots':
+  'Disable every CCTV preset on this floor before resetting parking slots':
     'ปิดใช้งานกล้อง CCTV ทุกตัวในชั้นนี้ก่อนรีเซ็ตสถานะช่องจอด',
+  'Admin access is required': 'เฉพาะผู้ดูแลระบบเท่านั้นที่ทำรายการนี้ได้',
+  'Floor map or CCTV status changed. Reload and try again.':
+    'ผังชั้นนี้หรือสถานะกล้อง CCTV เปลี่ยนไป โหลดหน้าใหม่แล้วลองอีกครั้ง',
   'Resetting...': 'กำลังรีเซ็ต...',
   'Reset parking slot status': 'รีเซ็ตสถานะช่องจอด',
   'Parking map view': 'มุมมองผังที่จอดรถ',

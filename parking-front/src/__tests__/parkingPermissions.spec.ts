@@ -267,6 +267,7 @@ describe('dashboard parking locations and permissions', () => {
     async (role) => {
       const { wrapper } = await createDashboard(role)
       await selectLocation(wrapper)
+      expect(wrapper.find('[aria-label="Reset parking slot status"]').exists()).toBe(role === 'admin')
       await wrapper.get('[data-slot="1"]').trigger('keydown', { key: 'Enter' })
       expect(wrapper.find('.map-actions').exists()).toBe(false)
       expect(wrapper.get('.details-panel').text()).toContain('Slot details')

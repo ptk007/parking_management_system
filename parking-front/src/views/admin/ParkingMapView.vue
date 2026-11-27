@@ -124,16 +124,22 @@
               >
                 {{ t(updatingModelSlotStatuses ? 'Updating...' : 'Update slot status') }}
               </button>
-              <button
-                type="button"
-                class="reset-status-button"
+              <ResetSlotStatusWarning
+                v-if="auth.isAdmin"
+                v-slot="{ descriptionId }"
                 :disabled="!canResetSlotStatuses"
-                :title="t('Disable every CCTV preset on this floor before resetting slots')"
-                @click="resetConfirmationOpen = true"
               >
-                <RotateCcw :size="16" />
-                {{ t(resettingSlots ? 'Resetting...' : 'Reset parking slot status') }}
-              </button>
+                <button
+                  type="button"
+                  class="reset-status-button"
+                  :disabled="!canResetSlotStatuses"
+                  :aria-describedby="descriptionId"
+                  @click="resetConfirmationOpen = true"
+                >
+                  <RotateCcw :size="16" aria-hidden="true" />
+                  {{ t(resettingSlots ? 'Resetting...' : 'Reset parking slot status') }}
+                </button>
+              </ResetSlotStatusWarning>
             </div>
           </div>
           <div class="map-toolbar">
@@ -223,7 +229,7 @@
         </ParkingSlotDetails>
       </div>
     </template>
-    <div v-if="resetConfirmationOpen" class="dialog-backdrop">
+    <div v-if="resetConfirmationOpen && auth.isAdmin" class="dialog-backdrop">
       <section
         class="leave-dialog"
         role="alertdialog"
@@ -236,7 +242,7 @@
           <button
             type="button"
             class="primary"
-            :disabled="resettingSlots"
+            :disabled="!canResetSlotStatuses"
             @click="confirmResetParkingSlotStatuses"
           >
             {{ t('Confirm') }}
@@ -291,6 +297,7 @@ import ToggleSwitch from '@/components/ToggleSwitch.vue'
 import { useAuthStore } from '@/stores/auth'
 import ParkingLayoutEditor from '@/components/parking/ParkingLayoutEditor.vue'
 import ParkingSlotDetails from '@/components/parking/ParkingSlotDetails.vue'
+import ResetSlotStatusWarning from '@/components/parking/ResetSlotStatusWarning.vue'
 import { createDashboardLayout } from '@/components/parking/dashboardLayoutTemplate'
 import { t, type LocalizedText } from '@/i18n'
 import {

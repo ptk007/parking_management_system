@@ -1,5 +1,51 @@
 ﻿import { test, expect } from '@playwright/test'
 test.use({ headless: true })
+
+test('shows the reset warning while a floor camera is enabled', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'dashboard-test')
+    localStorage.setItem(
+      'user',
+      JSON.stringify({ _id: 'admin-1', name: 'Admin', role: 'admin', status: 'online' }),
+    )
+  })
+  const floor = {
+    _id: 'f1',
+    building: { _id: 'b1', building_name: 'E4' },
+    floor: 4,
+    veh_type: 'car',
+    status: 'Available',
+    mapPresets: [{ _id: 'camera-1', status: 'Enable' }],
+    parking_map: {
+      layout: { shapes: [], positions: {} },
+      slots: [{ number: 1, zone: 'default', status: 'occupied' }],
+    },
+  }
+  await page.route('**/api/**', (route) => route.fulfill({ json: { floors: [floor], tickets: [] } }))
+  await page.goto('/admin/dashboard')
+  await page.getByRole('button', { name: 'Expand filters' }).click()
+  await page.getByRole('combobox', { name: 'Building' }).selectOption('b1')
+  await page.getByRole('combobox', { name: 'Floor' }).selectOption('4')
+  await page.getByRole('combobox', { name: 'Vehicle' }).selectOption('car')
+  await page.getByRole('button', { name: 'Collapse filters' }).click()
+
+  const reset = page.getByRole('button', { name: 'Reset parking slot status' })
+  const warning = page.locator('.reset-warning')
+  const tooltip = page.getByRole('tooltip')
+  await expect(reset).toBeDisabled()
+  await expect(tooltip).toBeHidden()
+  await warning.hover()
+  await expect(tooltip).toHaveText(
+    'Disable every CCTV preset on this floor before resetting parking slots',
+  )
+  await page.getByRole('button', { name: 'Expand filters' }).hover()
+  await expect(tooltip).toBeHidden()
+  await warning.focus()
+  await expect(tooltip).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(tooltip).toBeHidden()
+})
+
 test('selects saved maps, collapses the filter overlay and shows zero for floors without a map', async ({
   page,
 }, info) => {

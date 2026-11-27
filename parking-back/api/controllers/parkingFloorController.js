@@ -1578,12 +1578,8 @@ exports.resetSlotStatuses = async (req, res) => {
     const user = await require("../models/userModel")
       .findById(req.auth.userId)
       .select("name role status");
-    if (
-      !user ||
-      user.status === "disable" ||
-      !["admin", "staff"].includes(user.role)
-    )
-      return res.status(403).json({ message: "Parking management access required" });
+    if (!user || user.status === "disable" || user.role !== "admin")
+      return res.status(403).json({ message: "Admin access is required" });
     if (!isValidId(req.params.id))
       return res.status(400).json({ message: "Invalid floor id" });
 
@@ -1610,12 +1606,19 @@ exports.resetSlotStatuses = async (req, res) => {
       }),
     };
     const updated = await ParkingFloor.findOneAndUpdate(
-      { _id: floor._id, parking_map: floor.parking_map },
+      {
+        _id: floor._id,
+        parking_map: floor.parking_map,
+        "camera_presets.0": { $exists: true },
+        camera_presets: { $not: { $elemMatch: { status: { $ne: "Disable" } } } },
+      },
       { $set: { parking_map: map, ...getUpdatedAt() } },
       { new: true },
     );
     if (!updated)
-      return res.status(409).json({ message: "Map changed. Reload and try again." });
+      return res.status(409).json({
+        message: "Floor map or CCTV status changed. Reload and try again.",
+      });
     const changedSlots = getChangedEmptySlots(originalSlots, map.slots);
     await recordSlotStatusChange(user, floor, changedSlots, "available");
     return res.json({ map: updated.parking_map });
