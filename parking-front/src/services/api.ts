@@ -205,8 +205,15 @@ export interface ParkingSlotFile {
   path: string
   size: number
   fileType?: 'cctv' | 'parking-slot'
-  sourceFloorId?: string
   available?: boolean
+}
+
+export interface ParkingMapPreset {
+  _id: string
+  name: string
+  slotNames?: string[]
+  status?: 'Enable' | 'Disable'
+  modelEnabled?: boolean
 }
 
 export interface CctvSourceSearchResult {
@@ -223,7 +230,7 @@ export interface ParkingFloor {
   floor: number
   veh_type: 'car' | 'motorcycle'
   parking_slot_file: string | null
-  parking_slot_files?: ParkingSlotFile[]
+  mapPresets?: ParkingMapPreset[]
   parking_map?: {
     version: number
     sourceName: string
@@ -276,7 +283,7 @@ export const floorService = {
       params: { roles: roles.join(',') },
     }),
   setSlotStatuses: (id: string, keys: string[], status: 'available' | 'disabled') =>
-    apiClient.patch<{ map: NonNullable<ParkingFloor['parking_map']> }>(
+    apiClient.patch<{ map: NonNullable<ParkingFloor['parking_map']>; changedSlots: number }>(
       `/admin/system/floors/catalog/${id}/slot-statuses`,
       { keys, status },
     ),
@@ -383,22 +390,7 @@ export const floorService = {
     })
   },
   downloadSourceFile: (file: ParkingSlotFile) =>
-    file.sourceFloorId
-      ? apiClient.get<string>(`/admin/system/floors/${file.sourceFloorId}/slot-files/${file._id}`, {
-          responseType: 'text',
-        })
-      : apiClient.get<string>(`/admin/system/floors/source-files/${file._id}`, {
-          responseType: 'text',
-        }),
-  importSlotFiles: (id: string, files: File[]) => {
-    const data = new FormData()
-    files.forEach((file) => data.append('files', file))
-    return apiClient.post<{ floor: ParkingFloor }>(`/admin/system/floors/${id}/slot-files`, data, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
-  downloadSlotFile: (id: string, fileId: string) =>
-    apiClient.get<string>(`/admin/system/floors/${id}/slot-files/${fileId}`, {
+    apiClient.get<string>(`/admin/system/floors/source-files/${file._id}`, {
       responseType: 'text',
     }),
   list: () => apiClient.get<{ floors: ParkingFloor[] }>('/admin/system/floors'),

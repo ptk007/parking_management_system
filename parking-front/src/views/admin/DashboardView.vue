@@ -904,7 +904,7 @@ const ParkingSetupList = defineComponent({
           floor.parking_map.layout.background)
       )
         return true
-      if (floor.parking_slot_file || floor.parking_slot_files?.length) return true
+      if (floor.parking_slot_file) return true
       try {
         const raw = localStorage.getItem(
           `parking-map-preview:v1:${auth.user?._id || auth.user?.id}:${floor._id}`,

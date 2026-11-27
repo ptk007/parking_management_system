@@ -94,8 +94,13 @@
         </div>
       </div>
 
+<<<<<<< HEAD
       <div :class="['map-surface', { 'filters-open': expanded }]">
         <div v-if="loading" class="map-empty" role="status">{{ t('Loading parking locations...') }}</div>
+=======
+      <div :class="['map-surface', { 'filters-open': expanded, 'with-slot-details': showSlotDetails }]">
+        <div v-if="loading" class="map-empty" role="status">Loading parking locations...</div>
+>>>>>>> 38e9909cde02d01092944264b6a947429c18423c
         <div v-else-if="error" class="map-empty" role="alert">
           {{ t(error) }} <button @click="load()">{{ t('Try again') }}</button>
         </div>
@@ -127,9 +132,27 @@
             :save-failed="false"
             @selection="selection = $event"
           />
+          <ParkingSlotDetails
+            v-if="showSlotDetails"
+            :floor-id="selectedFloor._id"
+            :slots="slots"
+            :selected-slots="selectedSlots"
+            :busy="saving || savingVehicle || resettingSlots"
+            show-vehicle-details
+            @status-change="setStatus"
+            @map-updated="applySlotMap"
+            @vehicle-saving="savingVehicle = $event"
+          >
+            <template #feedback>
+              <p v-if="slotMessage" :class="{ 'slot-action-error': slotError }" role="status">
+                {{ slotMessage }}
+              </p>
+            </template>
+          </ParkingSlotDetails>
         </template>
       </div>
       <div class="map-footer">
+<<<<<<< HEAD
         <div v-if="auth.canManageParking && selectedFloor?.parking_map && !isSample" class="map-actions">
           <button :disabled="saving || !selection.length" @click="setStatus('available')">
             {{ t('Enable') }}</button
@@ -137,6 +160,8 @@
             {{ t('Disable') }}</button
           ><span>{{ t('Selected:') }} {{ selection.length }}</span>
         </div>
+=======
+>>>>>>> 38e9909cde02d01092944264b6a947429c18423c
         <div class="status-legend">
           <span v-for="(label, status) in statusLabels" :key="status"
             ><i :class="status" />{{ t(label) }}</span
@@ -150,10 +175,12 @@
 import { t, type LocalizedText } from '@/i18n'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MapPin, Menu } from 'lucide-vue-next'
+import { isAxiosError } from 'axios'
 import { floorService, type ParkingFloor } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { useAdminStore } from '@/stores/admin'
 import ParkingLayoutEditor from './ParkingLayoutEditor.vue'
+import ParkingSlotDetails from './ParkingSlotDetails.vue'
 import { emptyParkingLayout, restoreParkingLayout } from './parkingLayout'
 import { statusLabels, createPreviewSlots, type PreviewSlot } from './parkingMapPreview'
 import { createDashboardLayout } from './dashboardLayoutTemplate'
@@ -174,6 +201,9 @@ const building = ref(''),
 expanded = ref(false)
 const selection = ref<string[]>([]),
   saving = ref(false)
+const savingVehicle = ref(false)
+const slotMessage = ref('')
+const slotError = ref(false)
 const resettingSlots = ref(false),
   updatingSlotStatuses = ref(false),
   slotResetNotification = ref<LocalizedText>(''),
@@ -181,6 +211,7 @@ const resettingSlots = ref(false),
 let slotResetTimeout: ReturnType<typeof setTimeout> | undefined
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let loadPending = false
+let mapRevision = 0
 const buildings = computed(() => [
   ...new Map(
     floors.value.filter((f) => f.building).map((f) => [f.building!._id, f.building!]),
@@ -209,15 +240,20 @@ const selectedFloor = computed(() =>
     : undefined,
 )
 const isSample = computed(() => selectedFloor.value?._id === 'sample-e4-floor4')
+const mapPresets = computed(() => selectedFloor.value?.mapPresets ??
+  selectedFloor.value?.camera_presets?.flatMap((camera) =>
+    camera._id ? [{ ...camera, _id: camera._id }] : [],
+  ) ?? [],
+)
 const canResetSlotStatuses = computed(() => {
-  const presets = selectedFloor.value?.camera_presets || []
+  const presets = mapPresets.value
   return presets.length > 0 && presets.every((camera) => camera.status === 'Disable')
 })
 const canUpdateSlotStatuses = computed(() => {
   const floor = selectedFloor.value
   if (!floor?.parking_map) return false
   const enabledPresetIds = new Set(
-    (floor.camera_presets || [])
+    mapPresets.value
       .filter((camera) => camera.status === 'Enable' && camera.modelEnabled)
       .map((camera) => camera._id),
   )
@@ -226,6 +262,14 @@ const canUpdateSlotStatuses = computed(() => {
   )
 })
 const slots = computed<PreviewSlot[]>(() => selectedFloor.value?.parking_map?.slots || [])
+const selectedSlots = computed(() => {
+  const keys = new Set(selection.value)
+  return slots.value.filter((slot) => keys.has(slotKey(slot)))
+})
+const showSlotDetails = computed(() =>
+  auth.canManageParking && !isSample.value && selectedFloor.value?.status === 'Available' &&
+  selectedSlots.value.length > 0,
+)
 const layout = computed(() =>
   restoreParkingLayout(selectedFloor.value?.parking_map?.layout || emptyParkingLayout()),
 )
@@ -287,10 +331,12 @@ watch(
     selection.value = []
   },
 )
-watch(selectedFloor, () => {
+watch(() => selectedFloor.value?._id, () => {
   selection.value = []
   error.value = ''
+  slotMessage.value = ''
 })
+watch(() => selection.value.join('\u0001'), () => { slotMessage.value = '' })
 watch(
   [selectedFloor, isSample],
   ([floor, sample]) => {
@@ -335,12 +381,14 @@ function showSample() {
 async function load(silent = false) {
   if (loadPending) return
   loadPending = true
+  const revision = mapRevision
   if (!silent) {
     loading.value = true
     error.value = ''
   }
   try {
     const refreshedFloors = (await floorService.catalog()).data.floors
+    if (revision !== mapRevision) return
     const sampleFloor = floors.value.find((floor) => floor._id === 'sample-e4-floor4')
     floors.value = sampleFloor
       ? [...refreshedFloors, sampleFloor]
@@ -368,17 +416,37 @@ async function load(silent = false) {
     if (!silent) loading.value = false
   }
 }
+function applySlotMap(floorId: string, map: NonNullable<ParkingFloor['parking_map']>) {
+  const floor = floors.value.find((item) => item._id === floorId)
+  if (!floor) return
+  mapRevision++
+  floor.parking_map = map
+}
+
 async function setStatus(status: 'available' | 'disabled') {
   const floor = selectedFloor.value
-  if (!auth.canManageParking || !floor?.parking_map || isSample.value || saving.value) return
+  if (!showSlotDetails.value || !floor?.parking_map || saving.value || savingVehicle.value || resettingSlots.value)
+    return
+  const from = status === 'available' ? 'disabled' : 'available'
+  const keys = selectedSlots.value.filter((slot) => slot.status === from).map(slotKey)
+  if (!keys.length) return
   saving.value = true
-  error.value = ''
+  slotMessage.value = ''
+  slotError.value = false
   try {
-    const response = await floorService.setSlotStatuses(floor._id, selection.value, status)
-    floor.parking_map = response.data.map
-    selection.value = []
-  } catch {
-    error.value = 'Unable to update parking slots. Please try again.'
+    const { data } = await floorService.setSlotStatuses(floor._id, keys, status)
+    applySlotMap(floor._id, data.map)
+    if (selectedFloor.value?._id === floor._id) {
+      slotMessage.value = data.changedSlots
+        ? 'Slot status updated and recorded in Slot Status Log.'
+        : 'No eligible slot statuses changed.'
+    }
+  } catch (cause) {
+    if (selectedFloor.value?._id !== floor._id) return
+    slotError.value = true
+    slotMessage.value = isAxiosError<{ message?: string }>(cause)
+      ? cause.response?.data?.message || 'Unable to update parking slots.'
+      : 'Unable to update parking slots.'
   } finally {
     saving.value = false
   }
@@ -418,7 +486,7 @@ async function resetSlotStatuses() {
   slotResetNotification.value = ''
   try {
     const response = await floorService.resetSlotStatuses(floor._id)
-    floor.parking_map = response.data.map
+    applySlotMap(floor._id, response.data.map)
     selection.value = []
     slotResetNotification.value = 'Parking slot statuses reset to Available.'
   } catch (cause) {
@@ -573,8 +641,22 @@ button:disabled {
   flex: 1;
   min-height: 0;
 }
-.map-actions {
-  flex-shrink: 0;
+.map-surface.with-slot-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(245px, 270px);
+  gap: 12px;
+}
+.map-surface.with-slot-details > .details-panel {
+  max-height: 100%;
+}
+.slot-action-error {
+  color: #b42318;
+}
+@media (max-width: 800px) {
+  .map-surface.with-slot-details {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 1fr) minmax(0, 1fr);
+  }
 }
 
 .filter-overlay {
@@ -652,8 +734,7 @@ select {
   padding-top: 30px;
   min-height: 380px;
 }
-.status-legend,
-.map-actions {
+.status-legend {
   display: flex;
   justify-content: center;
   gap: 20px;
@@ -665,8 +746,7 @@ select {
   flex: 1;
   min-height: 0;
 }
-.status-legend,
-.map-actions {
+.status-legend {
   padding: 8px 12px;
 }
 .map-footer {
@@ -680,9 +760,6 @@ select {
 .map-footer .status-legend {
   margin-left: auto;
   gap: 12px;
-}
-.map-footer .map-actions {
-  gap: 8px;
 }
 .status-legend span {
   display: flex;

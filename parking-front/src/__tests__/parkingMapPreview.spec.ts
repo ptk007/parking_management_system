@@ -15,6 +15,7 @@ vi.mock('@/services/api', () => ({
     list: vi.fn(),
     get: vi.fn(),
     saveMap: vi.fn(),
+    setSlotStatuses: vi.fn(),
     update: vi.fn(),
     updateOccupiedSlotVehicleDetails: vi.fn(),
   },
@@ -302,8 +303,7 @@ describe('Parking Map workspace', () => {
     const { wrapper, router } = await createPage()
     await editor(wrapper)
     await wrapper.get('input[role="switch"]').setValue(false)
-    await select(wrapper, 1)
-    await wrapper.get('.enable-button').trigger('click')
+    await wrapper.get('[aria-label="Zoom in"]').trigger('click')
     expect(JSON.parse(localStorage.getItem(key())!).slots[0].status).toBe('disabled')
     await router.push('/floor/floor-two')
     await flushPromises()
@@ -319,7 +319,7 @@ describe('Parking Map workspace', () => {
     await flushPromises()
     await editor(wrapper)
     expect(wrapper.get<HTMLInputElement>('input[role="switch"]').element.checked).toBe(false)
-    expect(wrapper.get('[data-slot="1"]').classes()).toContain('available')
+    expect(wrapper.get('.zoom-tools').text()).toContain('125%')
   })
   it('saves the chosen zoom manually when autosave is off', async () => {
     const { wrapper } = await createPage()
@@ -408,8 +408,9 @@ describe('Parking Map workspace', () => {
   it('reports server save failures and keeps changes dirty', async () => {
     const { wrapper } = await createPage()
     vi.mocked(floorService.saveMap).mockRejectedValue(new Error('offline'))
+    await editor(wrapper)
     await select(wrapper, 1)
-    await wrapper.get('.enable-button').trigger('click')
+    await wrapper.get('[aria-label="Zoom in"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('.save-message.failed').text()).toContain('Could not save')
   })
@@ -419,12 +420,31 @@ describe('Parking Map workspace', () => {
       isAxiosError: true,
       response: { data: { message: 'Disable this floor before editing its layout' } },
     })
+    await editor(wrapper)
     await select(wrapper, 1)
-    await wrapper.get('.enable-button').trigger('click')
+    await wrapper.get('[aria-label="Zoom in"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('.save-message.failed').text()).toContain(
       'Disable this floor before editing its layout',
     )
+  })
+  it('changes a saved slot status through the audited endpoint', async () => {
+    const map = { version: 2, sourceName: 'floor.json', slots: mapSlots, layout: emptyParkingLayout() }
+    vi.mocked(floorService.get).mockResolvedValue({
+      data: { floor: { ...floors[0], parking_map: map } },
+    } as never)
+    vi.mocked(floorService.setSlotStatuses).mockResolvedValue({
+      data: { changedSlots: 1, map: { ...map, slots: mapSlots.map((slot) =>
+        slot.number === 1 ? { ...slot, status: 'available' } : slot,
+      ) } },
+    } as never)
+    const { wrapper } = await createPage()
+    await select(wrapper, 1)
+    await wrapper.get('.enable-button').trigger('click')
+    await flushPromises()
+    expect(floorService.setSlotStatuses).toHaveBeenCalledWith('floor-one', ['["default",1]'], 'available')
+    expect(floorService.saveMap).not.toHaveBeenCalled()
+    expect(wrapper.get('.details-panel').text()).toContain('recorded in Slot Status Log')
   })
   it('blocks layout editing and importing while the floor is Available', async () => {
     vi.mocked(floorService.get).mockResolvedValue({

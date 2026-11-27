@@ -264,16 +264,15 @@ exports.deleteBuilding = async (req, res) => {
       });
     }
 
-    const floors = await ParkingFloor.find({ building: building._id }).select("parking_slot_file parking_slot_files");
+    const floors = await ParkingFloor.find({ building: building._id }).select("parking_slot_file");
     await ParkingFloor.deleteMany({ building: building._id });
     await building.deleteOne();
     const fileResults = await Promise.allSettled([
       deleteImage(building.building_image),
-      ...floors.flatMap((floor) => [floor.parking_slot_file, ...(floor.parking_slot_files || []).map((file) => file.path)]
-        .map(async filePath => {
-          if (!filePath || !(await require("../models/parkingSourceFileModel").exists({ path: filePath })))
-            await deleteFloorFile(filePath);
-        })),
+      ...floors.map(async ({ parking_slot_file: filePath }) => {
+        if (filePath && !(await require("../models/parkingSourceFileModel").exists({ path: filePath })))
+          await deleteFloorFile(filePath);
+      }),
     ]);
     for (const result of fileResults) {
       if (result.status === "rejected") console.error(result.reason);

@@ -77,7 +77,16 @@ before(async () => {
     date_add: "2026-11-04",
     time_add: "12:00:00",
   });
-  for (const [name, user] of Object.entries({ owner, admin, other })) {
+  const staff = await User.create({
+    username: "parking-log-staff",
+    password: "test-password",
+    name: "Parking Staff",
+    role: "staff",
+    status: "online",
+    date_updated: "2026-11-04",
+    time_updated: "12:00:00",
+  });
+  for (const [name, user] of Object.entries({ owner, admin, other, staff })) {
     actorTokens[name] = jwt.sign(
       { userId: String(user._id), role: user.role },
       process.env.JWT_SECRET,
@@ -139,6 +148,77 @@ before(async () => {
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   origin = `http://127.0.0.1:${server.address().port}/api/parking-logs`;
+});
+
+test("dashboard slot details protect assignments and audit admin and staff status changes", async (t) => {
+  const dashboardFloor = await ParkingFloor.create({
+    building: building._id,
+    floor: 12,
+    veh_type: "car",
+    status: "Available",
+    date_updated: "2026-11-04",
+    time_updated: "12:00:00",
+    camera_presets: [{
+      name: "Dashboard camera",
+      rtspLink: "rtsp://camera.example.com/live",
+      parkingSlotData: { categories: [
+        { supercategory: "parking-slot", name: "dashboard-slot" },
+      ] },
+    }],
+    parking_map: {
+      version: 2,
+      slots: [
+        { number: 1, zone: "default", status: "available" },
+        { number: 2, zone: "default", status: "occupied", license_num: "TEST-123", province: "Chiang Rai" },
+      ],
+      layout: { shapes: [], positions: {} },
+    },
+  });
+  t.after(() => ParkingFloor.deleteOne({ _id: dashboardFloor._id }));
+  const id = String(dashboardFloor._id);
+  const presetId = String(dashboardFloor.camera_presets[0]._id);
+  const baseUrl = origin.replace(/\/parking-logs$/, "/admin/system/floors");
+  const settings = {
+    method: "PATCH", baseUrl,
+    body: { keys: ['["default",1]'], cameraPresetId: presetId, parkingSlotName: "dashboard-slot" },
+  };
+  const assigned = await request(`/${id}/map/slot-assignment`, { ...settings, actor: "admin" });
+  assert.equal(assigned.status, 200);
+  assert.equal(assigned.body.map.slots[0].connectionStatus, "Connect");
+  assert.equal(assigned.body.map.slots[0].status, "available");
+  assert.equal((await request(`/${id}/map/slot-assignment`, { ...settings, actor: "staff" })).status, 403);
+
+  for (const actor of ["admin", "staff", "owner"]) {
+    const catalog = await request("/catalog", { baseUrl, actor });
+    assert.equal(catalog.status, 200);
+    const entry = catalog.body.floors.find((item) => item._id === id);
+    assert.equal(entry.camera_presets, undefined);
+    assert.equal(entry.parking_slot_files, undefined);
+    assert.equal(entry.parking_map.slots[1].license_num, actor === "owner" ? undefined : "TEST-123");
+    if (actor === "owner") {
+      assert.equal(entry.mapPresets, undefined);
+    } else {
+      assert.equal(entry.mapPresets[0].rtspLink, undefined);
+      assert.deepEqual(entry.mapPresets[0].slotNames, actor === "admin" ? ["dashboard-slot"] : undefined);
+    }
+  }
+
+  for (const [actor, status] of [["staff", "disabled"], ["admin", "available"]]) {
+    const changed = await request(`/catalog/${id}/slot-statuses`, {
+      method: "PATCH", baseUrl, actor,
+      body: { keys: ['["default",1]', '["default",2]'], status },
+    });
+    assert.equal(changed.status, 200);
+    assert.equal(changed.body.changedSlots, 1);
+    assert.equal(changed.body.map.slots[0].status, status);
+    assert.equal(changed.body.map.slots[1].status, "occupied");
+  }
+  const result = await request("/slot-status-logs", { baseUrl, actor: "staff" });
+  const logs = result.body.logs.filter((log) => log.floor === 12);
+  assert.deepEqual(logs.map(({ role, status }) => [role, status]).sort(), [
+    ["admin", "available"], ["staff", "disabled"],
+  ]);
+  assert.ok(logs.every((log) => log.slots.length === 1 && log.slots[0].number === 1));
 });
 
 after(async () => {

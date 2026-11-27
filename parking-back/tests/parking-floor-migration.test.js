@@ -12,6 +12,12 @@ test("migrates legacy floor fields and camera file meanings without duplicating 
   const cameraId = new mongoose.Types.ObjectId();
   const cctvId = new mongoose.Types.ObjectId();
   const migratedSlotId = new mongoose.Types.ObjectId();
+  const legacyFile = {
+    _id: new mongoose.Types.ObjectId(),
+    original_name: "old-slot.json",
+    path: "json_file/parking_slots/old-slot.json",
+    size: 12,
+  };
   const filePath = path.resolve(
     __dirname,
     "../../json_file/parking_slots",
@@ -25,6 +31,7 @@ test("migrates legacy floor fields and camera file meanings without duplicating 
     zone: 2,
     date_add: "2026-01-02",
     time_add: "03:04:05",
+    parking_slot_files: [legacyFile],
     camera_presets: [
       {
         _id: cameraId,
@@ -91,7 +98,7 @@ test("migrates legacy floor fields and camera file meanings without duplicating 
       floorUpdates.push(...operations);
     }
   });
-  t.mock.method(ParkingSourceFile.collection, "bulkWrite", async () => {});
+  const writes = t.mock.method(ParkingSourceFile.collection, "bulkWrite", async () => {});
   t.mock.method(ParkingSourceFile.collection, "updateMany", async () => {});
   t.mock.method(ParkingSourceFile.collection, "findOne", async (query) => {
     if (query.path) {
@@ -128,6 +135,11 @@ test("migrates legacy floor fields and camera file meanings without duplicating 
   );
 
   const floorUpdate = floorUpdates[0].updateOne.update;
+  const promotion = writes.mock.calls[0].arguments[0][0].updateOne;
+  assert.equal(promotion.filter._id, legacyFile._id);
+  assert.equal(promotion.update.$setOnInsert.path, legacyFile.path);
+  assert.equal(promotion.update.$set.fileType, "parking-slot");
+  assert.equal(ParkingFloor.schema.path("parking_slot_files"), undefined);
   assert.equal(floorUpdate.$set.status, "Available");
   assert.equal(floorUpdate.$set.date_updated, "2026-01-02");
   assert.equal(floorUpdate.$set.time_updated, "03:04:05");
@@ -135,5 +147,6 @@ test("migrates legacy floor fields and camera file meanings without duplicating 
     date_add: "",
     time_add: "",
     zone: "",
+    parking_slot_files: "",
   });
 });

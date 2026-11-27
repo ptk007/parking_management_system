@@ -56,29 +56,19 @@ test("rejects an invalid source batch before storing any database records and cl
   for (const file of files)
     await assert.rejects(fs.access(file.path), { code: "ENOENT" });
 });
-test("promotes legacy floor imports to the shared library with their original IDs", async (t) => {
+test("lists shared files without reading legacy floor file metadata", async (t) => {
   const file = {
     _id: "507f1f77bcf86cd799439012",
     original_name: "old.json",
     path: "old.json",
     size: 10,
   };
-  t.mock.method(ParkingFloor, "find", () => ({
-    select: async () => [{ parking_slot_files: [file] }],
-  }));
-  const migrate = t.mock.method(SourceFile, "bulkWrite", async () => {});
+  const floorFind = t.mock.method(ParkingFloor, "find", () => { throw new Error("Unexpected floor query"); });
   t.mock.method(SourceFile, "find", () => ({ sort: async () => [file] }));
   const res = response();
   await controller.listSourceFiles({}, res);
   assert.deepEqual(res.body.files, [{ ...file, available: false }]);
-  assert.equal(
-    migrate.mock.calls[0].arguments[0][0].updateOne.filter._id,
-    file._id,
-  );
-  assert.equal(
-    migrate.mock.calls[0].arguments[0][0].updateOne.update.$set.fileType,
-    "parking-slot",
-  );
+  assert.equal(floorFind.mock.callCount(), 0);
 });
 test("reports whether each shared source file is present on disk", async (t) => {
   const file = await upload(t, '{"cameras":[]}', "available.json");
@@ -89,9 +79,6 @@ test("reports whether each shared source file is present on disk", async (t) => 
     size: file.size,
     fileType: "cctv",
   };
-  t.mock.method(ParkingFloor, "find", () => ({
-    select: async () => [],
-  }));
   t.mock.method(SourceFile, "find", () => ({
     sort: async () => [document],
   }));
@@ -105,7 +92,7 @@ test("deleting a floor keeps a promoted source used by other floors", async (t) 
   const id = "507f1f77bcf86cd799439011";
   t.mock.method(ParkingFloor, "findById", async () => ({
     _id: id,
-    parking_slot_files: [{ path: "json_file/parking_slots/shared.json" }],
+    parking_slot_file: "json_file/parking_slots/shared.json",
     deleteOne: async () => {},
   }));
   t.mock.method(SourceFile, "exists", async () => true);
